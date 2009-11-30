@@ -38,12 +38,14 @@ class ScriptContext(_MethodContextMixin):
 
     def __init__(self, gen, parent):
         self.gen, self.parent = gen, parent
+        self.init = None
         self.traits = []
         self.pending_classes = {}
         self.pending_classes_order = []
     
     def make_init(self):
-        self.init = abc.AbcMethodInfo("", [], constants.ANY_NAME)
+        if not self.init:
+            self.init = abc.AbcMethodInfo("", [], constants.ANY_NAME)
         ctx = MethodContext(self.gen, self.init, self, [])
         self.gen.enter_context(ctx)
         return ctx
@@ -104,14 +106,19 @@ class ClassContext(_MethodContextMixin):
         self.iinit = None
 
     def make_cinit(self):
-        self.cinit = abc.AbcMethodInfo("", [], constants.ANY_NAME)
+        if not self.cinit:
+            self.cinit = abc.AbcMethodInfo("", [], constants.ANY_NAME)
         ctx = MethodContext(self.gen, self.cinit, self, [])
         self.gen.enter_context(ctx)
         return ctx
 
     def make_iinit(self, params=None):
         params = params or ()
-        self.iinit = abc.AbcMethodInfo("", [t.multiname() for t, n in params], constants.QName("void"), param_names=[n for t, n in params])
+        if self.iinit:
+            if params:
+                raise ValueError("parameters cannot be redefined")
+        else:
+            self.iinit = abc.AbcMethodInfo("", [t.multiname() for t, n in params], constants.QName("void"), param_names=[n for t, n in params])
         ctx = MethodContext(self.gen, self.iinit, self, params)
         self.gen.enter_context(ctx)
         
