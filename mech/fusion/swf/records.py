@@ -164,7 +164,7 @@ class RGBA(RGB):
     def serialize(self):
         bits = RGB.serialize(self)
         
-        from pypy.translator.avm1.tags import DefineShape
+        from mech.fusion.swf.tags import DefineShape
         
         # If we are in a DefineShape and the version does not support
         # alpha (DefineShape1 or DefineShape2), don't use alpha!
@@ -706,7 +706,7 @@ class StyleChangeRecord(object):
         fbit = 0 if self.fillstyle0 is None else style_list_bits(self.fillstyle0.parent)
         lbit = 0 if self.linestyle  is None else style_list_bits(self.linestyle.parent)
         
-        from pypy.translator.avm.tags import DefineShape
+        from mech.fusion.swf.tags import DefineShape
         
         new_styles = ((DefineShape._current_variant > 1) and
                      ((self.linestyles != None and len(self.linestyles) > 0) or
