@@ -79,12 +79,12 @@ class DefineShape(SwfTag):
     
     def __init__(self, shapes=None, characterid=None):
         self.shapes = ShapeWithStyle() if shapes is None else shapes
-        self.characterid = shapeid
+        self.characterid = characterid
 
     def serialize_data(self):
         self.shapes.calculate_bounds()
         DefineShape._current_variant = self.TAG_VARIANT
-        bytes = struct.pack("<H", self.shapeid) + (self.shapes.shape_bounds.serialize() + self.shapes.serialize()).serialize()
+        bytes = struct.pack("<H", self.characterid) + (self.shapes.shape_bounds.serialize() + self.shapes.serialize()).serialize()
         DefineShape._current_variant = None
         return bytes
 
@@ -107,7 +107,7 @@ class DefineShape4(DefineShape):
     def serialize_data(self):
         self.shapes.calculate_bounds()
         DefineShape._current_variant = 4
-        shapeidshort = struct.pack("<H", self.shapeid)  # Shape ID
+        shapeidshort = struct.pack("<H", self.characterid)  # Shape ID
         bits =  (self.shapes.shape_bounds.serialize() + # ShapeBounds Rect
                  self.shapes.edge_bounds.serialize())   # EdgeBounds Rect
         

@@ -1,7 +1,4 @@
 
-""" backend generator routines
-"""
-
 from mech.fusion.avm2 import assembler, constants, instructions, abc_ as abc, traits, util
 
 from itertools import chain
@@ -23,7 +20,10 @@ class GlobalContext(object):
 
 class _MethodContextMixin(object):
     def new_method(self, name, params, rettype, static=False):
-        meth = abc.AbcMethodInfo(name, [t.multiname() for t, n in params], rettype.multiname(), param_names=[n for t, n in params])
+        meth = abc.AbcMethodInfo(name,
+                                 [t.multiname() for t, n in params],
+                                 rettype.multiname(),
+                                 param_names=[n for t, n in params])
         trait = traits.AbcMethodTrait(constants.QName(name), meth)
         if static:
             self.add_static_trait(trait)
@@ -99,7 +99,10 @@ class ClassContext(_MethodContextMixin):
     CONTEXT_TYPE = "class"
 
     def __init__(self, gen, name, super_name, parent):
-        self.gen, self.name, self.super_name, self.parent = gen, name, super_name or constants.QName("Object"), parent
+        self.gen = gen
+        self.name = name
+        self.super_name = super_name or constants.QName("Object")
+        self.parent = parent
         self.instance_traits = []
         self.static_traits   = []
         self.cinit = None
@@ -118,7 +121,8 @@ class ClassContext(_MethodContextMixin):
             if params:
                 raise ValueError("parameters cannot be redefined")
         else:
-            self.iinit = abc.AbcMethodInfo("", [t.multiname() for t, n in params], constants.QName("void"), param_names=[n for t, n in params])
+            self.iinit = self.new_method("", params, constants.QName("void"))
+        
         ctx = MethodContext(self.gen, self.iinit, self, params)
         self.gen.enter_context(ctx)
         
@@ -142,7 +146,9 @@ class ClassContext(_MethodContextMixin):
         if self.cinit is None:
             self.make_cinit()
             self.gen.exit_context()
-        self.instance = abc.AbcInstanceInfo(self.name, self.iinit, traits=self.instance_traits, super_name=self.super_name)
+        self.instance = abc.AbcInstanceInfo(self.name, self.iinit,
+                                            traits=self.instance_traits,
+                                            super_name=self.super_name)
         self.classobj = abc.AbcClassInfo(self.cinit, traits=self.static_traits)
         self.index = self.gen.abc.instances.index_for(self.instance)
         self.gen.abc.classes.index_for(self.classobj)
@@ -154,7 +160,8 @@ class MethodContext(object):
     def __init__(self, gen, method, parent, params, stdprologue=True):
         self.gen, self.method, self.parent = gen, method, parent
         param_names = [n for t, n in params]
-        self.asm = assembler.Avm2CodeAssembler(gen.constants, ['this']+param_names)
+        self.asm = assembler.Avm2CodeAssembler(gen.constants,
+                                               ['this']+param_names)
         self.acv_traits = []
         if stdprologue:
             self.asm.add_instruction(instructions.getlocal(0))
@@ -163,7 +170,8 @@ class MethodContext(object):
     def exit(self):
         self.asm.add_instruction(instructions.returnvoid())
         self.gen.abc.methods.index_for(self.method)
-        self.gen.abc.bodies.index_for(abc.AbcMethodBodyInfo(self.method, self.asm, self.acv_traits))
+        self.gen.abc.bodies.index_for(abc.AbcMethodBodyInfo(
+                self.method, self.asm, self.acv_traits))
         return self.parent
 
     def add_activation_trait(self, trait):

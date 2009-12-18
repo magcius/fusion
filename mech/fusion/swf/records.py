@@ -1,35 +1,39 @@
 
 from mech.fusion.util import BitStream
-from math import log, ceil, sqrt
+from math import log, floor, sqrt
 
 def serialize_style_list(lst):
     bits = BitStream()
 
     if len(lst) <= 0xFF:
-        bits.write_bit_value(len(lst), 8)
+        bits.write_int_value(len(lst), 8)
     else:
-        bits.write_bit_value(0xFF, 8)
-        bits.write_bit_value(len(lst), 16)
+        bits.write_int_value(0xFF, 8)
+        bits.write_int_value(len(lst), 16)
 
     for style in lst:
         bits += style.serialize()
 
     return bits
 
-def nbits(n, *a):
-    return int(ceil(log(max(1, n, *a), 2)))
-
-def nbits_abs(n, *a):
-    return nbits(abs(n), *(abs(n) for n in a))
-
-def style_list_bits(lst):
-    return nbits(len(lst))
+def nbits(num, *args, **kwargs):
+    """
+    Returns the number of bits in the max of all the arguments.
+    """
+    if kwargs.get("abs", False):
+        return int(floor(log(max(1, abs(num), *(abs(a) for a in args)), 2))) + 2 # sign bit
+    return int(floor(log(max(1, num, *args), 2))) + 1
 
 def clamp(n, minimum, maximum):
+    """
+    Clamp n between mniimum and maximum.
+    """
     return max(minimum, min(n, maximum))
 
 class RecordHeader(object):
-
+    """
+    RECORDHEADER struct, the header that signifies SWF tags.
+    """
     def __init__(self, type, length):
         self.type = type
         self.length = length
@@ -51,9 +55,6 @@ class RecordHeader(object):
             self.length = bitstream.read_bit_value(32)
 
 class _EndShapeRecord(object):
-    
-    def __call__(self, *a, **b):
-        pass
 
     def serialize(self):
         bitstream = BitStream()
@@ -61,6 +62,7 @@ class _EndShapeRecord(object):
         return bitstream
 
 EndShapeRecord = _EndShapeRecord()
+
 
 class Rect(object):
 
@@ -89,9 +91,8 @@ class Rect(object):
         twpYMin = self.YMin * 20
         twpYMax = self.YMax * 20
         
-        # Find the number of bits required to store the longest
-        # value, then add one to account for the sign bit.
-        NBits = nbits_abs(twpXMin, twpXMax, twpYMin, twpYMax)+1
+        # Find the number of bits required to store the longest value.
+        NBits = nbits(twpXMin, twpXMax, twpYMin, twpYMax, abs=True)
 
         if NBits > 31:
             raise ValueError, "Number of bits per value field cannot exceede 31."
@@ -125,9 +126,8 @@ class XY(object):
         twpX = self.X * 20
         twpY = self.Y * 20
 
-        # Find the number of bits required to store the longest
-        # value, then add one to account for the sign bit.
-        NBits = nbits_abs(twpX, twpY)
+        # Find the number of bits required to store the longest value.
+        NBits = nbits(twpX, twpY, abs=True)
 
         bits = BitStream()
         bits.write_int_value(NBits, 5)
@@ -204,8 +204,8 @@ class CXForm(object):
         ao = clamp(self.aadd, -225, 255)
         
         NBits = 0
-        if has_mul_terms: NBits = nbits_abs(rm, gm, bm, am)
-        if has_add_terms: NBits = max(NBits, nbits_abs(ro, go, bo, ao))
+        if has_mul_terms: NBits = nbits(rm, gm, bm, am, abs=True)
+        if has_add_terms: NBits = max(NBits, nbits(ro, go, bo, ao, abs=True))
         
         bits = BitStream()
         bits.write_int_value(NBits, 4)
@@ -283,7 +283,7 @@ class Shape(object):
 
     def serialize(self):
         if EndShapeRecord not in self.shapes:
-            self.shapes.append(EndShapeRecord())
+            self.shapes.append(EndShapeRecord)
 
         bits = BitStream()
 
@@ -337,8 +337,8 @@ class ShapeWithStyle(Shape):
         bits = BitStream()
         bits += serialize_style_list(self.fills)
         bits += serialize_style_list(self.strokes)
-        bits.write_int_value(style_list_bits(self.fills), 4)
-        bits.write_int_value(style_list_bits(self.strokes), 4)
+        bits.write_int_value(nbits(len(self.fills)), 4)
+        bits.write_int_value(nbits(len(self.strokes)), 4)
         return bits
 
 class LineStyle(object):
@@ -542,7 +542,7 @@ class StraightEdgeRecord(object):
         X = self.delta_x * 20
         Y = self.delta_y * 20
 
-        NBits = nbits_abs(X, Y)
+        NBits = nbits(X, Y, abs=True)
 
         if NBits > 15:
             raise ValueError("Number of bits per value field cannot exceed 15")
@@ -599,7 +599,7 @@ class CurvedEdgeRecord(object):
         aX = self.anchorx  * 20
         aY = self.anchory  * 20
         
-        NBits = nbits_abs(cX, cY, aX, aY)
+        NBits = nbits(cX, cY, aX, aY, abs=True)
 
         if NBits > 15:
             raise ValueError("Number of bits per value field cannot exceed 15")
@@ -703,8 +703,8 @@ class StyleChangeRecord(object):
         fsi1 = 0 if self.fillstyle1 is None else self.fillstyle1.index
         lsi  = 0 if self.linestyle  is None else self.linestyle.index
 
-        fbit = 0 if self.fillstyle0 is None else style_list_bits(self.fillstyle0.parent)
-        lbit = 0 if self.linestyle  is None else style_list_bits(self.linestyle.parent)
+        fbit = 0 if self.fillstyle0 is None else nbits(len(self.fillstyle0.parent))
+        lbit = 0 if self.linestyle  is None else nbits(len(self.linestyle.parent))
         
         from mech.fusion.swf.tags import DefineShape
         
@@ -728,10 +728,10 @@ class StyleChangeRecord(object):
         if lsi  > 0:  bits.write_int_value(lsi,  lbit) # LineStyle
         
         if new_styles:
-            bits += ShapeWithStyle._serialize_style_list(self.fillstyles) # FillStyles
-            bits += ShapeWithStyle._serialize_style_list(self.linestyles) # LineStyles
+            bits += serialize_style_list(self.fillstyles) # FillStyles
+            bits += serialize_style_list(self.linestyles) # LineStyles
 
-            bits.write_int_value(style_list_bits(self.fillstyles), 4) # FillBits
-            bits.write_int_value(style_list_bits(self.linestyles), 4) # LineBits
+            bits.write_int_value(nbits(len(self.fillstyles)), 4) # FillBits
+            bits.write_int_value(nbits(len(self.linestyles)), 4) # LineBits
 
         return bits
