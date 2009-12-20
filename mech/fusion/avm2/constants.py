@@ -1,6 +1,6 @@
 
 import struct
-from mech.fusion.avm2.util import serialize_u32 as u32, ValuePool
+from mech.fusion.avm2.util import serialize_u32 as u32, ValuePool, U32_MAX, S32_MAX
 
 # ======================================
 # Constants
@@ -67,7 +67,7 @@ TYPE_STRING_Utf8                  = 0x01
 # Number types
 TYPE_NUMBER_Int                   = 0x03
 TYPE_NUMBER_UInt                  = 0x04
-TYPE_NUMBER_DOUBLE                = 0x06
+TYPE_NUMBER_Double                = 0x06
 
 # Boolean types
 TYPE_BOOLEAN_False                = 0x0A
@@ -125,12 +125,15 @@ def py_to_abc(value, pool):
         return TYPE_OBJECT_Null, 0
     if isinstance(value, basestring):
         return TYPE_STRING_Utf8
-    if isinstance(value, int):
-        if value < 0:
+    if isinstance(value, (long, int)):
+        if value > U32_MAX or value < -S32_MAX:
+            return TYPE_NUMBER_Double, pool.double_pool.index_for(value)
+        elif value < 0:
             return TYPE_NUMBER_Int, pool.int_pool.index_for(value)
-        return TYPE_NUMBER_UInt, pool.uint_pool.index_for(value)
+        else:
+            return TYPE_NUMBER_UInt, pool.uint_pool.index_for(value)
     if isinstance(value, float):
-        return TYPE_NUMBER_DOUBLE, pool.double_pool.index_for(value)
+        return TYPE_NUMBER_Double, pool.double_pool.index_for(value)
     if isinstance(value, Namespace):
         return value.kind, pool.namespace_pool.index_for(value)
     if isinstance(value, NamespaceSet):

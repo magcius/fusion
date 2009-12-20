@@ -1,5 +1,6 @@
 
-from mech.fusion.avm2 import assembler, constants, instructions, abc_ as abc, traits, util
+from mech.fusion.avm2 import assembler, constants, instructions, \
+    abc_ as abc, traits, util
 
 from itertools import chain
 
@@ -83,15 +84,18 @@ class ScriptContext(_MethodContextMixin):
 
             self.gen.I(instructions.getscopeobject(0))
             for parent in reversed(parents):
-                self.gen.I(instructions.getlex(parent), instructions.pushscope())
+                self.gen.I(instructions.getlex(parent),
+                           instructions.pushscope())
             
-            self.traits.append(traits.AbcClassTrait(context.name, context.classobj))
+            self.traits.append(traits.AbcClassTrait(context.name,
+                                                    context.classobj))
             self.gen.I(instructions.getlex(context.super_name))
             self.gen.I(instructions.newclass(context.index))
             self.gen.I(*[instructions.popscope()]*len(parents))
             self.gen.I(instructions.initproperty(context.name))
         
-        self.gen.abc.scripts.index_for(abc.AbcScriptInfo(self.init, self.traits))
+        self.gen.abc.scripts.index_for(abc.AbcScriptInfo(self.init,
+                                                         self.traits))
         self.gen.exit_context()
         return self.parent
 
@@ -205,7 +209,10 @@ class Avm2ilasm(object):
         self.context = GlobalContext(self)
         if make_script:
             self.script0 = self.context.new_script()
-        
+
+    def _get_type(self, TYPE):
+        return TYPE
+    
     def I(self, *i):
         self.context.add_instructions(i)
 
@@ -264,10 +271,10 @@ class Avm2ilasm(object):
             context = context.parent
         return None
     
-    def pop(self, TYPE):
+    def pop(self, TYPE=None):
         self.I(instructions.pop())
 
-    def dup(self, TYPE):
+    def dup(self, TYPE=None):
         self.I(instructions.dup())
 
     def swap(self):
@@ -324,6 +331,7 @@ class Avm2ilasm(object):
         self.I(instructions.construct(1))
 
     def oonewarray(self, TYPE, length=1):
+        TYPE = self._get_type(TYPE)
         _vec_qname = constants.packagedQName("__AS3__.vec", "Vector")
         self.load(_vec_qname)
         self.load(TYPE)
@@ -332,11 +340,13 @@ class Avm2ilasm(object):
         self.I(instructions.construct(1))
         self.I(instructions.coerce(constants.TypeName(_vec_qname, TYPE)))
 
-    def array_setitem(self, ARRAY):
-        self.I(instructions.setproperty(constants.MultinameL(constants.PROP_NAMESPACE_SET)))
+    def array_setitem(self, ARRAY=None):
+        self.I(instructions.setproperty(constants.MultinameL(
+                    constants.PROP_NAMESPACE_SET)))
 
-    def array_getitem(self, ARRAY):
-        self.I(instructions.getproperty(constants.MultinameL(constants.PROP_NAMESPACE_SET)))
+    def array_getitem(self, ARRAY=None):
+        self.I(instructions.getproperty(constants.MultinameL(
+                    constants.PROP_NAMESPACE_SET)))
     
     def push_this(self):
         self.GL("this")
@@ -352,8 +362,8 @@ class Avm2ilasm(object):
     def push_const(self, v):
         if isinstance(v, (long, int)):
             if v > util.U32_MAX or v < -util.S32_MAX:
-                self.I(instructions.pushdouble(self.constants.double_pool.index_for(v)))
-                print v
+                self.I(instructions.pushdouble(
+                        self.constants.double_pool.index_for(v)))
                 if v > 0:
                     self.I(instructions.convert_u())
                 else:
@@ -361,13 +371,17 @@ class Avm2ilasm(object):
             elif 0 <= v < 256:
                 self.I(instructions.pushbyte(v))
             elif v >= 0:
-                self.I(instructions.pushuint(self.constants.uint_pool.index_for(v)))
+                self.I(instructions.pushuint(
+                        self.constants.uint_pool.index_for(v)))
             else:
-                self.I(instructions.pushint(self.constants.int_pool.index_for(v)))
+                self.I(instructions.pushint(
+                        self.constants.int_pool.index_for(v)))
         elif isinstance(v, basestring):
-            self.I(instructions.pushstring(self.constants.utf8_pool.index_for(v)))
+            self.I(instructions.pushstring(
+                    self.constants.utf8_pool.index_for(v)))
         elif isinstance(v, float):
-            self.I(instructions.pushdouble(self.constants.double_pool.index_for(v)))
+            self.I(instructions.pushdouble(
+                    self.constants.double_pool.index_for(v)))
         elif v is True:
             self.I(instructions.pushtrue())
         elif v is False:
