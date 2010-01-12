@@ -1,6 +1,5 @@
 
-from mech.fusion.util import BitStream
-from math import log, floor, sqrt
+from mech.fusion.util import BitStream, nbits, nbits_signed, clamp
 
 def serialize_style_list(lst):
     bits = BitStream()
@@ -15,20 +14,6 @@ def serialize_style_list(lst):
         bits += style.serialize()
 
     return bits
-
-def nbits(num, *args, **kwargs):
-    """
-    Returns the number of bits in the max of all the arguments.
-    """
-    if kwargs.get("abs", False):
-        return int(floor(log(max(1, abs(num), *(abs(a) for a in args)), 2))) + 2 # sign bit
-    return int(floor(log(max(1, num, *args), 2))) + 1
-
-def clamp(n, minimum, maximum):
-    """
-    Clamp n between mniimum and maximum.
-    """
-    return max(minimum, min(n, maximum))
 
 class RecordHeader(object):
     """
@@ -92,7 +77,7 @@ class Rect(object):
         twpYMax = self.YMax * 20
         
         # Find the number of bits required to store the longest value.
-        NBits = nbits(twpXMin, twpXMax, twpYMin, twpYMax, abs=True)
+        NBits = nbits_signed(twpXMin, twpXMax, twpYMin, twpYMax)
 
         if NBits > 31:
             raise ValueError, "Number of bits per value field cannot exceede 31."
@@ -127,7 +112,7 @@ class XY(object):
         twpY = self.Y * 20
 
         # Find the number of bits required to store the longest value.
-        NBits = nbits(twpX, twpY, abs=True)
+        NBits = nbits(twpX, twpY)
 
         bits = BitStream()
         bits.write_int_value(NBits, 5)
@@ -204,8 +189,8 @@ class CXForm(object):
         ao = clamp(self.aadd, -225, 255)
         
         NBits = 0
-        if has_mul_terms: NBits = nbits(rm, gm, bm, am, abs=True)
-        if has_add_terms: NBits = max(NBits, nbits(ro, go, bo, ao, abs=True))
+        if has_mul_terms: NBits = nbits(rm, gm, bm, am)
+        if has_add_terms: NBits = max(NBits, nbits(ro, go, bo, ao))
         
         bits = BitStream()
         bits.write_int_value(NBits, 4)
@@ -542,7 +527,7 @@ class StraightEdgeRecord(object):
         X = self.delta_x * 20
         Y = self.delta_y * 20
 
-        NBits = nbits(X, Y, abs=True)
+        NBits = nbits(X, Y)
 
         if NBits > 15:
             raise ValueError("Number of bits per value field cannot exceed 15")
@@ -587,9 +572,6 @@ class CurvedEdgeRecord(object):
     def serialize(self):
             
         bits = BitStream()
-        
-        if self.delta_x == 0 and self.delta_y == 0:
-            return bits
 
         bits.write_bit(True)  # TypeFlag
         bits.write_bit(False) # StraightFlag
@@ -599,7 +581,7 @@ class CurvedEdgeRecord(object):
         aX = self.anchorx  * 20
         aY = self.anchory  * 20
         
-        NBits = nbits(cX, cY, aX, aY, abs=True)
+        NBits = nbits(cX, cY, aX, aY)
 
         if NBits > 15:
             raise ValueError("Number of bits per value field cannot exceed 15")
@@ -613,27 +595,30 @@ class CurvedEdgeRecord(object):
         return bits
     
     def _get_x(self, t):
-        return self.controlx * 2 * (1-t) * t + self.anchorx * t * t;
+        return self.controlx * 2 * (1-t) * t + self.anchorx * t * t
 
     def _get_y(self, t):
-        return self.controly * 2 * (1-t) * t + self.anchory * t * t;
+        return self.controly * 2 * (1-t) * t + self.anchory * t * t
 
     def _get_p(self, t):
         return (self._get_x(t), self._get_y(t))
     
     def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
         union = Rect(0, 0, 0, 0)
-        # CurvedEdgeRecord Bounds
-        # Formulas somewhat based on
-        # http://code.google.com/p/bezier/source/browse/trunk/bezier/src/flash/geom/Bezier.as
-        # Maths here may be incorrect
+
+        """
+        CurvedEdgeRecord Bounds
+        Formulas somewhat based on
+        http://code.google.com/p/bezier/source/browse/trunk/bezier/src/flash/geom/Bezier.as
+        Maths here may be incorrect
         
-        # extremumX = last.x - 2 * control.x + anchor.x
-        # extremumX = last.x - 2 * ( controlDeltaX - last.x ) + anchorDeltaX - last.x
-        # extremumX = (last.x - last.x) - 2 * ( controlDeltaX - last.x ) + anchorDeltaX
-	# extremumX = -2 * ( controlDeltaX - last.x ) + anchorDeltaX
+        extremumX = last.x - 2 * control.x + anchor.x
+        extremumX = last.x - 2 * ( controlDeltaX - last.x ) + anchorDeltaX - last.x
+        extremumX = (last.x - last.x) - 2 * ( controlDeltaX - last.x ) + anchorDeltaX
+	extremumX = -2 * ( controlDeltaX - last.x ) + anchorDeltaX
         
-	# For the case of last.[x/y] = 0, we can use the formula below.
+	For the case of last.[xy] = 0, we can use the formula below.
+        """
 
         x = -2 * self.controlx + self.anchorx
         t = -self.controlx / x
@@ -655,19 +640,23 @@ class CurvedEdgeRecord(object):
             union.YMax = union.YMin + max(self.anchory, 0)
         else:
             union.YMin = min(p, 0, self.anchory + last[1])
-            union.YMax = union.YMin + max(p - last[0], 0, self.anchorY)
+            union.YMax = union.YMin + max(p - last[0], 0, self.anchory)
 
-        # CapStyle logic:
+        """
+        CapStyle logic:
 
-        # Assume that p0 is last (start anchor),
-        # p1 is control, and p2 is (end) anchor.
+        Assume that p0 is last (start anchor),
+        p1 is control, and p2 is (end) anchor.
 
-        # Get some small increments in the segment to
-        # find somewhat of a slope derivative type thing.
+        Get some small increments in the segment to
+        find somewhat of a slope derivative type thing.
 
-        # We should be able to pass these two line deltas
-        # into LineStyle2.cap_style_logic and union the
-        # results.
+        We should be able to pass these two line deltas
+        into LineStyle2.cap_style_logic and union the
+        results.
+
+        This will break at some point.
+        """
         
         slope1 = self._get_p(0.01)
         slope2 = (self.anchorx - self._get_x(0.99), self.anchory - self._get_y(0.99))

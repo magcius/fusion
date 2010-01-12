@@ -104,13 +104,15 @@ TYPE_MULTINAME_MultinameL         = 0x1B # o.[name]     -
 TYPE_MULTINAME_MultinameLA        = 0x1C # o.@[name]
 TYPE_MULTINAME_TypeName           = 0x1D # o.ns::name.<generic> - used to implement Vector
 
-def has_RTNS(m):
+def has_RTNS(multiname):
+    m = multiname.multiname()
     return m.KIND in (TYPE_MULTINAME_RtqName,
                       TYPE_MULTINAME_RtqNameA,
                       TYPE_MULTINAME_RtqNameL,
                       TYPE_MULTINAME_RtqNameLA)
 
-def has_RTName(m):
+def has_RTName(multiname):
+    m = multiname.multiname()
     return m.KIND in (TYPE_MULTINAME_MultinameL,
                       TYPE_MULTINAME_MultinameLA,
                       TYPE_MULTINAME_RtqNameL,

@@ -1,23 +1,20 @@
 
+"""
+This module implements serializers for the DoAction tags,
+otherwise known as "AVM1 Actions"
+
+.. seealso:
+
+   `SWF Specification v10 <http://www.adobe.com/devnet/swf/>`_
+      Adobe's specifications for the SWF file format.
+"""
+
 # AVM1 = ActionScript Virtual Machine 1
 # Used for ActionScript 1 and 2
 
+from mech.fusion.avm1.types_ import STRING, NULL, UNDEFINED
 from mech.fusion.util import BitStream
-from collections import namedtuple
 import struct
-
-DataType = namedtuple("DataType", "id name size")
-
-STRING      = DataType(0, "string", "Z")
-FLOAT       = DataType(1, "float", "f")
-NULL        = DataType(2, "null", "!")
-UNDEFINED   = DataType(3, "undefined", "!")
-REGISTER    = DataType(4, "register", "B")
-BOOLEAN     = DataType(5, "boolean", "B")
-DOUBLE      = DataType(6, "double", "d")
-INTEGER     = DataType(7, "integer", "l")
-CONSTANT8   = DataType(8, "constant 8", "B")
-CONSTANT16  = DataType(9, "constant 16", "H")
 
 preload = dict(this="preload_this",
                arguments="preload_args",
@@ -27,6 +24,10 @@ preload = dict(this="preload_this",
                _global="preload_global")
 
 class Action(object):
+    
+    """
+    The base Action class.
+    """
     
     ACTION_NAME = "NotImplemented"
     ACTION_ID = 0x00
@@ -44,9 +45,23 @@ class Action(object):
         return 6 + len(self.gen_data()) + len(self.gen_outer_data())
     
     def gen_data(self):
+        """
+        Overridden in Action subclasses.
+
+        Return data counted by the tag length.
+        
+        :rtype: bytestring
+        """
         return ""
 
     def gen_outer_data(self):
+        """
+        Overridden in Action subclasses.
+
+        Return data not counted by the tag length.
+
+        :rtype: bytestring
+        """
         return ""
     
     def get_block_props_early(self, block):
@@ -65,11 +80,11 @@ class ActionConstantPool(Action):
     ACTION_NAME = "ActionConstantPool"
     ACTION_ID = 0x88
 
-    def __init__(self, *args):
+    def __init__(self, *constants):
         self.pool = []
-        for string in args:
+        for string in constants:
             if not string in self.pool:
-                self.pool.append(args)
+                self.pool.append(string)
 
     def add_constant(self, string):
         if not string in self.pool:
@@ -181,8 +196,10 @@ class Block(object):
     def serialize(self):
         if not self._sealed:
             raise SealedBlockError("Block must be sealed before it can be serialized")
+        
         if len(self.code) > 0:
             return self.code
+        
         bytes = []
         block_offset = 0
         for action in self.actions:
@@ -420,17 +437,17 @@ class ActionPush(Action):
     
     def __init__(self, *args):
         self.values = []
-        self.add_element(*args)
+        self.add_elements(args)
+
+    def add_elements(self, iterable):
+        for t in iterable:
+            self.add_element(t)
     
     def add_element(self, element):
-        if hasattr(element, "__iter__") and not isinstance(element, (basestring, tuple)):
-            for t in element:
-                self.add_element(t)
-        else:
-            if element in (NULL, UNDEFINED):
-                element = (None, element)
-            assert isinstance(element, tuple)
-            self.values.append(element)
+        if element in (NULL, UNDEFINED):
+            element = (None, element)
+        assert isinstance(element, tuple)
+        self.values.append(element)
         
     def get_block_props_early(self, block):
         if not ActionPush.USE_CONSTANTS: return
@@ -540,21 +557,27 @@ SHORT_ACTIONS = {}
 def make_underlined(name):
     return ''.join('_' + c.lower() if c.isupper() else c for c in name)[1:]
 
-def make_short_action(value, name, push_count=0):
+def make_short_action(value, name, push=0):
     
-    def __len__(self):
+    def len_(self):
         return 1 # 1 (Action ID)
     
-    def serialize(self):
+    def serialize_(self):
         return chr(self.ACTION_ID)
+
+    class inner(Action):
+        ACTION_ID   = value
+        ACTION_NAME = name
+        push_count  = push
+        __len__   = len_
+        serialize = serialize_
     
-    act = type(name, (Action,), dict(ACTION_ID=value, ACTION_NAME=name, push_count=push_count,
-                                     __len__=__len__, serialize=serialize))
+    inner.__name__ = name
+    
+    SHORT_ACTIONS[name[6:].lower()] = inner
+    SHORT_ACTIONS[make_underlined(name[6:])] = inner
 
-    SHORT_ACTIONS[name[6:].lower()] = act
-    SHORT_ACTIONS[make_underlined(name[6:])] = act
-
-    return act
+    return inner
 
 ActionNextFrame           = make_short_action(0x04, "ActionNextFrame")
 ActionPreviousFrame       = make_short_action(0x05, "ActionPreviousFrame")

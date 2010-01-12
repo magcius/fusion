@@ -1,0 +1,10 @@
+#*#
+*~
+*.svn*
+*.rope*
+*.hg*
+*.bzr*
+*.pyc
+MANIFEST
+build
+dist

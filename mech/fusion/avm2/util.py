@@ -1,5 +1,6 @@
 
-import struct, re
+import struct
+import re
 from collections import namedtuple
 
 # 5 bytes with the 7 low bits contributing to the number
@@ -25,6 +26,9 @@ def replace_substr(string, replace, start, stop):
     return string[:start] + replace + string[stop:]
 
 def serialize_s24(value):
+    """
+    Serialize a 3-byte signed S24.
+    """
     m = struct.pack("<l", value)
     if (value < 0 and m[3] != "\xff") or (value >= 0 and m[3] != "\x00"):
         raise ValueError, "value does not fit in a s24"
@@ -114,6 +118,9 @@ class ValuePool(object):
 
         if hasattr(self.parent, "write_to"):
             self.parent.write(value)
+
+        if self.debug and value is None:
+            raise ValueError("boop boop ta choop")
         
         index = self.next_free()
         

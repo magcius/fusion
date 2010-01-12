@@ -20,6 +20,7 @@ class _Avm2ShortInstruction(object):
         asm.flags |= self.flags
         asm.stack_depth += self.stack
         asm.scope_depth += self.scope
+    
     def serialize(self):
         return chr(self.opcode)
 
@@ -66,7 +67,8 @@ class _Avm2MultinameInstruction(_Avm2U30Instruction):
         asm.stack_depth -= int(has_rtns) + int(has_rtname)
         
     def __init__(self, multiname):
-        self.multiname = multiname
+        self.multiname = multiname.multiname()
+
 class _Avm2OffsetInstruction(_Avm2ShortInstruction):
     def __repr__(self):
         return repr(super(_Avm2OffsetInstruction, self))[:-2] + \
@@ -128,7 +130,7 @@ class _Avm2LabelInstruction(_Avm2ShortInstruction):
     
     def serialize(self):
         if self.define:
-            return label_internal.serialize()
+            return label_internal().serialize()
         return ""
     
     def __init__(self, name):
@@ -153,7 +155,7 @@ class _Avm2CallIDX(_Avm2U30Instruction):
         asm.stack_depth += 1 - (self.num_args + 1) # push object/args; push result
         
     def __init__(self, multiname, num_args):
-        self.multiname, self.num_args = multiname, num_args
+        self.multiname, self.num_args = multiname.multiname(), num_args
 
 class _Avm2CallMN(_Avm2CallIDX):
     is_void = False

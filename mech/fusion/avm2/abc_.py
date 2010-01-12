@@ -14,7 +14,7 @@ class AbcFile(object):
     
     def __init__(self, constants=None):
         self.constants = constants or AbcConstantPool()
-        self.methods   = ValuePool(parent=self)
+        self.methods   = ValuePool(parent=self, debug=True)
         self.metadatas = ValuePool(parent=self)
         self.instances = ValuePool(parent=self)
         self.classes   = ValuePool(parent=self)
@@ -100,7 +100,6 @@ class AbcMethodInfo(object):
         return code
 
     def write_to_pool(self, pool):
-        print "Emitting function %s(%s):%s" % (self.name, self.param_types, self.return_type)
         self._name_index = pool.utf8_pool.index_for(self.name)
         self._return_type_index = pool.multiname_pool.index_for(self.return_type)
         

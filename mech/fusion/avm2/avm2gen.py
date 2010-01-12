@@ -20,12 +20,15 @@ class GlobalContext(object):
         return ctx
 
 class _MethodContextMixin(object):
-    def new_method(self, name, params, rettype, static=False):
-        meth = abc.AbcMethodInfo(name,
+    def new_method_info(self, name, params, rettype):
+        return abc.AbcMethodInfo(name,
                                  [t.multiname() for t, n in params],
                                  rettype.multiname(),
                                  param_names=[n for t, n in params])
-        trait = traits.AbcMethodTrait(constants.QName(name), meth)
+    
+    def new_method(self, name, params, rettype, static=False, override=False):
+        meth = self.new_method_info(name, params, rettype)
+        trait = traits.AbcMethodTrait(constants.QName(name), meth, override=override)
         if static:
             self.add_static_trait(trait)
         else:
@@ -38,6 +41,7 @@ class ScriptContext(_MethodContextMixin):
     CONTEXT_TYPE = "script"
 
     def __init__(self, gen, parent):
+        self.name = "script"
         self.gen, self.parent = gen, parent
         self.init = None
         self.traits = []
@@ -72,13 +76,13 @@ class ScriptContext(_MethodContextMixin):
         
         for key in self.pending_classes_order:
             context, parents = self.pending_classes[key]
-            parent = self.pending_classes.get(context.super_name, None)
 
             if parents is None:
                 parents = []
-                while parent:
-                    parents.append(parent.name)
-                    parent = self.pending_classes.get(parent.super_name, None)
+                ctx, _ = self.pending_classes.get(context.super_name, (None, None))
+                while ctx:
+                    parents.append(context.name)
+                    ctx, _ = self.pending_classes.get(ctx.super_name, (None, None))
 
                 parents.append(constants.QName("Object"))
 
@@ -125,14 +129,13 @@ class ClassContext(_MethodContextMixin):
             if params:
                 raise ValueError("parameters cannot be redefined")
         else:
-            self.iinit = self.new_method("", params, constants.QName("void"))
-        
-        ctx = MethodContext(self.gen, self.iinit, self, params)
+            self.iinit = self.new_method_info("", params, constants.QName("void"))
+
+        ctx = MethodContext(self.gen, self.iinit, self, [])
         self.gen.enter_context(ctx)
         
-        self.gen.emit('getlocal', 0)
-        self.gen.emit('constructsuper', 0)
-        return ctx
+        self.gen.I(instructions.getlocal(0))
+        self.gen.I(instructions.constructsuper(0))
 
     def add_instance_trait(self, trait):
         self.instance_traits.append(trait)
@@ -221,6 +224,7 @@ class Avm2ilasm(object):
 
     def SL(self, name):
         index = self.context.set_local(name)
+
         self.I(instructions.setlocal(index))
         return index
 
@@ -239,8 +243,8 @@ class Avm2ilasm(object):
     def begin_class(self, name, super_name=None, bases=None):
         return self.context.new_class(name, super_name, bases)
 
-    def begin_method(self, name, arglist, returntype, static=False):
-        return self.context.new_method(name, arglist, returntype, static)
+    def begin_method(self, name, arglist, returntype, static=False, override=False):
+        return self.context.new_method(name, arglist, returntype, static, override)
 
     def finish(self):
         while self.context:
@@ -339,15 +343,7 @@ class Avm2ilasm(object):
         self.load(length)
         self.I(instructions.construct(1))
         self.I(instructions.coerce(constants.TypeName(_vec_qname, TYPE)))
-
-    def array_setitem(self, ARRAY=None):
-        self.I(instructions.setproperty(constants.MultinameL(
-                    constants.PROP_NAMESPACE_SET)))
-
-    def array_getitem(self, ARRAY=None):
-        self.I(instructions.getproperty(constants.MultinameL(
-                    constants.PROP_NAMESPACE_SET)))
-    
+        
     def push_this(self):
         self.GL("this")
     
@@ -389,7 +385,7 @@ class Avm2ilasm(object):
         else:
             assert False, "value for push_const not a literal value"
 
-    def push_undefined(self):
+    def push_undefined(self, TYPE=None):
         self.I(instructions.pushundefined())
 
     def push_null(self, TYPE=None):
@@ -415,8 +411,10 @@ class Avm2ilasm(object):
 
     def new(self, TYPE):
         # XXX: assume no args for now
+        TYPE = self._get_type(TYPE)
         self.emit('findpropstrict', TYPE)
         self.emit('constructprop', TYPE, 0)
 
     def downcast(self, TYPE):
+        TYPE = self._get_type(TYPE)
         self.emit('coerce', TYPE)

@@ -2,7 +2,7 @@
 import struct
 
 from mech.fusion.swf.records import RecordHeader, ShapeWithStyle, Matrix, CXForm
-from mech.fusion.avm1 import Block
+from mech.fusion.avm1.actions import Block
 from mech.fusion.util import BitStream
 from mech.fusion.avm2.abc_ import AbcFile
 
@@ -237,6 +237,7 @@ class DefineEditText(SwfTag):
     def serialize_data(self):
         bits = self.rect.serialize()
         bits.flush()
+        print len(bits)
         bits.write_bit(self.text != "")
         bits.write_bit(self.wordwrap)
         bits.write_bit(self.multiline)
@@ -253,6 +254,8 @@ class DefineEditText(SwfTag):
         bits.write_bit(self.wasstatic)
         bits.write_bit(self.isHTML)
         bits.write_bit(self.outlines)
+        print self.color is not None
+        print bits
         
         bytes = struct.pack("<H", self.characterid) + bits.serialize()
         if self.font is not None:
