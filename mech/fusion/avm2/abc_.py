@@ -331,7 +331,7 @@ class AbcException(object):
         return code
 
     def write_to_pool(self, pool):
-        self._exc_type_index = pool.utf8_pool.index_for(self.exc_type)
+        self._exc_type_index = pool.multiname_pool.index_for(self.exc_type)
         self._var_name_index = pool.utf8_pool.index_for(self.var_name)
         
         

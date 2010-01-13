@@ -79,10 +79,10 @@ class ScriptContext(_MethodContextMixin):
 
             if parents is None:
                 parents = []
-                ctx, _ = self.pending_classes.get(context.super_name, (None, None))
+                ctx = self.gen.get_class_context(context.super_name, self.pending_classes)
                 while ctx:
-                    parents.append(context.name)
-                    ctx, _ = self.pending_classes.get(ctx.super_name, (None, None))
+                    parents.append(ctx.name)
+                    ctx = self.gen.get_class_context(ctx.super_name, self.pending_classes)
 
                 parents.append(constants.QName("Object"))
 
@@ -166,7 +166,7 @@ class MethodContext(object):
     
     def __init__(self, gen, method, parent, params, stdprologue=True):
         self.gen, self.method, self.parent = gen, method, parent
-        param_names = [n for t, n in params]
+        param_names = zip(*params)[1]
         self.asm = assembler.Avm2CodeAssembler(gen.constants,
                                                ['this']+param_names)
         self.acv_traits = []
@@ -215,6 +215,9 @@ class Avm2ilasm(object):
 
     def _get_type(self, TYPE):
         return TYPE
+
+    def get_class_context(self, name, DICT):
+        return DICT.get(name, None)
     
     def I(self, *i):
         self.context.add_instructions(i)

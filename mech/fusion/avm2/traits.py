@@ -22,6 +22,8 @@ class AbcTrait(object):
         self.is_final = final
         self.is_override = override
 
+        print name, override
+
         self.metadata = []
         self._metadata_indices = None
 

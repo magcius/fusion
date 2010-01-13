@@ -45,7 +45,7 @@ class DoABC(SwfTag, AbcFile):
     TAG_TYPE = 82
     TAG_MIN_VERSION = 9
 
-    def __init__(self, name="PyPy", flags=0):
+    def __init__(self, name="Mecheye Fusion", flags=0):
         AbcFile.__init__(self)
         self.name  = name
         self.flags = flags
@@ -53,6 +53,17 @@ class DoABC(SwfTag, AbcFile):
     def serialize_data(self):
         return struct.pack("<L", self.flags) + self.name + "\0" + AbcFile.serialize(self)
 
+class DoABCDefine(SwfTag, AbcFile):
+
+    TAG_TYPE = 72
+    TAG_MIN_VERSION = 9
+
+    def __init__(self):
+        AbcFile.__init__(self)
+    
+    def serialize_data(self):
+        return struct.pack("<L", self.flags) + self.name + "\0" + AbcFile.serialize(self)
+    
 class SymbolClass(SwfTag):
 
     TAG_TYPE = 76
