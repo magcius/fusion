@@ -272,8 +272,8 @@ class BitStream(object):
 
         bias = expn - self._EXPN_BIAS[length]
         
-        frac_total = float(1 << expn_len)
-        expn_total = float(1 << frac_len)
+        frac_total = float(1 << frac_len)
+        expn_total = float(1 << expn_len)
         
         if expn == 0:
             if frac == 0:
