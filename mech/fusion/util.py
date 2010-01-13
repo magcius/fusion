@@ -8,6 +8,10 @@ ALIGN_LEFT = "left"
 ALIGN_RIGHT = "right"
 
 def nbits_signed(num, *args):
+    """
+    Returns nbits + 1, for the sign bit. Please use this
+    instead of adding one manually.
+    """
     return nbits(num, *args) + 1
 
 def nbits(num, *args):
@@ -34,7 +38,7 @@ class BitStream(object):
         Constructor.
         
         >>> b1 = BitStream("101010")               # Strings are okay.
-        >>> b2 = BitStream([1, 0, "1", "0", 1, 0]) # So are iterables.
+        >>> b2 = BitStream([1, 0, "1", "0", 1, 0]) # So are any iterable.
         >>> b3 = BitStream(0b101010)               # But not ints.
         Traceback (most recent call last):
           File "<stdin>", line 1, in <module>
