@@ -134,8 +134,8 @@ class ClassContext(_MethodContextMixin):
         ctx = MethodContext(self.gen, self.iinit, self, [])
         self.gen.enter_context(ctx)
         
-        self.gen.I(instructions.getlocal(0))
-        self.gen.I(instructions.constructsuper(0))
+        self.gen.push_this()
+        self.gen.emit("constructsuper")
 
     def add_instance_trait(self, trait):
         self.instance_traits.append(trait)
@@ -163,6 +163,7 @@ class ClassContext(_MethodContextMixin):
         
 class MethodContext(object):
     CONTEXT_TYPE = "method"
+    catch_nest = 0
     
     def __init__(self, gen, method, parent, params, stdprologue=True):
         self.gen, self.method, self.parent = gen, method, parent
@@ -220,14 +221,19 @@ class CatchContext(object):
     def __init__(self, gen, parent):
         self.gen = gen
         self.parent = parent
+        self.catch_nest = parent.catch_nest + 1
+        self.catch_var_name = "MF::ExceptionHolder::Nest%s" % (self.catch_nest,)
 
     def __getattr__(self, name):
         return getattr(self.parent, name)
     
     def restore_scopes(self):
-        self.gen.push_var("MF$ExceptionHolder")
+        self.gen.push_var(self.catch_var_name)
         self.gen.emit("pushscope")
 
+    def exit(self):
+        pass
+    
 class Avm2ilasm(object):
     """ AVM2 'assembler' generator routines """
     def __init__(self, abc_=None, make_script=True):
@@ -455,22 +461,25 @@ class Avm2ilasm(object):
         self.context.code_end = len(self.context.asm)
 
     def begin_catch(self, TYPE):
+        # Stolen from ESC directly.
         assert self.context.CONTEXT_TYPE == "method"
         TYPE = self._get_type(TYPE).multiname()
-        idx = self.context.add_exception(TYPE, "MF$ExceptionHolder")
+        ctx = CatchContext(self, self.context)
+        idx = self.context.add_exception(TYPE, ctx.catch_var_name)
         self.context.start_catch()
-        self.context.set_local("MF$ExceptionHolder") # Reserve a spot for us.
+        self.context.set_local(ctx.catch_var_name) # Reserve a spot for us.
         self.context.restore_scopes()
-        self.context.enter_context(CatchContext(self, self.context))
+        self.enter_context(ctx)
         self.emit("newcatch", idx)
         self.dup()
-        self.store_var("MF$ExceptionHolder")
+        self.store_var(ctx.catch_var_name)
         self.dup()
         self.emit("pushscope")
         
         self.swap()
-        self.set_field("MF$ExceptionHolder")
+        self.set_field(ctx.catch_var_name)
 
     def end_catch(self):
-        self.KL("MF$ExceptionHolder")
+        self.KL(self.context.catch_var_name)
         self.emit("popscope")
+        self.exit_context()
