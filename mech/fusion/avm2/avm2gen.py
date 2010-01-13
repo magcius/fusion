@@ -166,24 +166,32 @@ class MethodContext(object):
     
     def __init__(self, gen, method, parent, params, stdprologue=True):
         self.gen, self.method, self.parent = gen, method, parent
-        param_names = zip(*params)[1]
+        param_names = [n for t, n in params]
         self.asm = assembler.Avm2CodeAssembler(gen.constants,
                                                ['this']+param_names)
         self.acv_traits = []
+        self.exceptions = []
         if stdprologue:
-            self.asm.add_instruction(instructions.getlocal(0))
-            self.asm.add_instruction(instructions.pushscope())
+            self.restore_scopes()
     
     def exit(self):
         self.asm.add_instruction(instructions.returnvoid())
         self.gen.abc.methods.index_for(self.method)
         self.gen.abc.bodies.index_for(abc.AbcMethodBodyInfo(
-                self.method, self.asm, self.acv_traits))
+                self.method, self.asm, self.acv_traits, self.exceptions))
         return self.parent
 
     def add_activation_trait(self, trait):
         self.acv_traits.append(trait)
         return len(self.acv_traits)
+
+    def add_exception(self, param_type, param_name):
+        self.exceptions.append(abc.AbcException(self.code_start,
+                self.code_end, len(self.asm), param_type, param_name))
+        return len(self.exceptions)-1
+
+    def start_catch(self):
+        self.asm.scope_depth += 1
     
     def add_instructions(self, *i):
         self.asm.add(*i)
@@ -204,6 +212,22 @@ class MethodContext(object):
     def has_local(self, name):
         return self.asm.has_local(name)
 
+    def restore_scopes(self):
+        self.gen.push_this()
+        self.gen.emit("pushscope")
+
+class CatchContext(object):
+    def __init__(self, gen, parent):
+        self.gen = gen
+        self.parent = parent
+
+    def __getattr__(self, name):
+        return getattr(self.parent, name)
+    
+    def restore_scopes(self):
+        self.gen.push_var("MF$ExceptionHolder")
+        self.gen.emit("pushscope")
+
 class Avm2ilasm(object):
     """ AVM2 'assembler' generator routines """
     def __init__(self, abc_=None, make_script=True):
@@ -217,7 +241,7 @@ class Avm2ilasm(object):
         return TYPE
 
     def get_class_context(self, name, DICT):
-        return DICT.get(name, None)
+        return DICT.get(name, [None])[0]
     
     def I(self, *i):
         self.context.add_instructions(i)
@@ -421,3 +445,32 @@ class Avm2ilasm(object):
     def downcast(self, TYPE):
         TYPE = self._get_type(TYPE)
         self.emit('coerce', TYPE)
+
+    def begin_try(self):
+        assert self.context.CONTEXT_TYPE == "method"
+        self.context.code_start = len(self.context.asm)
+
+    def end_try(self):
+        assert self.context.CONTEXT_TYPE == "method"
+        self.context.code_end = len(self.context.asm)
+
+    def begin_catch(self, TYPE):
+        assert self.context.CONTEXT_TYPE == "method"
+        TYPE = self._get_type(TYPE).multiname()
+        idx = self.context.add_exception(TYPE, "MF$ExceptionHolder")
+        self.context.start_catch()
+        self.context.set_local("MF$ExceptionHolder") # Reserve a spot for us.
+        self.context.restore_scopes()
+        self.context.enter_context(CatchContext(self, self.context))
+        self.emit("newcatch", idx)
+        self.dup()
+        self.store_var("MF$ExceptionHolder")
+        self.dup()
+        self.emit("pushscope")
+        
+        self.swap()
+        self.set_field("MF$ExceptionHolder")
+
+    def end_catch(self):
+        self.KL("MF$ExceptionHolder")
+        self.emit("popscope")
