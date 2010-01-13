@@ -2,7 +2,20 @@
 import py.test
 import os
 
-from mech.fusion.util import BitStream
+from mech.fusion.util import BitStream, nbits
+
+def test_nbits():
+    assert nbits(0) == 1
+    assert nbits(1) == 1
+    assert nbits(2) == 2
+    assert nbits(4) == 3
+
+    assert nbits(-1) == 1
+    assert nbits(-2) == 2
+    assert nbits(-4) == 3
+
+    assert nbits(0, 1, 4, 2) == 3
+    assert nbits(0, 1, -4, 2) == 3
 
 def test_string():
     bits = BitStream("10")
