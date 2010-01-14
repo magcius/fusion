@@ -103,7 +103,7 @@ def test_read_bits():
     
 def test_write_bits():
     L = [1, 0, True, False]
-
+    
     bits = BitStream()
     bits.write_bits(L)
     assert str(bits) == "1010"

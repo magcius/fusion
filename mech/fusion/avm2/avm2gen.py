@@ -135,7 +135,7 @@ class ClassContext(_MethodContextMixin):
         self.gen.enter_context(ctx)
         
         self.gen.push_this()
-        self.gen.emit("constructsuper")
+        self.gen.emit("constructsuper", 0)
 
     def add_instance_trait(self, trait):
         self.instance_traits.append(trait)
@@ -214,8 +214,8 @@ class MethodContext(object):
         return self.asm.has_local(name)
 
     def restore_scopes(self):
-        self.gen.push_this()
-        self.gen.emit("pushscope")
+        self.asm.add_instruction(instructions.getlocal(0))
+        self.asm.add_instruction(instructions.pushscope())
 
 class CatchContext(object):
     def __init__(self, gen, parent):

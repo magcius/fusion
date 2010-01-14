@@ -8,36 +8,54 @@ def serialize_style_list(lst):
         bits.write_int_value(len(lst), 8)
     else:
         bits.write_int_value(0xFF, 8)
-        bits.write_int_value(len(lst), 16)
+        bits.write_int_value(len(lst), 16, endianness="<")
 
     for style in lst:
         bits += style.serialize()
 
     return bits
 
+def parse_style_list(bits, type):
+    bits = BitStream()
+    lst_len = bits.read_int_value(8)
+    if lst_len == 0xFF:
+        lst_len = bits.read_int_value(16, endianness="<")
+
+    L = []
+    for i in xrange(lst_len):
+        TYPE = bits.read_int_value(8)
+        record = FillStyle.REVERSE_INDEX[TYPE]()
+        record.parse(bits)
+        L.append(record)
+    return L
+
 class RecordHeader(object):
     """
     RECORDHEADER struct, the header that signifies SWF tags.
     """
-    def __init__(self, type, length):
+    def __init__(self, type=0, length=0):
         self.type = type
         self.length = length
 
     def serialize(self):
         bits = BitStream()
-        bits.write_int_value(self.type, 10)
+        header = BitStream()
+        header.write_int_value(self.type, 10)
         if self.length < 0x3F:
-            bits.write_int_value(self.length, 6)
+            header.write_int_value(self.length, 6)
         else:
-            bits.write_int_value(0x3F, 6)
-            bits.write_int_value(self.length, 32)
+            header.write_int_value(0x3F, 6)
+        bits.write_bits(header, endianness="<")
+        if self.length >= 0x3F:
+            bits.write_int_value(self.length, 32, endianness="<")
         return bits
 
     def parse(self, bitstream):
-        self.type = bitstream.read_bit_value(10)
-        self.length = bitstream.read_bit_value(6)
+        bits = bitstream.read_bits(16, endianess="<")
+        self.type = bits.read_int_value(10)
+        self.length = bits.read_int_value(6)
         if self.length >= 0x3F:
-            self.length = bitstream.read_bit_value(32)
+            self.length = bitstream.read_int_value(32, endianess="<")
 
 class _EndShapeRecord(object):
 
@@ -45,6 +63,9 @@ class _EndShapeRecord(object):
         bitstream = BitStream()
         bitstream.zero_fill(6)
         return bitstream
+
+    def parse(self, bits):
+        bits.cursor += 6
 
 EndShapeRecord = _EndShapeRecord()
 
@@ -93,12 +114,11 @@ class Rect(object):
         return bits
 
     def parse(self, bitstream):
-        
-        NBits = bitstream.read_bit_value(5)
-        self.XMin = bitstream.read_bit_value(NBits)
-        self.XMax = bitstream.read_bit_value(NBits)
-        self.YMin = bitstream.read_bit_value(NBits)
-        self.YMax = bitstream.read_bit_value(NBits)
+        NBits = bitstream.read_int_value(5)
+        self.XMin = bitstream.read_int_value(NBits) / 20
+        self.XMax = bitstream.read_int_value(NBits) / 20
+        self.YMin = bitstream.read_int_value(NBits) / 20
+        self.YMax = bitstream.read_int_value(NBits) / 20
 
 class XY(object):
 
@@ -122,10 +142,9 @@ class XY(object):
         return bits
 
     def parse(self, bitstream):
-        
-        NBits = bitstream.read_bit_value(5)
-        self.X = bitstream.read_bit_value(NBits)
-        self.Y = bitstream.read_bit_value(NBits)
+        NBits = bitstream.read_int_value(5)
+        self.X = bitstream.read_int_value(NBits) / 20
+        self.Y = bitstream.read_int_value(NBits) / 20
 
 class RGB(object):
 
@@ -138,7 +157,7 @@ class RGB(object):
         return bits
 
     def parse(self, bitstream):
-        self.color = bitstream.read_bit_value(24)
+        self.color = bitstream.read_int_value(24)
 
 class RGBA(RGB):
     
@@ -160,7 +179,7 @@ class RGBA(RGB):
 
     def parse(self, bitstream):
         RGB.parse(self, bitstream)
-        self.alpha = bitstream.read_bit_value(8) / 0xFF
+        self.alpha = bitstream.read_int_value(8) / 0xFF
 
 class CXForm(object):
     has_alpha = False
@@ -193,6 +212,8 @@ class CXForm(object):
         if has_add_terms: NBits = max(NBits, nbits(ro, go, bo, ao))
         
         bits = BitStream()
+        bits.write_bit(has_add_terms)
+        bits.write_bit(has_mul_terms)
         bits.write_int_value(NBits, 4)
 
         if has_mul_terms:
@@ -208,6 +229,23 @@ class CXForm(object):
             if self.has_alpha: bits.write_int_value(ao, NBits)
 
         return bits
+
+    def parse(self, bits):
+        has_add_terms = bits.read_bit()
+        has_mul_terms = bits.read_bit()
+        NBits = bits.read_int_value(4)
+
+        if has_mul_terms:
+            self.rmul = bits.read_int_value(NBits) / 256.
+            self.gmul = bits.read_int_value(NBits) / 256.
+            self.bmul = bits.read_int_value(NBits) / 256.
+            if self.has_alpha: self.amul = bits.read_int_value(NBits) / 256.
+
+        if has_add_terms:
+            self.radd = bits.read_int_value(NBits)
+            self.gadd = bits.read_int_value(NBits)
+            self.badd = bits.read_int_value(NBits)
+            if self.has_alpha: self.aadd = bits.read_int_value(NBits)
 
 class CXFormWithAlpha(CXForm):
     has_alpha = True
@@ -245,6 +283,19 @@ class Matrix(object):
         write_prefixed_values(self.tx * 20, self.ty * 20)
         return bits
 
+    def parse(self, bits):
+        def read_prefixed_values():
+            NBits = bits.read_int_value(5)
+            return bits.read_int_value(NBits), bits.read_int_value(NBits)
+        
+        if bits.read_bit(): # HasScale
+            self.a, self.d = read_prefixed_values()
+
+        if bits.read_bit(): # HasRotate
+            self.b, self.c = read_prefixed_values()
+
+        self.tx, self.ty = read_prefixed_values()
+
 class Shape(object):
 
     def __init__(self):
@@ -263,7 +314,7 @@ class Shape(object):
         self.bounds_calculated = False
     
     def add_shape(self, shape):
-        self.shapes.expand(shape.shapes)
+        self.shapes += shape.shapes
         self.bounds_calculated = False
 
     def serialize(self):
@@ -317,15 +368,19 @@ class ShapeWithStyle(Shape):
             self.strokes += shape.strokes
         except AttributeError:
             pass
-    
+        
     def serialize(self):
+        if EndShapeRecord not in self.shapes:
+            self.shapes.append(EndShapeRecord)
         bits = BitStream()
         bits += serialize_style_list(self.fills)
         bits += serialize_style_list(self.strokes)
         bits.write_int_value(nbits(len(self.fills)), 4)
         bits.write_int_value(nbits(len(self.strokes)), 4)
+        for record in self.shapes:
+            bits += record.serialize()
         return bits
-
+    
 class LineStyle(object):
 
     caps = "round"
@@ -343,6 +398,11 @@ class LineStyle(object):
         bits.write_int_value(self.width * 20, 16)
         bits += self.color.serialize()
         return bits
+
+    def parse(self, bits):
+        bits.read_int_value(16)
+        self.color = RGBA()
+        self.color.parse(bits)
 
 class LineStyle2(LineStyle):
 
@@ -369,36 +429,33 @@ class LineStyle2(LineStyle):
         
         super(self, LineStyle2).__init__(self, width, color, alpha)
         self.pixel_hinting = pixel_hinting
-        self.h_scale = (scale_mode == "normal" or scale_mode == "horizontal")
-        self.v_scale = (scale_mode == "normal" or scale_mode == "vertical")
+        self.scale_mode = scale_mode
 
-        if caps == "square":  self.caps = 2
-        elif caps == None:    self.caps = 1
-        elif caps == "round": self.caps = 0
-        else:
-            raise ValueError, "Invalid cap style '%s'." % caps
-
-        if joints == "miter":   self.joints = 2
-        elif joints == "bevel": self.joints = 1
-        elif joints == "round": self.joints = 0
+        self.caps = caps
+        self.joints = joints
 
         self.miter_limit = miter_limit
 
     def serialize(self):
 
+        h_scale = (self.scale_mode == "normal" or self.scale_mode == "horizontal")
+        v_scale = (self.scale_mode == "normal" or self.scale_mode == "vertical")
+        
         bits = BitStream()
-        bits.write_int_value(self.width * 20, 8)
-        bits.write_int_value(self.width * 20 >> 8, 8)
+        bits.write_int_value(self.width * 20, 16, endianness="<")
 
-        bits.write_int_value(self.caps, 2)
-        bits.write_int_value(self.joints, 2)
-        bits.write_bit(self.fillstyle is not None);
-        bits.write_bit(self.h_scale)
-        bits.write_bit(self.v_scale)
+        caps = dict(round=0, none=1, square=2).get(self.caps, 0)
+        joints = dict(round=0, bevel=1, miter=2).get(self.joints, 0)
+        
+        bits.write_int_value(caps, 2)
+        bits.write_int_value(joints, 2)
+        bits.write_bit(self.fillstyle is not None)
+        bits.write_bit(h_scale)
+        bits.write_bit(v_scale)
         bits.write_bit(self.pixel_hinting)
 
-        if self.joints == 2:
-            bits.write_fixed_value(self.miter_limit, 16, True)
+        if joints == 2:
+            bits.write_fixed_value(self.miter_limit, 16, endianness="<")
 
         if self.fillstyle:
             bits.write_bits(self.fillstyle.serialize())
@@ -406,6 +463,9 @@ class LineStyle2(LineStyle):
             bits.write_bits(self.color.serialize())
 
         return bits
+
+    def parse(self, bits):
+        self.width = bits.read_int_value(16, endianness="<")
 
     def cap_style_logic(self, style, last, delta):
         # Half thickness (radius of round cap; diameter is thickness)
@@ -461,6 +521,10 @@ class LineStyle2(LineStyle):
 class FillStyle(object):
 
     TYPE = -1
+    REVERSE_INDEX = {}
+
+    def __init__(self):
+        FillStyle.REVERSE_INDEX[self.TYPE] = self
     
     @property
     def index(self):
@@ -471,8 +535,10 @@ class FillStyle(object):
         bits.write_int_value(self.TYPE, 8)
         bits += self.serialize_inner()
         return bits
-
-class FillStyleSolidFill(object):
+    
+class FillStyleSolidFill(FillStyle):
+    
+    TYPE = 0
     
     def __init_(self, color, alpha=1.0):
         self.color = RGBA(color, alpha)
@@ -482,7 +548,7 @@ class FillStyleSolidFill(object):
 
 class GradRecord(object):
 
-    def __init__(self, ratio, color, alpha=1.0):
+    def __init__(self, ratio=0, color=0, alpha=1.0):
         self.ratio = ratio
         self.color = RGBA(color, alpha)
 
@@ -492,21 +558,69 @@ class GradRecord(object):
         bits += self.color.serialize()
         return bits
 
-class Gradient(object):
+    def parse(self, bits):
+        self.ratio = bits.read_int_value(8)
+        self.color = RGBA()
+        self.color.parse(bits)
 
-    def __init__(self, grads, spread="pad", interpolation="rgb", focalpoint=0):
+class Gradient(object):
+    has_focal = False
+    def __init__(self, grads=[], spread="pad", interpolation="rgb"):
         import operator
         grads.sort(key=operator.attrgetter("ratio"))
         self.grads = grads
         self.spread = spread
         self.interpolation = interpolation
-        self.focalpoint = focalpoint
+        self.focalpoint = 0
+
+    def serialize(self):
+        spread = dict(pad=0, reflect=1, repeat=2).get(self.spread, 0)
+        interpolation = dict(rgb=0, linear=1).get(self.interpolation, 0)
+
+        bits = BitStream()
+        bits.write_int_value(spread, 2)
+        bits.write_int_value(interpolation, 2)
+
+        bits.write_int_value(len(self.grads), 4)
+        for grad in self.grads:
+            bits += grad.serialize()
+
+        if self.has_focal:
+            bits.write_fixed_value(self.focalpoint, 16, endianness="<")
+
+    def parse(self, bits):
+        self.spread = ["pad", "reflect", "repeat"][bits.read_int_value(2)]
+        self.interpolation = ["rgb", "linear"][bits.read_int_value(2)]
+
+        lst_len = bits.read_int_value(4)
+        for i in xrange(lst_len):
+            grad = GradRecord()
+            grad.parse(bits)
+            self.grads.append(grad)
+
+        if self.has_focal:
+            self.focalpoint = bits.read_fixed_value(16, endianness="<")
         
     @classmethod
     def from_begin_gradient_fill(cls, colors, alphas, ratios, spread, interpolation, focalpoint):
         grads = [GradRecord(*t) for t in zip(ratios, colors, alphas)]
         return cls(grads, spread, interpolation, focalpoint)
-    
+
+class FocalGradient(Gradient):
+    has_focal = True
+    def __init__(self, grads, spread="pad", interpolation="rgb", focalpoint=0):
+        super(FocalGradient, self).__init__(grads, spread, interpolation)
+        self.focalpoint = focalpoint
+
+class FillStyleLinearGradientFill(FillStyle):
+    TYPE = 0x10
+    def __init__(self, matrix, gradient):
+        self.matrix = matrix
+        self.gradient = gradient
+
+    def serialize_inner(self):
+        return self.matrix.serialize() + self.gradient.serialize()
+
 class StraightEdgeRecord(object):
 
     def __init__(self, delta_x, delta_y):
@@ -724,3 +838,21 @@ class StyleChangeRecord(object):
             bits.write_int_value(nbits(len(self.linestyles)), 4) # LineBits
 
         return bits
+
+    def parse(self, bits):
+        StateNewStyles  = bits.read_bit()
+        StateLineStyle  = bits.read_bit()
+        StateFillStyle1 = bits.read_bit()
+        StateFillStyle0 = bits.read_bit()
+        StateMoveTo     = bits.read_bit()
+
+        if StateMoveTo:
+            xy = XY()
+            xy.parse(bits)
+            self.delta_x, self.delta_y = xy.X, xy.Y
+
+        if StateFillStyle0:
+            pass
+
+        if StateFillStyle1:
+            pass

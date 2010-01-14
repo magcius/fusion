@@ -1,7 +1,7 @@
 
 import struct
 
-from mech.fusion.swf.records import RecordHeader, ShapeWithStyle, Matrix, CXForm
+from mech.fusion.swf.records import RecordHeader, ShapeWithStyle, Matrix, CXForm, RGB
 from mech.fusion.avm1.actions import Block
 from mech.fusion.util import BitStream
 from mech.fusion.avm2.abc_ import AbcFile
@@ -10,13 +10,24 @@ class SwfTag(object):
 
     TAG_TYPE = -1
     TAG_MIN_VERSION = -1
-
+    REVERSE_INDEX = {}
+    
+    def __init__(self):
+        SwfTag.REVERSE_INDEX[self.TAG_TYPE] = self
+    
     def serialize_data(self):
         return ""
     
     def serialize(self):
         data = self.serialize_data()
-        return RecordHeader(self.TAG_TYPE, len(data)).serialize().serialize(endianness="<") + data
+        return RecordHeader(self.TAG_TYPE, len(data)).serialize().serialize() + data
+
+    def parse_data(self, bitstream):
+        pass
+
+    def parse(self, bitstream):
+        recordheader = RecordHeader()
+        
 
 class SetBackgroundColor(SwfTag):
     
@@ -24,10 +35,10 @@ class SetBackgroundColor(SwfTag):
     TAG_MIN_VERSION = 1
 
     def __init__(self, color):
-        self.color = color
+        self.color = RGB(color)
 
     def serialize_data(self):
-        return struct.pack("<HB", (self.color >> 8) & 0xFFFF, self.color & 0xFF)
+        return self.color.serialize().serialize()
 
 class DoAction(SwfTag, Block):
 
@@ -51,7 +62,10 @@ class DoABC(SwfTag, AbcFile):
         self.flags = flags
     
     def serialize_data(self):
-        return struct.pack("<L", self.flags) + self.name + "\0" + AbcFile.serialize(self)
+        bits = BitStream()
+        bits.write_int_value(self.flags, 32)
+        bits.write_cstring(self.name)
+        return bits.serialize() + AbcFile.serialize(self)
 
 class DoABCDefine(SwfTag, AbcFile):
 
@@ -62,7 +76,7 @@ class DoABCDefine(SwfTag, AbcFile):
         AbcFile.__init__(self)
     
     def serialize_data(self):
-        return struct.pack("<L", self.flags) + self.name + "\0" + AbcFile.serialize(self)
+        return AbcFile.serialize(self)
     
 class SymbolClass(SwfTag):
 
@@ -73,12 +87,12 @@ class SymbolClass(SwfTag):
         self.symbols = symbols
 
     def serialize_data(self):
-        code = struct.pack("<H", len(self.symbols))
+        bits = BitStream()
+        bits.write_int_value(len(self.symbols), 16, endianness="<")
         for char_id, classname in self.symbols.iteritems():
-            c = struct.pack("<H", char_id)
-            code += struct.pack("<H", char_id)
-            code += classname + "\0"
-        return code
+            bits.write_int_value(char_id, 16, endianness="<")
+            bits.write_cstring(classname)
+        return bits.serialize()
 
 class DefineShape(SwfTag):
 
@@ -95,9 +109,15 @@ class DefineShape(SwfTag):
     def serialize_data(self):
         self.shapes.calculate_bounds()
         DefineShape._current_variant = self.TAG_VARIANT
-        bytes = struct.pack("<H", self.characterid) + (self.shapes.shape_bounds.serialize() + self.shapes.serialize()).serialize()
+        
+        bits = BitStream()
+        bits.write_int_value(self.characterid, 16, endianness="<")
+        
+        bits += self.shapes.shape_bounds.serialize()
+        bits += self.shapes.serialize()
+        
         DefineShape._current_variant = None
-        return bytes
+        return bits
 
 class DefineShape2(DefineShape):
     TAG_TYPE = 22
@@ -117,10 +137,13 @@ class DefineShape4(DefineShape):
 
     def serialize_data(self):
         self.shapes.calculate_bounds()
-        DefineShape._current_variant = 4
-        shapeidshort = struct.pack("<H", self.characterid)  # Shape ID
-        bits =  (self.shapes.shape_bounds.serialize() + # ShapeBounds Rect
-                 self.shapes.edge_bounds.serialize())   # EdgeBounds Rect
+        DefineShape._current_variant = self.TAG_VARIANT
+        
+        bits = BitStream()
+        bits.write_int_value(self.characterid, 16, endianness="<") # Shape ID
+        
+        bits += self.shapes.shape_bounds.serialize() # ShapeBounds Rect
+        bits += self.shapes.edge_bounds.serialize()  # EdgeBounds Rect
         
         bits.zero_fill(6) # Reserved
 
@@ -131,7 +154,7 @@ class DefineShape4(DefineShape):
         
         DefineShape._current_variant = None
 
-        return shapeidshort + bits.serialize()
+        return bits.serialize()
 
 class ShowFrame(SwfTag):
     TAG_TYPE = 1
@@ -145,9 +168,9 @@ class FileAttributes(SwfTag):
     def __init__(self, hasMetadata=False, useAS3=True, useNetwork=False):
         """
         Constructor.
-        @param hasMetadata	True if the SWF contains a metadata tag.
-        @param useAS3		True if the SWF uses ActionScript 3.0.
-        @param useNetwork	If true the SWF is given network access when
+        :param hasMetadata:	True if the SWF contains a metadata tag.
+        :param useAS3:		True if the SWF uses ActionScript 3.0.
+        :param useNetwork:	If true the SWF is given network access when
                                 loaded locally.  If false the SWF is given local access.
         """
         self.hasMetadata = hasMetadata
@@ -162,7 +185,7 @@ class FileAttributes(SwfTag):
         bits.zero_fill(2)
         bits.write_bit(self.useNetwork)
         bits.zero_fill(24)
-
+        
         return bits.serialize()
     
 class PlaceObject(SwfTag):
@@ -177,8 +200,14 @@ class PlaceObject(SwfTag):
         self.colortransform = colortransform or CXForm()
 
     def serialize_data(self):
-        return (struct.pack("<HH", self.shapeid, self.depth) +
-                (self.transform.serialize() + self.colortransform.serialize()).serialize())
+        bits = BitStream()
+        bits.write_int_value(self.shapeid, 16, endianness="<")
+        bits.write_int_value(self.depth, 16, endianness="<")
+        
+        bits += self.transform.serialize()
+        bits += self.colortransform.serialize()
+        
+        return bits.serialize()
 
 class PlaceObject2(PlaceObject):
 
@@ -193,25 +222,28 @@ class PlaceObject2(PlaceObject):
         self.colortransform = colortransform
     
     def serialize_data(self):
-        flags = BitStream()
-        flags.write_bit(False) # HasClipActions
-        flags.write_bit(False) # HasClipDepth
-        flags.write_bit(self.name is not None) # HasName
-        flags.write_bit(False) # HasRatio
-        flags.write_bit(self.colortransform is not None)
-        flags.write_bit(self.transform is not None)
-        flags.write_bit(True)  # HasCharacter
-        flags.write_bit(False) # FlagMove
-        
-        bytes = flags.serialize() + struct.pack("<HH", self.depth, self.shapeid)
         bits = BitStream()
+        bits.write_bit(False) # HasClipActions
+        bits.write_bit(False) # HasClipDepth
+        bits.write_bit(self.name is not None) # HasName
+        bits.write_bit(False) # HasRatio
+        bits.write_bit(self.colortransform is not None)
+        bits.write_bit(self.transform is not None)
+        bits.write_bit(True)  # HasCharacter
+        bits.write_bit(False) # FlagMove
+        
+        bits.write_int_value(self.depth, 16, endianness="<")
+        bits.write_int_value(self.shapeid, 16, endianness="<")
+        
         if self.name is not None:
-            bytes += self.name + "\0"
+            bits.write_cstring(self.name)
+        
         if self.transform is not None:
             bits += self.transform.serialize()
         if self.colortransform is not None:
             bits += self.colortransform.serialize()
-        return bytes + bits.serialize()
+        
+        return bits.serialize()
 
 class DefineEditText(SwfTag):
 
@@ -246,60 +278,69 @@ class DefineEditText(SwfTag):
         self.wasstatic   = False
 
     def serialize_data(self):
-        bits = self.rect.serialize()
+        bits = BitStream()
+        bits.write_int_value(self.characterid, 16, endianness="<")
+
+        print bits
+        bits += self.rect.serialize()
+        print bits
         bits.flush()
-        print len(bits)
-        bits.write_bit(self.text != "")
-        bits.write_bit(self.wordwrap)
-        bits.write_bit(self.multiline)
-        bits.write_bit(self.password)
-        bits.write_bit(self.readonly)
-        bits.write_bit(self.color is not None)
-        bits.write_bit(self.maxlength is not None)
-        bits.write_bit(self.font is not None)
-        bits.write_bit(self.fontclass is not None)
-        bits.write_bit(self.autosize)
-        bits.write_bit(self.layout is not None)
-        bits.write_bit(not self.selectable)
-        bits.write_bit(self.border)
-        bits.write_bit(self.wasstatic)
-        bits.write_bit(self.isHTML)
-        bits.write_bit(self.outlines)
-        print self.color is not None
         print bits
         
-        bytes = struct.pack("<H", self.characterid) + bits.serialize()
+        flags = BitStream()
+        flags.write_bit(self.text != "")
+        flags.write_bit(self.wordwrap)
+        flags.write_bit(self.multiline)
+        flags.write_bit(self.password)
+        flags.write_bit(self.readonly)
+        flags.write_bit(self.color is not None)
+        flags.write_bit(self.maxlength is not None)
+        flags.write_bit(self.font is not None)
+        
+        flags.write_bit(self.fontclass is not None)
+        flags.write_bit(self.autosize)
+        flags.write_bit(self.layout is not None)
+        flags.write_bit(not self.selectable)
+        flags.write_bit(self.border)
+        flags.write_bit(self.wasstatic)
+        flags.write_bit(self.isHTML)
+        flags.write_bit(self.outlines)
+        
+        bits += flags
+        print flags
+        print bits
+        
         if self.font is not None:
-            bytes += struct.pack("<H", self.font.id) # Doesn't exist yet.
+            bits.write_int_value(self.font.id, 16, endianness="<") # Doesn't exist yet.
         if self.fontclass is not None:
-            bytes += self.fontclass + "\0"
+            bits.write_cstring(self.fontclass)
         if self.font is not None:
-            bytes += struct.pack("<H", self.size * 20)
+            bits.write_int_value(self.size, 16, endianness="<")
             
         if self.color is not None:
-            bytes += self.color.serialize().serialize()
+            bits += self.color.serialize()
         if self.maxlength is not None:
-            bytes += struct.pack("<H", self.maxlength)
+            bits.write_int_value(self.maxlength, 16, endianness="<")
         if self.layout is not None:
-            bytes += self.layout.serialize() # Doesn't exist yet.
+            bits += self.layout.serialize() # Doesn't exist yet.
 
-        bytes += self.variable + "\0"
+        print len(bits)
+        bits.flush()
+        bits.write_cstring(self.variable)
 
         if self.text != "":
-            bytes += self.text + "\0"
+            bits.write_cstring(self.text)
 
-        return bytes
+        print self.variable
+        print repr(bits.serialize())
+        
+        return bits.serialize()
         
 class End(SwfTag):
 
     TAG_TYPE = 0
     TAG_MIN_VERSION = 0
-
-    def __call__(self):
-        return self
     
     def serialize(self):
         return "\0\0"
-
-End = End()
 

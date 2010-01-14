@@ -48,8 +48,7 @@ class BitStream(object):
                          (isinstance(b, str) and b.strip() != "") or not \
                          isinstance(b, str)]
         self.cursor = 0
-        self.chunks = set((0,))
-    
+        
     def read_bit(self):
         """
         Reads a bit from the bit stream and returns it as either True or False.
@@ -62,7 +61,7 @@ class BitStream(object):
         :rtype: bool
         :raises IndexError: when reading past the end of the stream.
         """
-        if self.cursor + 1 > len(self):
+        if self.bits_available() < 1:
             raise IndexError("Attempted to read off the end of the BitStream")
         
         self.cursor += 1
@@ -85,7 +84,7 @@ class BitStream(object):
             self.bits.append(bool(value))
         self.cursor += 1
 
-    def read_bits(self, length):
+    def read_bits(self, length, endianness=">"):
         """
         Reads length bits and return them in their own bit stream.
         
@@ -98,14 +97,19 @@ class BitStream(object):
         :param length: the length of the BitStream that should be returned
         :type length:  an integer
         :raises IndexError: when reading past the end of the stream.
+        :param endianness: if "<", string is reversed.
+        :type endianness:  anything, either equal to "<" or not
         """
-        if self.cursor + length > len(self):
+        if length > self.bits_available():
             raise IndexError("Attempted to read off the end of the BitStream")
         
-        self.cursor += length
-        return BitStream(self.bits[self.cursor-length:self.cursor])
+        bits = BitStream()
+        bits.write_int_value(self.read_int_value(length),
+                             length, endianness=endianness)
+        bits.cursor = 0
+        return bits
 
-    def write_bits(self, bits, offset=0, length=None):
+    def write_bits(self, bits, offset=0, length=None, endianness=">"):
         """
         Writes *length* bits from bits to this bit stream, starting
         reading at *offset*. If *length*  is 0 or omitted, the entire
@@ -122,60 +126,170 @@ class BitStream(object):
         :type offset:  an integer
         :param length: the length of bits that should be read from *bits*
         :type length:  an integer or None
+        :param endianness: if "<", string is reversed.
+        :type endianness:  anything, either equal to "<" or not
         """
         if not length:
-            length = len(bits)
-
-        if length > self.bits_available():
-            for i in range(length - self.bits_available()):
-                self.bits.append(False)
+            length = len(bits) - offset
         
-        self.bits[self.cursor:self.cursor+length] = (bool(x) for x in bits[offset:offset+length])
-        self.cursor += length
+        value = BitStream(bits[offset:offset+length]).read_int_value(length)
+        self.write_int_value(value, length, endianness=endianness)
 
-    def read_int_value(self, length):
+    def read_string(self, length, endianness=">"):
+        """
+        Read and return a string of *length* **bytes** (not bits).
+
+        If endianness is "<", then the string is reversed
+        before it is returned.
+
+        .. seealso
+        
+           :meth:`write_string`
+              The writing equivalent of this method.
+
+        :rtype: a bytestring
+        :param length: how many bytes to read
+        :type length:  an integer
+        :param endianness: if "<", string is reversed.
+        :type endianness:  anything, either equal to "<" or not
+        """
+        buffer = ''.join(chr(self.read_int_value(8)) for i in xrange(length))
+        if endianness == "<":
+            return buffer[::-1]
+        return buffer
+
+    def write_string(self, string, endianness=">"):
+        """
+        Writes *string* to the BitStream as if with bytes.
+
+        If endianness is "<", then the string is reversed
+        before writing.
+        
+        .. seealso
+
+           :meth:`read_string`
+              The reading equivalent of this method.
+
+        :param string: the string to write
+        :type string:  an iterable of characters
+        :param endianness: if "<", string is reversed.
+        :type endianness:  anything, either equal to "<" or not
+        """
+        if endianness == "<":
+            string = reversed(string)
+        for c in string:
+            self.write_int_value(ord(c), 8)
+
+    def read_cstring(self, endianness=">"):
+        """
+        Reads a C string (a string ended by a NUL or "\0").
+
+        .. seealso
+
+           :meth:`write_cstring`
+              The writing equivalent of this method.
+        
+        :rtype: a string
+        :raises ValueError: if no NUL character was found while reading
+        """
+        buffer = ""
+        s = ""
+        while s != "\0":
+            buffer += s
+            try:
+                s = self.read_string(1)
+            except IndexError:
+                raise ValueError("Exhausted BitStream while trying to find NUL.")
+        
+        return buffer
+
+    def write_cstring(self, string):
+        """
+        Writes a C string (a string ended by a NUL or "\0").
+
+        .. seealso
+
+           :meth:`read_cstring`
+              The reading equivalent of this method.
+        
+        :param string: the string to write
+        :type string:  an iterable of characters
+        """
+        self.write_string(string)
+        self.zero_fill(9)
+        
+    def read_int_value(self, length, endianness=">"):
         """
         Read *length* bits and return a number in twos-complement form,
         with the last bit read being the least significant bit.
 
+        Example with endianness:
+        
+        >>> bits = BitStream()
+        >>> bits.write_string("\xDD\xEE\xFF", endianness="<")
+        >>> bits.rewind()
+        >>> bits.read_int_value(24, endianness=">") == 0xFFEEDD
+        True
+        
         .. seealso
 
            :meth:`write_int_value`
               The writing equivalent of this method.
 
-           `Wikipedia: Two's complement <http://en.wikipedia.org/wiki/Two%27s_complement>`_
+           `Wikipedia: Two's complement
+           <http://en.wikipedia.org/wiki/Two%27s_complement>`_
               Has information on the two's complement number system.
         
         :rtype: an integer
-        :raises IndexError: when reading past the end of the stream.
         :param length: the amount of bits to be read
         :type length:  an integer
+        :param endianness: the byte-endianness to read
+        :type endianness:  anything, either equal to "<" or not
+        :raises IndexError: when reading past the end of the stream.
         """
-        if self.cursor + length > len(self):
+        if length > self.bits_available():
             raise IndexError("Attempted to read off the end of the BitStream")
         
         n = 0
+        
         for i in reversed(xrange(length)):
+            if endianness == "<":
+                i = (length/8 - i/8 - 1)*8 + i%8
             n |= self.read_bit() << i
+        
         return n
     
-    def write_int_value(self, value, length=None):
+    def write_int_value(self, value, length=None, endianness=">"):
         """
         Writes *value* to the specified number of bits in the stream,
         the most significant bit first. If *length* is omitted or 0,
         the log base 2 of value is taken.
-
+        
+        >>> bits = BitStream()
+        >>> bits.write_int_value(7, length=10)
+        >>> str(bits)
+        "00000111"
+        >>> bits.rewind()
+        >>> bits.write_int_value(0xDDEEFF, endianness="<")
+        >>> bits.rewind()
+        >>> bits.read_string(3, endianness=">") == "\xFF\xEE\xDD"
+        True
+        
         .. seealso
 
            :meth:`read_int_value`
               The reading equivalent of this method.
 
-           `Wikipedia: Two's complement <http://en.wikipedia.org/wiki/Two%27s_complement>`_
+           `Wikipedia: Two's complement
+           <http://en.wikipedia.org/wiki/Two%27s_complement>`_
               Has information on the two's complement number system.
         
         :param value: the value to be written to this stream
         :type value:  an integer
         :param length: the amount of bits
+        :type length:  an integer
+        :param endianness: the byte-endianness to write
+        :type endianness:  anything, either equal to "<" or not
         :raises ValueError: when length is not enough to serialize value
         """
 
@@ -187,15 +301,18 @@ class BitStream(object):
             # Length is not large enough
             raise ValueError(("length of %d is not large"
                              " enough to store %d") % (length, value))
-        self.chunk()
+        
         for i in reversed(xrange(length)):
+            if endianness == "<":
+                i = (length/8 - i/8 - 1)*8 + i%8
             self.write_bit(value & (1 << i))
     
-    def read_fixed_value(self, eight_bit):
+    def read_fixed_value(self, length, endianness=">"):
         """
         Reads a fixed point number, either 8.8 or 16.16.
-        If eight_bit is True, an 8.8 format is used instead of a
-        16.16 format.
+        
+        If length is 16, an 8.8 format is used.
+        If length is 32, a 16.16 format is used.
 
         .. seealso
 
@@ -205,18 +322,22 @@ class BitStream(object):
            `SWF specification v10 <http://www.adobe.com/devnet/swf/>`_
               Has information on fixed-point values.
         
-        :rype: a float
-        :param eight_bit: should 8.8 fixed format be used?
-        :type eight_bit:  a boolean
+        :rtype: a float
+        :param length: either 8 or 16
+        :param endianness: the byte-endianness to write
+        :type endianness:  anything, either equal to "<" or not
         """
-        return self.read_int_value(8 if eight_bit else 16) / \
-            float(0x100 if eight_bit else 0x10000)
+        if length not in (16, 32):
+            raise ValueError("Fixed values must be of length 16 (8.8) or length 32 (16.16)")
+        return self.read_int_value(length) / \
+            float({8: 0x100, 16: 0x10000}[length], endianness=endianness)
 
-    def write_fixed_value(self, value, eight_bit):
+    def write_fixed_value(self, value, length, endianness=">"):
         """
         Writes a fixed point number, decimal part first.
-        If eight_bit is True, an 8.8 format is used instead of a
-        16.16 format.
+
+        If length is 16, an 8.8 format is used.
+        If length is 32, a 16.16 format is used.
 
         .. seealso:
 
@@ -228,11 +349,14 @@ class BitStream(object):
 
         :param value: the number to be written
         :type value:  a float
-        :param eight_bit: should 8.8 fixed format be used?
-        :type eight_bit:  a boolean
+        :param length: either 8 or 16
+        :param endianness: the byte-endianness to write
+        :type endianness:  anything, either equal to "<" or not
         """
-        self.write_int_value(value * float(0x100 if eight_bit else 0x10000),
-                             8 if eight_bit else 16)
+        if length not in (16, 32):
+            raise ValueError("Fixed values must be of length 16 (8.8) or length 32 (16.16)")
+        self.write_int_value(value * float({8: 0x100, 16: 0x10000}[length]),
+                             length, endianness=endianness)
 
     # Precalculated, see the Wikipedia links below.
     _EXPN_BIAS = {16: 16, 32: 127, 64: 1023}
@@ -240,7 +364,7 @@ class BitStream(object):
     _N_FRAC_BITS = {16: 10, 32: 23, 64: 52}
     _FLOAT_NAME = {16: "float16", 32: "float", 64: "double"}
 
-    def read_float_value(self, length):
+    def read_float_value(self, length, endianness=">"):
         """
         Reads a floating point number of *length*, which must
         be 16 (float16), 32 (float) or 64 (double).
@@ -250,7 +374,8 @@ class BitStream(object):
            :meth:`write_float_value`
               The writing equivalent of this method.
 
-           `Wikipedia article on floating-point <http://en.wikipedia.org/wiki/IEEE_floating-point_standard>`_
+           `Wikipedia: IEEE floating-point standard
+           <http://en.wikipedia.org/wiki/IEEE_floating-point_standard>`_
               A good overview article of the IEEE floating-point standard, from Wikipedia.
         
         .. warning: Flash's float16 exponent bias is 16, not 15.
@@ -260,15 +385,17 @@ class BitStream(object):
         """
 
         if length not in self._FLOAT_NAME:
-            raise ValueError, "length is not 16, 32 or 64."
+            raise ValueError("length is not 16, 32 or 64.")
+
+        bits = self.read_bits(length, endianness=endianness)
         
-        sign = self.read_bit()
+        sign = bits.read_bit()
         
         expn_len = self._N_EXPN_BITS[length]
         frac_len = self._N_FRAC_BITS[length]
         
-        expn = self.read_int_value(expn_len)
-        frac = self.read_int_value(frac_len)
+        expn = bits.read_int_value(expn_len)
+        frac = bits.read_int_value(frac_len)
 
         bias = expn - self._EXPN_BIAS[length]
         
@@ -298,7 +425,8 @@ class BitStream(object):
            :meth:`read_float_value`
               The reading equivalent of this method.
 
-           `Wikipedia article on floating-point <http://en.wikipedia.org/wiki/IEEE_floating-point_standard>`_
+           `Wikipedia: IEEE floating-point standard
+           <http://en.wikipedia.org/wiki/IEEE_floating-point_standard>`_
               A good overview article of the IEEE floating-point standard, from Wikipedia.
         
         .. warning: Flash's float16 exponent bias is 16, not 15.
@@ -316,68 +444,68 @@ class BitStream(object):
         
         if value == 0: # value is zero, so we don't care about length
             self.write_int_value(0, length)
-        
+
+        bits = BitStream()
+            
         if isnan(value):
             self.one_fill(length)
             return
         elif value == float("-inf"): # negative infinity
-            self.one_fill(BitStream._N_EXPN_BITS[length] + 1) # sign merged
-            self.zero_fill(BitStream._N_FRAC_BITS[length])
-            return
+            bits.one_fill(BitStream._N_EXPN_BITS[length] + 1) # sign merged
+            bits.zero_fill(BitStream._N_FRAC_BITS[length])
         elif value == float("inf"): # positive infinity
-            self.write_bit(False)
-            self.one_fill(BitStream._N_EXPN_BITS[length])
-            self.zero_fill(BitStream._N_FRAC_BITS[length])
-            return
-
-        if value < 0:
-            self.write_bit(True)
-            value = ~value + 1
+            bits.write_bit(False)
+            bits.one_fill(BitStream._N_EXPN_BITS[length])
+            bits.zero_fill(BitStream._N_FRAC_BITS[length])
         else:
-            self.write_bit(False)
+            if value < 0:
+                bits.write_bit(True)
+                value = ~value + 1
+            else:
+                bits.write_bit(False)
+                
+            exp = BitStream._EXPN_BIAS[length]
+            if value < 1:
+                while int(value) != 1:
+                    value *= 2
+                    exp -= 1
+            else:
+                while int(value) != 1:
+                    value /= 2
+                    exp += 1
+            
+            if exp < 0 or exp > ( 1 << BitStream._N_EXPN_BITS[length] ):
+                raise ValueError("Exponent out of range in %s [%d]." %
+                                 (BitStream._FLOAT_NAME[length], length))
+
+            frac_total = 1 << BitStream._N_FRAC_BITS[length]
+            bits.write_int_value(exp, BitStream._N_EXPN_BITS[length])
+            bits.write_int_value(int((value-1)*frac_total) & (frac_total - 1),
+                                 BitStream._N_FRAC_BITS[length])
+
+    def _fill(self, amount, value):
+        n = self.bits_available()
+        if amount > n:
+            self.bits[self.cursor:] = [value] * n
+            self.bits += [value] * (amount - n)
+        else:
+            self.bits[self.cursor:self.cursor+amount] = [value] * amount
+        self.cursor += amount
         
-        exp = BitStream._EXPN_BIAS[length]
-        if value < 1:
-            while int(value) != 1:
-                value *= 2
-                exp -= 1
-        else:
-            while int(value) != 1:
-                value /= 2
-                exp += 1
-
-        if exp < 0 or exp > ( 1 << BitStream._N_EXPN_BITS[length] ):
-            raise ValueError, "Exponent out of range in %s [%d]." % (BitStream._FLOAT_NAME[length], length)
-
-        frac_total = 1 << BitStream._N_FRAC_BITS[length]
-        self.write_int_value(exp, BitStream._N_EXPN_BITS[length])
-        self.write_int_value(int((value-1)*frac_total) & (frac_total - 1), BitStream._N_FRAC_BITS[length])
-
-    
     def one_fill(self, amount):
         """
         Fills amount bits with one. The equivalent of calling
-        self.write_boolean(True) amount times, but more efficient.
+        self.write_bit(True) amount times, but more efficient.
         """
-
-        if amount > self.bits_available():
-            self.bits += [True] * (amount - self.bits_available())
-        
-        self.bits[self.cursor:self.cursor+amount] = [True] * amount
-        self.cursor += amount
+        self._fill(amount, True)
         
     def zero_fill(self, amount):
         """
         Fills amount bits with zero. The equivalent of calling
-        self.write_boolean(False) amount times, but more efficient.
+        self.write_bit(False) amount times, but more efficient.
         """
-        
-        if amount > self.bits_available():
-            self.bits += [False] * (amount - self.bits_available())
-        
-        self.bits[self.cursor:self.cursor+amount] = [False] * amount
-        self.cursor += amount
-        
+        self._fill(amount, False)
+    
     def seek(self, offset, whence=os.SEEK_SET):
         """
         Standard file protocol *seek* method.
@@ -399,13 +527,13 @@ class BitStream(object):
         """
         Seek to the beginning of the stream.
         """
-        self.seek(0, os.SEEK_SET)
+        self.cursor = 0
         
     def skip_to_end(self):
         """
         Seek to the end of the stream.
         """
-        self.seek(0, os.SEEK_END)
+        self.cursor = len(self.bits)
 
     def bits_available(self):
         """
@@ -421,25 +549,17 @@ class BitStream(object):
         This sets the cursor to the end of the stream.
         """
         self.skip_to_end()
-        if len(self) % 8:
-            self.zero_fill(8 - (len(self) % 8))
-
-    def chunk(self):
-        """
-        Internal method to handle endianness.
-
-        This will probably be replaced soon.
-        """
-        self.chunks.add(int(ceil(self.cursor / 8.)))
+        if len(self.bits) % 8:
+            self.zero_fill(8 - (len(self.bits) % 8))
 
     def __iter__(self):
         return iter(self.bits)
 
     def __eq__(self, other):
-        return list(self) == list(other)
+        return self.bits == list(other)
 
     def __ne__(self, other):
-        return list(self) != list(other)
+        return self.bits != list(other)
     
     def __len__(self):
         return len(self.bits)
@@ -448,7 +568,7 @@ class BitStream(object):
         return self.bits[i]
 
     def __setitem__(self, i, v):
-        self.bits[i] = v
+        self.bits[i] = bool(v)
     
     def __str__(self):
         return "".join("1" if b else "0" for b in self.bits)
@@ -463,14 +583,13 @@ class BitStream(object):
         self.write_bits(bits)
         return self
     
-    def serialize(self, align=ALIGN_LEFT, endianness=None):
+    def serialize(self, align=ALIGN_LEFT):
         """
         Serialize bit array into a byte string, aligning either
-        on the right (ALIGN_RIGHT) or left (ALIGN_LEFT). Endianness
-        can also be "<" for little-endian modes.
+        on the right (ALIGN_RIGHT) or left (ALIGN_LEFT).
         """
         lst = self.bits[:]
-        leftover = len(lst) % 8
+        numbytes, leftover = divmod(len(lst), 8)
         if leftover > 0:
             if align == ALIGN_RIGHT:
                 # Insert some False values to pad the list
@@ -478,21 +597,5 @@ class BitStream(object):
                 lst[:0] = [False] * (8-leftover)
             else:
                 lst += [False] * (8-leftover)
-        
-        lst = BitStream(lst)
-        tmp = [lst.read_int_value(8) for i in xrange(int(ceil(len(lst)/8.)))]
-        
-        bytes = [None] * len(tmp)
-        if endianness == "<":
-            m = sorted(self.chunks) + [len(tmp)]
-            for start, end in zip(m, m[1:]):
-                bytes[start:end] = tmp[end-1:None if start == 0 else start-1:-1]
-        else:
-            bytes = tmp
-        return ''.join(chr(b) for b in bytes)
-
-    def parse(self, string):
-        """Parse a bit array from a byte string into this BitStream."""
-        for char in string:
-            self.write_int_value(ord(char), 8)
-    
+            numbytes += 1
+        return BitStream(lst).read_string(numbytes)
