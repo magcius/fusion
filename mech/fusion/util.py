@@ -188,6 +188,7 @@ class BitStream(object):
         :rtype: a string
         :raises ValueError: if no NUL character was found while reading
         """
+        cursor = self.cursor
         buffer = ""
         s = ""
         while s != "\0":
@@ -195,6 +196,7 @@ class BitStream(object):
             try:
                 s = self.read_string(1)
             except IndexError:
+                self.cursor = cursor
                 raise ValueError("Exhausted BitStream while trying to find NUL.")
         
         return buffer
