@@ -5,6 +5,8 @@
 *.hg*
 *.bzr*
 *.pyc
+*.abc
+*.swf
 MANIFEST
 build
 dist
