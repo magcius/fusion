@@ -158,7 +158,7 @@ class BitStream(object):
             return buffer[::-1]
         return buffer
 
-    def write_string(self, string, endianness=">"):
+    def write_string(self, string):
         """
         Writes *string* to the BitStream as if with bytes.
 
@@ -172,15 +172,11 @@ class BitStream(object):
 
         :param string: the string to write
         :type string:  an iterable of characters
-        :param endianness: if "<", string is reversed.
-        :type endianness:  anything, either equal to "<" or not
         """
-        if endianness == "<":
-            string = reversed(string)
         for c in string:
             self.write_int_value(ord(c), 8)
 
-    def read_cstring(self, endianness=">"):
+    def read_cstring(self):
         """
         Reads a C string (a string ended by a NUL or "\0").
 
@@ -216,7 +212,7 @@ class BitStream(object):
         :type string:  an iterable of characters
         """
         self.write_string(string)
-        self.zero_fill(9)
+        self.zero_fill(8)
         
     def read_int_value(self, length, endianness=">"):
         """

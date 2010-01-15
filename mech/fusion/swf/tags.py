@@ -323,16 +323,11 @@ class DefineEditText(SwfTag):
             bits.write_int_value(self.maxlength, 16, endianness="<")
         if self.layout is not None:
             bits += self.layout.serialize() # Doesn't exist yet.
-
-        print len(bits)
-        bits.flush()
+            
         bits.write_cstring(self.variable)
 
         if self.text != "":
             bits.write_cstring(self.text)
-
-        print self.variable
-        print repr(bits.serialize())
         
         return bits.serialize()
         
