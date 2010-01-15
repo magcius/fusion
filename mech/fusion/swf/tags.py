@@ -1,10 +1,16 @@
 
-import struct
-
 from mech.fusion.swf.records import RecordHeader, ShapeWithStyle, Matrix, CXForm, RGB
 from mech.fusion.avm1.actions import Block
 from mech.fusion.util import BitStream
 from mech.fusion.avm2.abc_ import AbcFile
+
+def parse_tag(bitstream):
+    recordheader = RecordHeader()
+    recordheader.parse(bitstream)
+    cls = SwfTag.REVERSE_INDEX[recordheader.type]
+    tag = cls()
+    tag.parse_data(bitstream.read_bits(recordheader.length))
+    return tag
 
 class SwfTag(object):
 
@@ -23,22 +29,21 @@ class SwfTag(object):
         return RecordHeader(self.TAG_TYPE, len(data)).serialize().serialize() + data
 
     def parse_data(self, bitstream):
-        pass
-
-    def parse(self, bitstream):
-        recordheader = RecordHeader()
-        
+        raise NotImplementedError
 
 class SetBackgroundColor(SwfTag):
     
     TAG_TYPE = 9
     TAG_MIN_VERSION = 1
 
-    def __init__(self, color):
+    def __init__(self, color=0):
         self.color = RGB(color)
 
     def serialize_data(self):
         return self.color.serialize().serialize()
+
+    def parse_data(self, bits):
+        self.color.parse(bits)
 
 class DoAction(SwfTag, Block):
 
@@ -83,8 +88,8 @@ class SymbolClass(SwfTag):
     TAG_TYPE = 76
     TAG_MIN_VERSION = 9
 
-    def __init__(self, symbols):
-        self.symbols = symbols
+    def __init__(self, symbols=None):
+        self.symbols = symbols or {}
 
     def serialize_data(self):
         bits = BitStream()
@@ -93,6 +98,12 @@ class SymbolClass(SwfTag):
             bits.write_int_value(char_id, 16, endianness="<")
             bits.write_cstring(classname)
         return bits.serialize()
+
+    def parse_data(self, bits):
+        length = bits.read_int_value(16, endianness="<")
+        for i in xrange(length):
+            char_id = bits.read_int_value(16)
+            self.symbols[char_id] = bits.read_cstring()
 
 class DefineShape(SwfTag):
 
