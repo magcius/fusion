@@ -12,19 +12,37 @@ def parse_tag(bitstream):
     tag.parse_data(bitstream.read_bits(recordheader.length))
     return tag
 
+
+class SwfTagMeta(type):
+    def __init__(cls, name, bases, dct):
+        SwfTag.REVERSE_INDEX[dct['TAG_TYPE']] = cls
+
 class SwfTag(object):
+    """
+    The base class for defining SWF tags.
+
+    You should never instantiate this class directly,
+    instead use one of its subclasses.
+    """
+
+    __metaclass__ = SwfTagMeta
 
     TAG_TYPE = -1
     TAG_MIN_VERSION = -1
     REVERSE_INDEX = {}
-    
-    def __init__(self):
-        SwfTag.REVERSE_INDEX[self.TAG_TYPE] = self
-    
+
     def serialize_data(self):
+        """
+        Return the internal data of a tag.
+
+        This should not include a RecordHeader.
+        """
         return ""
     
     def serialize(self):
+        """
+        Return a bytestring containing the appropriate structures of the tag.
+        """
         data = self.serialize_data()
         return RecordHeader(self.TAG_TYPE, len(data)).serialize().serialize() + data
 
@@ -32,14 +50,29 @@ class SwfTag(object):
         raise NotImplementedError
 
 class SetBackgroundColor(SwfTag):
-    
+
     TAG_TYPE = 9
     TAG_MIN_VERSION = 1
 
     def __init__(self, color=0):
+        """
+        Constructor.
+
+        :param color: the color to set the background to
+        :type color:  an integer, like 0xCCCCCC
+        """
         self.color = RGB(color)
 
     def serialize_data(self):
+        """
+        Serailizes this tag, according to the following format.
+        
+        =======  =========
+        Format   Parameter
+        =======  =========
+        RGB      color
+        =======  =========
+        """
         return self.color.serialize().serialize()
 
     def parse_data(self, bits):
@@ -51,9 +84,21 @@ class DoAction(SwfTag, Block):
     TAG_MIN_VERSION = 3
 
     def __init__(self):
+        """
+        Constructor.
+        """
         Block.__init__(self, None, True)
 
     def serialize_data(self):
+        """
+        Serailizes this tag, according to the following format.
+        
+        ============  ===========
+        Format        Parameter
+        ============  ===========
+        ACTION[...]   the actions
+        ============  ===========
+        """
         return Block.serialize(self)
 
 class DoABC(SwfTag, AbcFile):
@@ -62,11 +107,31 @@ class DoABC(SwfTag, AbcFile):
     TAG_MIN_VERSION = 9
 
     def __init__(self, name="Mecheye Fusion", flags=0):
+        """
+        Constructor.
+
+        :param name: the name for the ABC Block
+        :type name:  a string
+        :param flags: the flags for the ABC Block
+                      currently, that can be 1, which
+                      lazily inits the ABC Block
+        """
         AbcFile.__init__(self)
         self.name  = name
         self.flags = flags
     
     def serialize_data(self):
+        """
+        Serializes this tag, according to the following format.
+
+        =======  =========
+        Format   Parameter
+        =======  =========
+        U[32]    flags
+        CSTRING  name
+        ABC      abc file
+        =======  =========
+        """
         bits = BitStream()
         bits.write_int_value(self.flags, 32)
         bits.write_cstring(self.name)
@@ -78,9 +143,21 @@ class DoABCDefine(SwfTag, AbcFile):
     TAG_MIN_VERSION = 9
 
     def __init__(self):
+        """
+        Constructor.
+        """
         AbcFile.__init__(self)
     
     def serialize_data(self):
+        """
+        Serializes this tag, according to the following format.
+
+        =======  ==========
+        Format   Parameter
+        =======  ==========
+        ABC      abc file
+        =======  ==========
+        """
         return AbcFile.serialize(self)
     
 class SymbolClass(SwfTag):
@@ -89,9 +166,25 @@ class SymbolClass(SwfTag):
     TAG_MIN_VERSION = 9
 
     def __init__(self, symbols=None):
+        """
+        Constructor.
+
+        :param symbols: a dict mapping of character ids to class names
+        :type symbols: a dict
+        """
         self.symbols = symbols or {}
 
     def serialize_data(self):
+        """
+        Serializes this tag, according to the following format.
+        
+        =======  =============
+        Format   Parameter
+        =======  =============
+        U[16]    character id
+        CSTRING  classsname
+        =======  =============
+        """
         bits = BitStream()
         bits.write_int_value(len(self.symbols), 16, endianness="<")
         for char_id, classname in self.symbols.iteritems():
@@ -114,6 +207,11 @@ class DefineShape(SwfTag):
     _current_variant = None
     
     def __init__(self, shapes=None, characterid=None):
+        """
+        Constructor.
+
+        :param shapes:
+        """
         self.shapes = ShapeWithStyle() if shapes is None else shapes
         self.characterid = characterid
 

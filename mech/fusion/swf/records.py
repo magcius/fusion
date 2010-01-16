@@ -1,5 +1,6 @@
 
 from mech.fusion.util import BitStream, nbits, nbits_signed, clamp
+from math import sqrt
 
 def serialize_style_list(lst):
     bits = BitStream()
@@ -15,7 +16,7 @@ def serialize_style_list(lst):
 
     return bits
 
-def parse_style_list(bits, type):
+def parse_style_list(bits):
     bits = BitStream()
     lst_len = bits.read_int_value(8)
     if lst_len == 0xFF:
@@ -38,6 +39,16 @@ class RecordHeader(object):
         self.length = length
 
     def serialize(self):
+        """
+        Serializes this record, according to the following format.
+
+        ====== =========
+        Format Parameter
+        ====== =========
+        U[10]  type
+        U[6]   length
+        ====== =========
+        """
         bits = BitStream()
         header = BitStream()
         header.write_int_value(self.type, 10)
@@ -58,8 +69,19 @@ class RecordHeader(object):
             self.length = bitstream.read_int_value(32, endianess="<")
 
 class _EndShapeRecord(object):
-
+    """
+    Don't worry about me ;)
+    """
     def serialize(self):
+        """
+        Serializes this record, according to the following format.
+
+        ====== =========
+        Format Parameter
+        ====== =========
+        U[6]   always 0
+        ====== =========
+        """
         bitstream = BitStream()
         bitstream.zero_fill(6)
         return bitstream
@@ -71,8 +93,18 @@ EndShapeRecord = _EndShapeRecord()
 
 
 class Rect(object):
-
+    """
+    Rect usually stores bounds or size in the SWF format.
+    """
     def __init__(self, XMin=0, XMax=0, YMin=0, YMax=0):
+        """
+        Constructor.
+
+        :param XMin: the minimum X of the bounds.
+        :param XMax: the maximum X of the bounds. should be equal to XMin + width
+        :param YMin: the minimum Y of the bounds.
+        :param YMax: the maximum Y of the bounds. should be equal to YMin + height
+        """
         self.XMin = XMin
         self.XMax = XMax
         self.YMin = YMin
@@ -88,6 +120,19 @@ class Rect(object):
         return r
     
     def serialize(self):
+        """
+        Serializes this record, according to the following format.
+
+        ======== =========
+        Format   Parameter
+        ======== =========
+        U[5]     NBits
+        S[NBits] XMin
+        S[NBits] XMax
+        S[NBits] YMin
+        S[NBits] YMax
+        ======== =========
+        """
         if self.XMin > self.XMax or self.YMin > self.YMax:
             raise ValueError, "Maximum values in a RECT must be larger than the minimum values."
 
@@ -121,18 +166,37 @@ class Rect(object):
         self.YMax = bitstream.read_int_value(NBits) / 20
 
 class XY(object):
-
+    """
+    XY usually stores a position in the SWF format.
+    """
     def __init__(self, X=0, Y=0):
-        self.X = 0
-        self.Y = 0
+        """
+        Constructor.
+
+        :param X: the x translation
+        :param Y: the y translation
+        """
+        self.X = X
+        self.Y = Y
 
     def serialize(self):
+        """
+        Serializes this record, according to the following format.
+
+        ======== =========
+        Format   Parameter
+        ======== =========
+        U[5]     NBits
+        S[NBits] X
+        S[NBits] Y
+        ======== =========
+        """
         # Convert to twips plz.
         twpX = self.X * 20
         twpY = self.Y * 20
 
         # Find the number of bits required to store the longest value.
-        NBits = nbits(twpX, twpY)
+        NBits = nbits_signed(twpX, twpY)
 
         bits = BitStream()
         bits.write_int_value(NBits, 5)
@@ -147,11 +211,29 @@ class XY(object):
         self.Y = bitstream.read_int_value(NBits) / 20
 
 class RGB(object):
-
+    """
+    RGB stores a color in the SWF format.
+    """
     def __init__(self, color):
+        """
+        Constructor.
+
+        :param color: something like 0xFFFFFF or 0xADCAFE
+        """
         self.color = color & 0xFFFFFF
 
     def serialize(self):
+        """
+        Serializes this record, according to the following format.
+
+        ====== ===========
+        Format Parameter
+        ====== ===========
+        U[8]   red value
+        U[8]   green value
+        U[8]   blue value
+        ====== ===========
+        """
         bits = BitStream()
         bits.write_int_value(self.color, 24)
         return bits
@@ -160,12 +242,30 @@ class RGB(object):
         self.color = bitstream.read_int_value(24)
 
 class RGBA(RGB):
-    
+    """
+    RGBA is an RGB object plus alpha.
+    """
     def __init__(self, color, alpha=1.0):
+        """
+        Constructor.
+
+        :param color: something like 0xFFFFFF or 0xADCAFE
+        :param alpha: the alpha. a value between 0.0 and 1.0
+        """
         super(RGBA, self).__init__(color)
         self.alpha = alpha
 
     def serialize(self):
+        """
+        ====== ===========
+        Format Parameter
+        ====== ===========
+        U[8]   red value
+        U[8]   green value
+        U[8]   blue value
+        U[8]   alpha value
+        ====== ===========
+        """
         bits = RGB.serialize(self)
         
         from mech.fusion.swf.tags import DefineShape
@@ -182,8 +282,26 @@ class RGBA(RGB):
         self.alpha = bitstream.read_int_value(8) / 0xFF
 
 class CXForm(object):
+    """
+    CXForm = ColorTransform
+    """
     has_alpha = False
     def __init__(self, rmul=1, gmul=1, bmul=1, radd=0, gadd=0, badd=0):
+        """
+        Constructor.
+
+        The multiplies are between 0.0 and 1.0
+
+        :param rmul: Red Multiply.
+        :param gmul: Green Multiply.
+        :param bmul: Blue Multiply.
+
+        The offsets are between -255 and 255.
+        
+        :param radd: Red Offset.
+        :param gadd: Green Offset.
+        :param badd: Blue Offset.
+        """
         self.rmul = rmul
         self.gmul = gmul
         self.bmul = bmul
@@ -194,6 +312,23 @@ class CXForm(object):
         self.aadd = 0
 
     def serialize(self):
+        """
+        Serializes this record, according to the following format.
+        
+        ========================= =============
+        Format                    Parameter
+        ========================= =============
+        U[1]                      HasAddTerms
+        U[1]                      HasMulTerms
+        U[4]                      NBits
+        if HasMulTerms, U[NBits]  RedMultiply
+        if HasMulTerms, U[NBits]  GreenMultiply
+        if HasMulTerms, U[NBits]  BlueMultiply
+        if HasAddTerms, U[NBits]  RedOffset
+        if HasAddTerms, U[NBits]  GreenOffset
+        if HasAddTerms, U[NBits]  BlueOffset
+        ========================= =============
+        """
         has_add_terms = self.radd != 0 or self.gadd != 0 or self.badd != 0 or self.aadd != 0
         has_mul_terms = self.rmul != 1 or self.gmul != 1 or self.bmul != 1 or self.amul != 1
         
@@ -209,7 +344,7 @@ class CXForm(object):
         
         NBits = 0
         if has_mul_terms: NBits = nbits(rm, gm, bm, am)
-        if has_add_terms: NBits = max(NBits, nbits(ro, go, bo, ao))
+        if has_add_terms: NBits = max(NBits, nbits_signed(ro, go, bo, ao))
         
         bits = BitStream()
         bits.write_bit(has_add_terms)
@@ -250,9 +385,31 @@ class CXForm(object):
 class CXFormWithAlpha(CXForm):
     has_alpha = True
     def __init__(self, rmul=1, gmul=1, bmul=1, amul=1, radd=0, gadd=0, badd=0, aadd=0):
-        super(self, CXFormWithAlpha).__init__(rmul, gmul, bmul, radd, gadd, badd)
+        super(CXFormWithAlpha, self).__init__(rmul, gmul, bmul, radd, gadd, badd)
         self.amul = amul
         self.aadd = aadd
+
+    def serialize(self):
+        """
+        Serializes this record, according to the following format.
+        
+        ========================= =============
+        Format                    Parameter
+        ========================= =============
+        U[1]                      HasAddTerms
+        U[1]                      HasMulTerms
+        U[4]                      NBits
+        if HasMulTerms, U[NBits]  RedMultiply
+        if HasMulTerms, U[NBits]  GreenMultiply
+        if HasMulTerms, U[NBits]  BlueMultiply
+        if HasMulTerms, U[NBits]  AlphaMultiply
+        if HasAddTerms, U[NBits]  RedOffset
+        if HasAddTerms, U[NBits]  GreenOffset
+        if HasAddTerms, U[NBits]  BlueOffset
+        if HasADdTerms, U[NBits]  AlphaOffset
+        ========================= =============
+        """
+        return super(CXFormWithAlpha, self).serialize()
 
 class Matrix(object):
     
@@ -260,7 +417,25 @@ class Matrix(object):
         self.a, self.b, self.c, self.d, self.tx, self.ty = a, b, c, d, tx, ty
 
     def serialize(self):
+        """
+        Serializes this record, according to the following format.
         
+        =================================== =============
+        Format                              Parameter
+        =================================== =============
+        U[1]                                HasScale
+        U[5]                                NScaleBits
+        if HasScale, U[NScaleBits]          ScaleX
+        if HasScale, U[NScaleBits]          ScaleY
+        U[1]                                HasRotate
+        U[5]                                NRotateBits
+        if HasScale, U[NRotateBits]         RotateSkew0
+        if HasScale, U[NRotateBits]         RotateSkew1
+        U[5]                                NTranslateBits
+        if HasScale, U[NTranslateBits]      TranslateX
+        if HasScale, U[NTranslateBits]      TranslateY
+        =================================== =============
+        """
         def write_prefixed_values(a, b):
             NBits = nbits(a, b)
             bits.write_int_value(NBits, 5)
@@ -318,19 +493,40 @@ class Shape(object):
         self.bounds_calculated = False
 
     def serialize(self):
+        """
+        Serializes this record, according to the following format.
+
+        ================= ============
+        Format            Parameter
+        ================= ============
+        
+        SHAPERECORD[...]  the shape records
+        U[24]             always 0
+        ================= ============
+        """
+        if not self.bounds_calculated:
+            self.calculate_bounds()
+        
         if EndShapeRecord not in self.shapes:
             self.shapes.append(EndShapeRecord)
 
         bits = BitStream()
-
-        bits.write_int_value(0, 8) # NumFillBits and NumLineBits
+        
+        bits += self.serialize_style()
         for record in self.shapes:
             bits += record.serialize()
 
         return bits
 
+    def serialize_style(self):
+        """
+        Serializes the style portion of this record.
+        """
+        bits = BitStream()
+        bits.zero_fill(8) # NumFillBits and NumLineBits
+        return bits
+    
     def calculate_bounds(self):
-
         if self.bounds_calculated:
             return
 
@@ -368,17 +564,13 @@ class ShapeWithStyle(Shape):
             self.strokes += shape.strokes
         except AttributeError:
             pass
-        
-    def serialize(self):
-        if EndShapeRecord not in self.shapes:
-            self.shapes.append(EndShapeRecord)
+    
+    def serialize_style(self):
         bits = BitStream()
         bits += serialize_style_list(self.fills)
         bits += serialize_style_list(self.strokes)
         bits.write_int_value(nbits(len(self.fills)), 4)
         bits.write_int_value(nbits(len(self.strokes)), 4)
-        for record in self.shapes:
-            bits += record.serialize()
         return bits
     
 class LineStyle(object):
@@ -395,13 +587,12 @@ class LineStyle(object):
     
     def serialize(self):
         bits = BitStream()
-        bits.write_int_value(self.width * 20, 16)
+        bits.write_int_value(self.width * 20, 16, endianness="<")
         bits += self.color.serialize()
         return bits
 
     def parse(self, bits):
-        bits.read_int_value(16)
-        self.color = RGBA()
+        self.width = bits.read_int_value(16, endianness="<")
         self.color.parse(bits)
 
 class LineStyle2(LineStyle):
