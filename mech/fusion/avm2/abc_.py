@@ -39,8 +39,8 @@ class AbcFile(BitStreamParseMixin):
     @classmethod
     def parse_bitstream(cls, bitstream):
 
-        assert bitstream.read_int_value(16, endianness="<") <= MINOR_VERSION, "newer version"
-        assert bitstream.read_int_value(16, endianness="<") <= MAJOR_VERSION, "newer version"
+        assert bitstream.read_int_value(16, endianness="<") <= MINOR_VERSION
+        assert bitstream.read_int_value(16, endianness="<") <= MAJOR_VERSION
         constants = AbcConstantPool.parse(bitstream)
         abc = cls(constants)
         
@@ -48,7 +48,7 @@ class AbcFile(BitStreamParseMixin):
             if length is None:
                 length = bitstream.read_u32()
             for i in xrange(length):
-                pool.value_at(info.parse(bitstream, abc, constants))
+                pool.index_for(info.parse(bitstream, abc, constants))
             return length
 
         L = read_pool(abc.methods,   AbcMethodInfo)
@@ -113,7 +113,9 @@ class AbcMethodInfo(object):
         options = None
         if flags & METHODFLAG_HasOptional:
             L = bitstream.read_u32()
-            options = [abc_to_py((bitstream.read_u32(), bitstream.read_int_value(8))) for i in xrange(L)]
+            options = [abc_to_py((bitstream.read_u32(),
+                                  bitstream.read_int_value(8)),
+                                 constants) for i in xrange(L)]
 
         param_names = None
         if flags & METHODFLAG_HasParamNames:
@@ -368,7 +370,16 @@ class AbcMethodBodyInfo(object):
     @classmethod
     def parse(cls, bitstream, abc, constants):
         minfo = abc.methods.value_at(bitstream.read_u32())
-        #assem = 
+        stack_depth_max  = bitstream.read_u32()
+        local_count      = bitstream.read_u32()
+        init_scope_depth = bitstream.read_u32()
+        scope_depth_max  = bitstream.read_u32()
+        code = Avm2CodeAssembler.parse(bitstream, abc, constants, local_count)
+        code._stack_depth_max = stack_depth_max
+        code._scope_depth_max = scope_depth_max
+
+        exceptions = [AbcException.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        traits     = [AbcTrait    .parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
     
     def serialize(self):
         code = ""
@@ -411,6 +422,13 @@ class AbcException(object):
         self.var_name = var_name
         self._var_name_index = None
 
+    @classmethod
+    def parse(cls, bitstream, abc, constants):
+        u = bitstream.read_u32
+        return cls(u(), u(), u(),
+                   constants.multiname_pool.value_at(u()),
+                   constants.utf8_pool.value_at(u()))
+    
     def serialize(self):
         code = ""
         code += s_u32(self.from_)

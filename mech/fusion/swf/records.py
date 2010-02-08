@@ -12,7 +12,7 @@ def serialize_style_list(lst):
         bits.write_int_value(len(lst), 16, endianness="<")
 
     for style in lst:
-        bits += style.serialize()
+        bits += style
 
     return bits
 
@@ -36,7 +36,7 @@ class RecordHeader(object):
         self.type = type
         self.length = length
 
-    def serialize(self):
+    def as_bits(self):
         """
         Serializes this record, according to the following format.
 
@@ -61,18 +61,18 @@ class RecordHeader(object):
 
     @classmethod
     def parse(cls, bitstream):
-        bits = bitstream.read_bits(16, endianess="<")
+        bits = bitstream.read_bits(16, endianness="<")
         type = bits.read_int_value(10)
         length = bits.read_int_value(6)
         if length >= 0x3F:
-            length = bitstream.read_int_value(32, endianess="<")
+            length = bitstream.read_int_value(32, endianness="<")
         return cls(type, length)
 
 class _EndShapeRecord(object):
     """
     Don't worry about me ;)
     """
-    def serialize(self):
+    def as_bits(self):
         """
         Serializes this record, according to the following format.
 
@@ -120,7 +120,7 @@ class Rect(object):
             return r.union(*rects)
         return r
     
-    def serialize(self):
+    def as_bits(self):
         """
         Serializes this record, according to the following format.
 
@@ -182,7 +182,7 @@ class XY(object):
         self.X = X
         self.Y = Y
 
-    def serialize(self):
+    def as_bits(self):
         """
         Serializes this record, according to the following format.
 
@@ -227,7 +227,7 @@ class RGB(object):
         """
         self.color = color & 0xFFFFFF
 
-    def serialize(self):
+    def as_bits(self):
         """
         Serializes this record, according to the following format.
 
@@ -261,7 +261,7 @@ class RGBA(RGB):
         super(RGBA, self).__init__(color)
         self.alpha = alpha
 
-    def serialize(self):
+    def as_bits(self):
         """
         ====== ===========
         Format Parameter
@@ -272,7 +272,7 @@ class RGBA(RGB):
         U[8]   alpha value
         ====== ===========
         """
-        bits = RGB.serialize(self)
+        bits = RGB.as_bits(self)
         
         from mech.fusion.swf.tags import DefineShape
         
@@ -287,7 +287,9 @@ class RGBA(RGB):
     def parse(cls, bitstream):
         rgb = RGB.parse(bitstream)
         color = rgb.color
-        alpha = bitstream.read_int_value(8) / 0xFF
+        alpha = 1.0
+        if DefineShape._current_variant not in (1, 2):
+            alpha = bitstream.read_int_value(8) / 255.
         return RGBA(color, alpha)
 
 class CXForm(object):
@@ -320,7 +322,7 @@ class CXForm(object):
         self.badd = badd
         self.aadd = 0
 
-    def serialize(self):
+    def as_bits(self):
         """
         Serializes this record, according to the following format.
         
@@ -403,7 +405,7 @@ class CXFormWithAlpha(CXForm):
         self.amul = amul
         self.aadd = aadd
 
-    def serialize(self):
+    def as_bits(self):
         """
         Serializes this record, according to the following format.
         
@@ -423,14 +425,14 @@ class CXFormWithAlpha(CXForm):
         if HasADdTerms, U[NBits]  AlphaOffset
         ========================= =============
         """
-        return super(CXFormWithAlpha, self).serialize()
+        return super(CXFormWithAlpha, self).as_bits()
 
 class Matrix(object):
     
     def __init__(self, a=1, b=0, c=0, d=1, tx=0, ty=0):
         self.a, self.b, self.c, self.d, self.tx, self.ty = a, b, c, d, tx, ty
 
-    def serialize(self):
+    def as_bits(self):
         """
         Serializes this record, according to the following format.
         
@@ -510,7 +512,7 @@ class Shape(object):
         self.shapes += shape.shapes
         self.bounds_calculated = False
 
-    def serialize(self):
+    def as_bits(self):
         """
         Serializes this record, according to the following format.
 
@@ -532,7 +534,7 @@ class Shape(object):
         
         bits += self.serialize_style()
         for record in self.shapes:
-            bits += record.serialize()
+            bits += record
 
         return bits
 
@@ -603,10 +605,10 @@ class LineStyle(object):
     def index(self):
         return self.parent.find(self)
     
-    def serialize(self):
+    def as_bits(self):
         bits = BitStream()
         bits.write_int_value(self.width * 20, 16, endianness="<")
-        bits += self.color.serialize()
+        bits += self.color
         return bits
 
     def parse(self, bits):
@@ -636,7 +638,7 @@ class LineStyle2(LineStyle):
         elif isinstance(fillstyle, FillStyle):
             self.fillstyle = fillstyle
         
-        super(self, LineStyle2).__init__(self, width, color, alpha)
+        super(LineStyle2, self).__init__(self, width, color, alpha)
         self.pixel_hinting = pixel_hinting
         self.scale_mode = scale_mode
 
@@ -645,7 +647,7 @@ class LineStyle2(LineStyle):
 
         self.miter_limit = miter_limit
 
-    def serialize(self):
+    def as_bits(self):
 
         h_scale = (self.scale_mode == "normal" or self.scale_mode == "horizontal")
         v_scale = (self.scale_mode == "normal" or self.scale_mode == "vertical")
@@ -667,9 +669,9 @@ class LineStyle2(LineStyle):
             bits.write_fixed_value(self.miter_limit, 16, endianness="<")
 
         if self.fillstyle:
-            bits.write_bits(self.fillstyle.serialize())
+            bits += self.fillstyle
         else:
-            bits.write_bits(self.color.serialize())
+            bits += self.color
 
         return bits
 
@@ -739,11 +741,14 @@ class FillStyle(object):
     def index(self):
         return self.parent.find(self)
     
-    def serialize(self):
+    def as_bits(self):
         bits = BitStream()
         bits.write_int_value(self.TYPE, 8)
-        bits += self.serialize_inner()
+        bits += self.as_bits_inner()
         return bits
+
+    def as_bits_inner(self):
+        pass
     
 class FillStyleSolidFill(FillStyle):
     
@@ -752,8 +757,8 @@ class FillStyleSolidFill(FillStyle):
     def __init_(self, color, alpha=1.0):
         self.color = RGBA(color, alpha)
 
-    def serialize_inner(self):
-        return self.color.serialize()
+    def as_bits_inner(self):
+        return self.color.as_bits()
 
 class GradRecord(object):
 
@@ -761,10 +766,10 @@ class GradRecord(object):
         self.ratio = ratio
         self.color = RGBA(color, alpha)
 
-    def serialize(self):
+    def as_bits(self):
         bits = BitStream()
         bits.write_int_value(self.ratio, 8)
-        bits += self.color.serialize()
+        bits += self.color
         return bits
 
     @classmethod
@@ -784,7 +789,7 @@ class Gradient(object):
         self.interpolation = interpolation
         self.focalpoint = 0
 
-    def serialize(self):
+    def as_bits(self):
         spread = dict(pad=0, reflect=1, repeat=2).get(self.spread, 0)
         interpolation = dict(rgb=0, linear=1).get(self.interpolation, 0)
 
@@ -794,10 +799,12 @@ class Gradient(object):
 
         bits.write_int_value(len(self.grads), 4)
         for grad in self.grads:
-            bits += grad.serialize()
+            bits += grad
 
         if self.has_focal:
             bits.write_fixed_value(self.focalpoint, 16, endianness="<")
+
+        return bits
 
     @classmethod
     def parse(cls, bits):
@@ -835,7 +842,7 @@ class FillStyleLinearGradientFill(FillStyle):
         self.matrix = matrix
         self.gradient = gradient
 
-    def serialize_inner(self):
+    def as_bits_inner(self):
         return self.matrix.serialize() + self.gradient.serialize()
 
 class StraightEdgeRecord(object):
@@ -845,7 +852,7 @@ class StraightEdgeRecord(object):
         self.delta_y = delta_y
         self.bounds_calculated = False
 
-    def serialize(self):
+    def as_bits(self):
             
         bits = BitStream()
         
@@ -900,7 +907,7 @@ class CurvedEdgeRecord(object):
         self.anchorx = anchorx
         self.anchory = anchory
 
-    def serialize(self):
+    def as_bits(self):
             
         bits = BitStream()
 
@@ -946,9 +953,9 @@ class CurvedEdgeRecord(object):
         extremumX = last.x - 2 * control.x + anchor.x
         extremumX = last.x - 2 * ( controlDeltaX - last.x ) + anchorDeltaX - last.x
         extremumX = (last.x - last.x) - 2 * ( controlDeltaX - last.x ) + anchorDeltaX
-	extremumX = -2 * ( controlDeltaX - last.x ) + anchorDeltaX
+        extremumX = -2 * ( controlDeltaX - last.x ) + anchorDeltaX
         
-	For the case of last.[xy] = 0, we can use the formula below.
+        For the case of last.[xy] = 0, we can use the formula below.
         """
 
         x = -2 * self.controlx + self.anchorx
@@ -1013,7 +1020,7 @@ class StyleChangeRecord(object):
         self.fillstyles = fillstyles
         self.linestyles = linestyles
 
-    def serialize(self):
+    def as_bits(self):
         bits = BitStream()
         if self.fillstyle0 is not None and self.fillstyle1 is not None and \
                self.fillstyle0.parent != self.fillstyle1.parent:
@@ -1041,7 +1048,7 @@ class StyleChangeRecord(object):
         move_flag = self.delta_x != 0 or self.delta_y != 0
 
         if move_flag:
-            bits += XY(self.delta_x, self.delta_y).serialize()
+            bits += XY(self.delta_x, self.delta_y)
 
         if fsi0 > 0:  bits.write_int_value(fsi0, fbit) # FillStyle0
         if fsi1 > 0:  bits.write_int_value(fsi1, fbit) # FillStyle1

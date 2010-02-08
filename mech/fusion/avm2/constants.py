@@ -162,7 +162,7 @@ def py_to_abc(value, pool):
     raise ValueError("This is not an ABC-compatible type.")
 
 def abc_to_py(tup, pool):
-    TYPE, index = value
+    TYPE, index = tup
     if TYPE == TYPE_BOOLEAN_True:
         return True
     if TYPE == TYPE_BOOLEAN_False:
@@ -553,7 +553,6 @@ class AbcConstantPool(object):
 
     @classmethod
     def parse(cls, bitstream):
-
         pool = cls()
         
         def double():
@@ -565,14 +564,15 @@ class AbcConstantPool(object):
         def serializable(item):
             def _inner():
                 return item.parse(bitstream, pool)
+            return _inner
 
         def read_pool(P, fn):
             L = bitstream.read_u32()
-            for i in xrange(L):
-                P.index_of(fn())
+            for i in xrange(L-1):
+                P.index_for(fn())
 
-        read_pool(pool.int_pool, p_u32)
-        read_pool(pool.uint_pool, p_u32)
+        read_pool(pool.int_pool, bitstream.read_u32)
+        read_pool(pool.uint_pool, bitstream.read_u32)
         read_pool(pool.double_pool, double)
         read_pool(pool.utf8_pool, utf8)
         read_pool(pool.namespace_pool, serializable(Namespace))

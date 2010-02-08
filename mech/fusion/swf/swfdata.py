@@ -3,7 +3,7 @@ import struct
 
 from mech.fusion.util import BitStream, BitStreamParseMixin
 from mech.fusion.swf.records import Rect
-from mech.fusion.swf.tags import REVERSE_INDEX
+from mech.fusion.swf.tags import REVERSE_INDEX, ShowFrame, SwfTag
 
 class SwfData(BitStreamParseMixin):
     def __init__(self, width=600, height=400, fps=24, compress=False, version=10):
@@ -51,7 +51,7 @@ class SwfData(BitStreamParseMixin):
             if hasattr(tag, "characterid") and tag.characterid == None:
                 tag.characterid = self.next_character_id
                 self.next_character_id += 1
-            if tag.TAG_NAME == "ShowFrame":
+            if tag.TAG_TYPE == ShowFrame.TAG_TYPE:
                 self.frame_count += 1
             self.tags.append(tag)
 
@@ -98,11 +98,14 @@ class SwfData(BitStreamParseMixin):
         frame_count = bitstream.read_fixed_value(16, endianness="<")
         inst = cls(rect.XMax, rect.YMax, fps, compressed, version)
         inst.frame_count = frame_count
+        while bitstream.bits_available():
+            inst.add_tag(SwfTag.parse(bitstream))
+        return inst
 
     def _gen_header(self):
         return ["CWS" if self.compress else "FWS", struct.pack("<B", self.version), "\0\0\0\0"]
 
     def _gen_data_stub(self):
-        data = Rect(XMax=self.width, YMax=self.height).serialize().serialize()
+        data = Rect(XMax=self.width, YMax=self.height).as_bits().serialize()
         return data + struct.pack("<BBH", int((self.fps - int(self.fps)) * 0x100),
                                   self.fps, self.frame_count)

@@ -5,6 +5,8 @@ from mech.fusion.avm2.util import (Avm2Backpatch,
                                    serialize_s24 as s24,
                                    ValuePool)
 
+from mech.fusion.avm2.instructions import parse_instruction
+
 class BackpatchNotSealed(Exception):
     def __init__(self, b):
         self.backpatch = b
@@ -19,6 +21,8 @@ class Avm2CodeAssembler(object):
         self.temporaries = ValuePool()
         for i in local_names:
             self.temporaries.index_for(i)
+
+        self.instructions = []
         
         self._stack_depth = 0
         self._scope_depth = 0
@@ -33,9 +37,18 @@ class Avm2CodeAssembler(object):
         self.flags = 0
         self.constants = constants
 
+    @classmethod
+    def parse(cls, bitstream, abc, constants, local_count):
+        asm = cls(constants, ("_loc%d" % (i,) for i in xrange(local_count)))
+        codelen = bitstream.read_u32()
+        finish  = bitstream.cursor*8 + codelen
+        while bitstream.cursor*8 < finish:
+            asm.add_instruction(parse_instruction(bitstream, abc, constants, asm))
+        
     def add_instruction(self, instruction):
         instruction.set_assembler_props(self)
         self.code += instruction.serialize()
+        self.instructions.append(instruction)
         
     def add_instructions(self, instructions):
         for i in instructions:

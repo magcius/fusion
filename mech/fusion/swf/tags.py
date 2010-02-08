@@ -1,5 +1,6 @@
 
-from mech.fusion.swf.records import RecordHeader, ShapeWithStyle, Matrix, CXForm, RGB
+from mech.fusion.swf.records import (RecordHeader, ShapeWithStyle,
+                                     Matrix, CXForm, RGB, Rect)
 from mech.fusion.avm1.actions import Block
 from mech.fusion.util import BitStream
 from mech.fusion.avm2.abc_ import AbcFile
@@ -15,6 +16,8 @@ class UnknownSwfTag(object):
     Used for both SWF tags not yet implemented by Fusion
     and unknown SWF tags.
     """
+    TAG_MIN_VERSION = -1
+    TAG_TYPE = -1
     TAG_REFERENCE = [
         "End",                  # 00
         "ShowFrame",            # 01
@@ -107,7 +110,11 @@ class UnknownSwfTag(object):
 
     def __repr__(self):
         return "<%s (%#X)>" % (self.name, self.tag)
-
+    
+    def parse_inner(self, bitstream):
+        self.data = bitstream.read_string()
+        return self
+    
 REVERSE_INDEX = complexdefaultdict(UnknownSwfTag)
 
 class SwfTagMeta(type):
@@ -138,20 +145,22 @@ class SwfTag(object):
         return ""
 
     def __repr__(self):
-        return "<%s (%#X)>" % (self.__name__, self.TAG_TYPE)
+        return "<%s (%#X)>" % (type(self).__name__, self.TAG_TYPE)
     
     def serialize(self):
         """
         Return a bytestring containing the appropriate structures of the tag.
         """
         data = self.serialize_data()
-        return RecordHeader(self.TAG_TYPE, len(data)).serialize().serialize() + data
+        return RecordHeader(self.TAG_TYPE, len(data)).as_bits().serialize() + data
 
     @classmethod
     def parse(cls, bitstream):
         recordheader = RecordHeader.parse(bitstream)
         cls = REVERSE_INDEX[recordheader.type]
-        return cls.parse(bitstream.read_bits(recordheader.length))
+        if not hasattr(cls, "parse_inner"):
+            cls = UnknownSwfTag(recordheader.type)
+        return cls.parse_inner(bitstream.read_bits(recordheader.length*8))
 
 class SetBackgroundColor(SwfTag):
 
@@ -177,10 +186,10 @@ class SetBackgroundColor(SwfTag):
         RGB      color
         =======  =========
         """
-        return self.color.serialize().serialize()
+        return self.color.as_bits().serialize()
 
     @classmethod
-    def parse(cls, bits):
+    def parse_inner(cls, bits):
         return cls(RGB.parse(bits).color)
 
 class DoAction(SwfTag, Block):
@@ -226,6 +235,13 @@ class DoABC(SwfTag, AbcFile):
         AbcFile.__init__(self)
         self.name  = name
         self.flags = flags
+
+    @classmethod
+    def parse_inner(cls, bitstream):
+        flags = bitstream.read_int_value(32, endianness="<")
+        name  = bitstream.read_cstring()
+        AbcFile.parse_bitstream(bitstream)
+        return cls(flags, name)
     
     def serialize_data(self):
         """
@@ -240,7 +256,7 @@ class DoABC(SwfTag, AbcFile):
         =======  =========
         """
         bits = BitStream()
-        bits.write_int_value(self.flags, 32)
+        bits.write_int_value(self.flags, 32, endianness="<")
         bits.write_cstring(self.name)
         return bits.serialize() + AbcFile.serialize(self)
 
@@ -300,7 +316,7 @@ class SymbolClass(SwfTag):
         return bits.serialize()
 
     @classmethod
-    def parse(cls, bits):
+    def parse_inner(cls, bits):
         length = bits.read_int_value(16, endianness="<")
         symbols = {}
         for i in xrange(length):
@@ -332,8 +348,8 @@ class DefineShape(SwfTag):
         bits = BitStream()
         bits.write_int_value(self.characterid, 16, endianness="<")
         
-        bits += self.shapes.shape_bounds.serialize()
-        bits += self.shapes.serialize()
+        bits += self.shapes.shape_bounds
+        bits += self.shapes
         
         DefineShape._current_variant = None
         return bits
@@ -361,15 +377,15 @@ class DefineShape4(DefineShape):
         bits = BitStream()
         bits.write_int_value(self.characterid, 16, endianness="<") # Shape ID
         
-        bits += self.shapes.shape_bounds.serialize() # ShapeBounds Rect
-        bits += self.shapes.edge_bounds.serialize()  # EdgeBounds Rect
+        bits += self.shapes.shape_bounds # ShapeBounds Rect
+        bits += self.shapes.edge_bounds  # EdgeBounds Rect
         
         bits.zero_fill(6) # Reserved
 
         bits.write_bit(self.shapes.has_scaling)     # UsesNonScalingStrokes
         bits.write_bit(self.shapes.has_non_scaling) # UsesScalingStrokes
         
-        bits += self.shapes.serialize() # ShapeWithStyle
+        bits += self.shapes # ShapeWithStyle
         
         DefineShape._current_variant = None
 
@@ -378,6 +394,10 @@ class DefineShape4(DefineShape):
 class ShowFrame(SwfTag):
     TAG_TYPE = 1
     TAG_MIN_VERSION = 1
+
+    @classmethod
+    def parse_inner(cls, bitstream):
+        return cls()
 
 class FileAttributes(SwfTag):
     
@@ -406,6 +426,17 @@ class FileAttributes(SwfTag):
         bits.zero_fill(24)
         
         return bits.serialize()
+
+    @classmethod
+    def parse_inner(cls, bits):
+        fa = cls()
+        bits.cursor += 3
+        fa.hasMetadata = bits.read_bit()
+        fa.useAS3      = bits.read_bit()
+        bits.cursor += 2
+        fa.useNetwork  = bits.read_bit()
+        bits.cursor += 24
+        return fa
     
 class PlaceObject(SwfTag):
     
@@ -423,8 +454,8 @@ class PlaceObject(SwfTag):
         bits.write_int_value(self.shapeid, 16, endianness="<")
         bits.write_int_value(self.depth, 16, endianness="<")
         
-        bits += self.transform.serialize()
-        bits += self.colortransform.serialize()
+        bits += self.transform
+        bits += self.colortransform
         
         return bits.serialize()
 
@@ -458,9 +489,9 @@ class PlaceObject2(PlaceObject):
             bits.write_cstring(self.name)
         
         if self.transform is not None:
-            bits += self.transform.serialize()
+            bits += self.transform
         if self.colortransform is not None:
-            bits += self.colortransform.serialize()
+            bits += self.colortransform
         
         return bits.serialize()
 
@@ -496,11 +527,62 @@ class DefineEditText(SwfTag):
         self.outlines    = False
         self.wasstatic   = False
 
+    @classmethod
+    def parse_inner(cls, bits):
+        CharacterID = bits.read_int_value(16, endianness="<")
+        Bounds      = Rect.parse(bits)
+        
+        HasText       = bits.read_bit()
+        WordWrap      = bits.read_bit()
+        Multiline     = bits.read_bit()
+        Password      = bits.read_bit()
+        ReadOnly      = bits.read_bit()
+        HasColor      = bits.read_bit()
+        HasMaxLength  = bits.read_bit()
+        HasFont       = bits.read_bit()
+
+        HasFontClass  = bits.read_bit()
+        AutoSize      = bits.read_bit()
+        HasLayout     = bits.read_bit()
+        NotSelectable = bits.read_bit()
+        HasBorder     = bits.read_bit()
+        WasStatic     = bits.read_bit()
+        IsHTML        = bits.read_bit()
+        HasOutlines   = bits.read_bit()
+
+        FontID    = None
+        FontClass = None
+        FontSize  = None
+        
+        Color     = None
+        MaxLength = None
+        Layout    = None
+        Text      = None
+        
+        if HasFont:      FontID    = bits.read_int_value(16, endianness="<")
+        if HasFontClass: FontClass = bits.read_cstring()
+        if HasFont:      FontSize  = bits.read_int_value(16, endianness="<")
+
+        if HasColor:     Color     = RGBA.parse(bits)
+        if HasMaxLength: MaxLength = bits.read_int_value(16, endianness="<")
+        if HasLayout:    Layout    = NonExistant.parse(bits)
+
+        Variable         = bits.read_cstring()
+        if HasText: Text = Text.read_cstring()
+
+        inst = cls(Bounds, Variable, Text, ReadOnly, IsHTML, WordWrap,
+                   Multiline, Password, AutoSize, not NotSelectable,
+                   HasBorder, Color, MaxLength, Layout, FontID, FontSize,
+                   FontClass, CharacterID)
+        inst.wasstatic = WasStatic
+        inst.outlines  = HasOutlines
+        return inst
+
     def serialize_data(self):
         bits = BitStream()
         bits.write_int_value(self.characterid, 16, endianness="<")
         
-        bits += self.rect.serialize()
+        bits += self.rect
         bits.flush()
         
         flags = BitStream()
@@ -532,11 +614,11 @@ class DefineEditText(SwfTag):
             bits.write_int_value(self.size, 16, endianness="<")
             
         if self.color is not None:
-            bits += self.color.serialize()
+            bits += self.color
         if self.maxlength is not None:
             bits.write_int_value(self.maxlength, 16, endianness="<")
         if self.layout is not None:
-            bits += self.layout.serialize() # Doesn't exist yet.
+            bits += self.layout # Doesn't exist yet.
             
         bits.write_cstring(self.variable)
 
@@ -554,6 +636,6 @@ class End(SwfTag):
         return "\0\0"
 
     @classmethod
-    def parse(cls, bits):
+    def parse_inner(cls, bits):
         bits.cursor += 16
         return cls()

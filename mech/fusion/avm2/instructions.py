@@ -5,6 +5,10 @@ from mech.fusion.avm2.constants import METHODFLAG_Activation, \
 
 INSTRUCTIONS = {}
 
+def parse_instruction(bitstream, abc, constants, asm):
+    cls = INSTRUCTIONS[bitstream.read_int_value(8)]
+    return cls.parse_inner(bitstream, abc, constants, asm)
+
 class _Avm2ShortInstruction(object):
     flags = 0
     stack = 0
@@ -28,11 +32,6 @@ class _Avm2ShortInstruction(object):
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
         return cls()
-
-    @classmethod
-    def parse(cls, bitstream, abc, constants, asm):
-        cls = INSTRUCTIONS[bitstream.read_int_value(8)]
-        return cls.parse_inner(bitstream, abc, constants, asm)
     
     def serialize(self):
         return chr(self.opcode)
@@ -61,7 +60,7 @@ class _Avm2DebugInstruction(_Avm2ShortInstruction):
     
 class _Avm2U8Instruction(_Avm2ShortInstruction):
     def __repr_inner__(self):
-        return "arg=%d" % (self.argument,)
+        return " arg=%d" % (self.argument,)
     
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -74,8 +73,9 @@ class _Avm2U8Instruction(_Avm2ShortInstruction):
         self.argument = argument
     
 class _Avm2U30Instruction(_Avm2ShortInstruction):
+    arg_count = 1
     def __repr_inner__(self):
-        return "arg=" + ' '.join("%#X" % (a,) for a in self.arguments)
+        return " arg=" + ' '.join("%#X" % (a,) for a in self.arguments)
     
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -115,21 +115,23 @@ class _Avm2MultinameInstruction(_Avm2U30Instruction):
 
 class _Avm2OffsetInstruction(_Avm2ShortInstruction):
     def __repr_inner__(self):
-        return repr(super(_Avm2OffsetInstruction, self))[:-2] + \
-            " lbl=%r)>" % self.lbl
+        return" lbl=%r" % self.lbl
     
     def set_assembler_props(self, asm):
         super(_Avm2OffsetInstruction, self).set_assembler_props(asm)
         if self.lblname not in asm.labels:
             asm.labels[self.lblname] = Avm2Label(asm)
-            # print "created label", self.lblname, asm.labels[self.lblname].address
         self.asm = asm
         self.lbl = asm.labels[self.lblname]
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
-        return cls
-    
+        relative_offset = bitstream.read_int_value(24, endianness="<")
+        offset = len(asm)+4+relative_offset
+        inst = cls("_lbl_%d" % (offset,))
+        if relative_offset not in asm.labels: # Forward reference.
+            asm.labels[offset] = self
+        
     def serialize(self):
         code = chr(self.opcode)
         n = len(self.asm)
