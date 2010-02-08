@@ -1,6 +1,9 @@
 
 from collections import namedtuple
-from mech.fusion.avm2.util import Avm2Backpatch, Avm2Label, serialize_s24 as s24, ValuePool, replace_substr
+from mech.fusion.avm2.util import (Avm2Backpatch,
+                                   Avm2Label,
+                                   serialize_s24 as s24,
+                                   ValuePool)
 
 class BackpatchNotSealed(Exception):
     def __init__(self, b):
@@ -32,7 +35,6 @@ class Avm2CodeAssembler(object):
 
     def add_instruction(self, instruction):
         instruction.set_assembler_props(self)
-        print instruction
         self.code += instruction.serialize()
         
     def add_instructions(self, instructions):
@@ -88,8 +90,7 @@ class Avm2CodeAssembler(object):
                 raise BackpatchNotSealed(b)
             v = b.lbl.address - b.base
             l = b.location
-            print "sealing backpatch:", v, l
-            self.code = replace_substr(self.code, s24(v), l, l+3)
+            self.code = self.code[:l] + s24(v) + self.code[l+3:]
             
         self.backpatches = []
 

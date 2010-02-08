@@ -1,14 +1,23 @@
 
 import struct
 
-from mech.fusion.util import BitStream
-from mech.fusion.avm2.constants import AbcConstantPool, METHODFLAG_HasOptional, METHODFLAG_HasParamNames, py_to_abc
-from mech.fusion.avm2.util import serialize_u32 as u32, ValuePool
+from mech.fusion.util import BitStream, BitStreamParseMixin
+
+from mech.fusion.avm2.constants import (AbcConstantPool,
+                                        METHODFLAG_HasOptional,
+                                        METHODFLAG_HasParamNames,
+                                        py_to_abc, abc_to_py)
+
+from mech.fusion.avm2.util import serialize_u32 as s_u32, ValuePool
+
+from mech.fusion.avm2.assembler import Avm2CodeAssembler
+
+from mech.fusion.avm2.traits import AbcTrait
 
 MAJOR_VERSION = 46
 MINOR_VERSION = 16
 
-class AbcFile(object):
+class AbcFile(BitStreamParseMixin):
 
     write_to = "abc"
     
@@ -27,11 +36,33 @@ class AbcFile(object):
         if hasattr(value, "write_to_pool"):
             value.write_to_pool(self.constants)
 
+    @classmethod
+    def parse_bitstream(cls, bitstream):
+
+        assert bitstream.read_int_value(16, endianness="<") <= MINOR_VERSION, "newer version"
+        assert bitstream.read_int_value(16, endianness="<") <= MAJOR_VERSION, "newer version"
+        constants = AbcConstantPool.parse(bitstream)
+        abc = cls(constants)
+        
+        def read_pool(pool, info, length=None):
+            if length is None:
+                length = bitstream.read_u32()
+            for i in xrange(length):
+                pool.value_at(info.parse(bitstream, abc, constants))
+            return length
+
+        L = read_pool(abc.methods,   AbcMethodInfo)
+        L = read_pool(abc.metadatas, AbcMetadataInfo)
+        L = read_pool(abc.instances, AbcInstanceInfo)
+        L = read_pool(abc.classes,   AbcClassInfo, L)
+        L = read_pool(abc.scripts,   AbcScriptInfo)
+        L = read_pool(abc.bodies,    AbcMethodBodyInfo)
+
     def serialize(self):
         def write_pool(pool, prefix_count=True):
             code = ""
             if prefix_count:
-                code += u32(len(pool))
+                code += s_u32(len(pool))
             for item in pool:
                 code += item.serialize()
             return code
@@ -55,10 +86,10 @@ class AbcMethodInfo(object):
         self.name = name
         self._name_index = None
         
-        self.param_types = param_types
+        self.param_types = param_types or []
         self._param_types_indices = None
 
-        self.param_names = param_names
+        self.param_names = param_names or []
         self._param_names_indices = None
         
         self.return_type = return_type
@@ -66,19 +97,38 @@ class AbcMethodInfo(object):
         
         self.flags = flags
         
-        self.options = options
+        self.options = options or []
         self._options_indices = None
+    
+    @classmethod
+    def parse(cls, bitstream, abc, constants):
+        PTL = bitstream.read_u32()
+        return_type = constants.multiname_pool.value_at(bitstream.read_u32())
 
+        param_types = [constants.multiname_pool.value_at(bitstream.read_u32()) for i in xrange(PTL)]
+        name = constants.utf8_pool.value_at(bitstream.read_u32())
+        
+        flags = bitstream.read_int_value(8)
+
+        options = None
+        if flags & METHODFLAG_HasOptional:
+            L = bitstream.read_u32()
+            options = [abc_to_py((bitstream.read_u32(), bitstream.read_int_value(8))) for i in xrange(L)]
+
+        param_names = None
+        if flags & METHODFLAG_HasParamNames:
+            param_names = [constants.utf8_pool(bitstream.read_u32()) for i in xrange(PTL)]
+
+        return cls(name, param_types, return_type, flags, options, param_names)
+        
     def serialize(self):
         code = ""
 
-        code += u32(len(self.param_types))
-        code += u32(self._return_type_index)
+        code += s_u32(len(self.param_types))
+        code += s_u32(self._return_type_index)
         
-        code += ''.join(u32(index) for index in self._param_types_indices)
-        print self._return_type_index
-        print self._param_types_indices
-        code += u32(self._name_index)
+        code += ''.join(s_u32(index) for index in self._param_types_indices)
+        code += s_u32(self._name_index)
 
         if self.options:
             self.flags |= METHODFLAG_HasOptional
@@ -89,13 +139,13 @@ class AbcMethodInfo(object):
         code += chr(self.flags & 0xFF)
 
         if self.options:
-            code += u32(len(self.options))
+            code += s_u32(len(self.options))
             for ctype, index in self._options_indices:
-                code += u32(index)
+                code += s_u32(index)
                 code += chr(ctype)
 
         if self.param_names:
-            code += ''.join(u32(index) for index in self._param_names_indices)
+            code += ''.join(s_u32(index) for index in self._param_names_indices)
 
         return code
 
@@ -103,19 +153,11 @@ class AbcMethodInfo(object):
         self._name_index = pool.utf8_pool.index_for(self.name)
         self._return_type_index = pool.multiname_pool.index_for(self.return_type)
         
-        if self.param_types:
-            self._param_types_indices = [pool.multiname_pool.index_for(i) for i in self.param_types]
-        else:
-            self._param_types_indices = []
+        self._param_types_indices = [pool.multiname_pool.index_for(i) for i in self.param_types]
+        self._param_names_indices = [pool.utf8_pool.index_for(i) for i in self.param_names]
         
-        if self.param_names:
-            self._param_names_indices = [pool.utf8_pool.index_for(i) for i in self.param_names]
-        else:
-            self._param_names_indices = []
-
-        if self.options:
-            self._options_indices = [py_to_abc(value) for value in self.options]
-            
+        self._options_indices = [py_to_abc(value) for value in self.options]
+        
 
 class AbcMetadataInfo(object):
 
@@ -125,15 +167,25 @@ class AbcMetadataInfo(object):
         
         self.items = items
         self._items_indices = None
+
+    @classmethod
+    def parse(cls, bitstream, abc, constants):
+        def uv():
+            return constants.utf8_pool.value_at(bitstream.read_u32())
+        
+        name = uv()
+        items = [(uv(), uv()) for i in xrange(bitstream.read_u32())]
+        
+        return cls(name, items)
         
     def serialize(self):
         code = ""
-        code += u32(self._name_index)
-        code += u32(len(self.items))
+        code += s_u32(self._name_index)
+        code += s_u32(len(self.items))
 
         for key_i, val_i in self._items_indices:
-            code += u32(key_i)
-            code += u32(val_i)
+            code += s_u32(key_i)
+            code += s_u32(val_i)
         
         return code
 
@@ -146,6 +198,7 @@ class AbcInstanceInfo(object):
     def __init__(self, name, iinit, interfaces=None,
                  is_interface=False, final=False, sealed=True,
                  super_name=None, traits=None, protectedNs=None):
+        
         self.name = name
         self._name_index = None
 
@@ -166,12 +219,32 @@ class AbcInstanceInfo(object):
 
         self.protectedNs = protectedNs
         self._protectedNs_index = None
-        
-    def serialize(self):
 
+    @classmethod
+    def parse(cls, bitstream, abc, constants):
+        name = constants.multiname_pool.value_at(bitstream.read_u32())
+        super_name = constants.multiname_pool.value_at(bitstream.read_u32())
+
+        bitstream.cursor += 4
+        FlagProtectedNS = bitstream.read_bit()
+        FlagIsInterface = bitstream.read_bit()
+        FlagIsFinal     = bitstream.read_bit()
+        FlagIsSealed    = bitstream.read_bit()
+
+        protectedNs = None
+        if FlagProtectedNS:
+            protectedNs = constants.namespace_pool.value_at(bitstream.read_u32())
+
+        interfaces = [constants.multiname_pool.index_for(bitstream.read_u32()) for i in xrange(bitstream.read_u32())]
+        iinit = abc.methods.value_at(bitstream.read_u32())
+
+        traits = [AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        return cls(name, iinit, interfaces, FlagIsInterface, FlagIsFinal, FlagIsSealed, super_name, traits, protectedNs)
+    
+    def serialize(self):
         code = ""
-        code += u32(self._name_index)
-        code += u32(self._super_name_index)
+        code += s_u32(self._name_index)
+        code += s_u32(self._super_name_index)
 
         # Flags
         flags = BitStream()
@@ -184,15 +257,15 @@ class AbcInstanceInfo(object):
         code += flags.serialize()
 
         if self.protectedNs:
-            code += u32(self._protectedNs_index)
+            code += s_u32(self._protectedNs_index)
 
-        code += u32(len(self.interfaces))
+        code += s_u32(len(self.interfaces))
         for index in self._interface_indices:
-            code += u32(index)
+            code += s_u32(index)
             
-        code += u32(self._iinit_index)
+        code += s_u32(self._iinit_index)
         
-        code += u32(len(self.traits))
+        code += s_u32(len(self.traits))
         for trait in self.traits:
             code += trait.serialize()
 
@@ -222,12 +295,17 @@ class AbcClassInfo(object):
         self.cinit = cinit
         self._cinit_index = None
 
+    @classmethod
+    def parse(cls, bitstream, abc, constants):
+        cinit = abc.methods.value_at(bitstream.read_u32())
+        traits = [AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        return cls(cinit, traits)
+
     def serialize(self):
-        
         code = ""
         
-        code += u32(self._cinit_index)
-        code += u32(len(self.traits))
+        code += s_u32(self._cinit_index)
+        code += s_u32(len(self.traits))
         for trait in self.traits:
             code += trait.serialize()
 
@@ -249,12 +327,18 @@ class AbcScriptInfo(object):
         self.init = init
         self._init_index = None
 
+    @classmethod
+    def parse(cls, bitstream, abc, constants):
+        init = abc.methods.value_at(bitstream.read_u32())
+        traits = [AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        return cls(init, traits)
+
     def serialize(self):
         
         code = ""
         
-        code += u32(self._init_index)
-        code += u32(len(self.traits))
+        code += s_u32(self._init_index)
+        code += s_u32(len(self.traits))
         for trait in self.traits:
             code += trait.serialize()
 
@@ -273,6 +357,7 @@ class AbcMethodBodyInfo(object):
 
     def __init__(self, method_info, code, traits=None, exceptions=None):
         self.method_info = method_info
+        self.method_info.body = self
         self._method_info_index = None
 
         self.code = code
@@ -280,21 +365,26 @@ class AbcMethodBodyInfo(object):
         self.traits = traits or []
         self.exceptions = exceptions or []
 
+    @classmethod
+    def parse(cls, bitstream, abc, constants):
+        minfo = abc.methods.value_at(bitstream.read_u32())
+        #assem = 
+    
     def serialize(self):
         code = ""
-        code += u32(self._method_info_index)
-        code += u32(self.code._stack_depth_max+1) # just to be safe.
-        code += u32(len(self.code.temporaries))
-        code += u32(0) # FIXME: For now, init_scope_depth is always 0.
-        code += u32(self.code._scope_depth_max)
-        code += u32(len(self.code))
+        code += s_u32(self._method_info_index)
+        code += s_u32(self.code._stack_depth_max+1) # just to be safe.
+        code += s_u32(len(self.code.temporaries))
+        code += s_u32(0) # FIXME: For now, init_scope_depth is always 0.
+        code += s_u32(self.code._scope_depth_max)
+        code += s_u32(len(self.code))
         code += self.code.serialize()
 
-        code += u32(len(self.exceptions))
+        code += s_u32(len(self.exceptions))
         for exc in self.exceptions:
             code += exc.serialize()
 
-        code += u32(len(self.traits))
+        code += s_u32(len(self.traits))
         for trait in self.traits:
             code += trait.serialize()
 
@@ -323,11 +413,11 @@ class AbcException(object):
 
     def serialize(self):
         code = ""
-        code += u32(self.from_)
-        code += u32(self.to_)
-        code += u32(self.target)
-        code += u32(self._exc_type_index)
-        code += u32(self._var_name_index)
+        code += s_u32(self.from_)
+        code += s_u32(self.to_)
+        code += s_u32(self.target)
+        code += s_u32(self._exc_type_index)
+        code += s_u32(self._var_name_index)
         return code
 
     def write_to_pool(self, pool):

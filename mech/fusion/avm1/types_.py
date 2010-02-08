@@ -1,7 +1,12 @@
 
-from collections import namedtuple
+class DataType(object):
+    REVERSE_INDEX = {}
+    def __init__(self, id, name, size):
+        self.id = id
+        self.name = name
+        self.size = size
+        DataType.REVERSE_INDEX[self.id] = self
 
-DataType = namedtuple("DataType", "id name size")
 
 STRING      = DataType(0, "string", "Z")
 FLOAT       = DataType(1, "float", "f")
@@ -25,20 +30,3 @@ _pytype_to_avm1 = {
 
 def pytype_to_avm1(value):
     return (value, _pytype_to_avm1[type(value)])
-
-def lltype_to_avm1(value):
-    return None
-    #return _lltype_to_avm1[value]
-
-class AVM1TypeSystem(object):
-    def __init__(self, db):
-        self.db = db
-
-    def escape_name(self, name):
-        return name
-    
-    def lltype_to_cts(self, TYPE):
-        return lltype_to_avm1(TYPE)
-    
-    def llvar_to_cts(self, var):
-        return self.lltype_to_cts(var.concretetype), var.name

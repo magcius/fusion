@@ -22,9 +22,6 @@ def serialize_u32(value):
         i += 1
     return s
 
-def replace_substr(string, replace, start, stop):
-    return string[:start] + replace + string[stop:]
-
 def serialize_s24(value):
     """
     Serialize a 3-byte signed S24.
@@ -33,20 +30,6 @@ def serialize_s24(value):
     if (value < 0 and m[3] != "\xff") or (value >= 0 and m[3] != "\x00"):
         raise ValueError, "value does not fit in a s24"
     return m[:3]
-
-def camel_case_match(string):
-    """
-    Properly matches the camelCase naming style so that a name like
-    writeXMLDocument gets parsed as ["write", "XML", "Document"].
-    """
-    return re.findall('(^[a-z]+|[A-Z][a-z]+|[A-Z]+|[0-9])(?![a-z])', string)
-
-def camel_case_convert(string):
-    """
-    Properly converts the camelCase naming style to underscore style so that
-    writeXMLDocument gets converted to write_xml_document.
-    """
-    return '_'.join(s.lower() for s in camel_case_match(string))
 
 Avm2Backpatch = namedtuple("Avm2Backpatch", "location base lbl")
 
@@ -67,12 +50,10 @@ class Avm2Label(object):
 
     @address.setter
     def address(self, value):
-        print "setting address to %d" % (value,)
         self._address = value
         
     def write_relative_offset(self, base, location):
         if self.address == -1:
-            print "writing backpatch at:", base, location
             self.asm.add_backpatch(Avm2Backpatch(location, base, self))
             return "\0\0\0"
         else:
@@ -102,25 +83,22 @@ class ValuePool(object):
 
     def __len__(self):
         return len(self.pool) + int(self.has_default)
-        
+
     def index_for(self, value, add=True):
         if self.debug and isinstance(value, str):
             pass
         
         if self.has_default and (value == self.default or value is None):
             return 0
-
+        
         if value in self.index_map:
             return self.index_map[value]
-
+        
         if not add:
             raise ValueError("value not in ValuePool\n\nHave: %r, requested %r" % (self.pool, value))
-
+        
         if hasattr(self.parent, "write_to"):
             self.parent.write(value)
-
-        if self.debug and value is None:
-            raise ValueError("boop boop ta choop")
         
         index = self.next_free()
         
@@ -128,7 +106,7 @@ class ValuePool(object):
         self.index_map[value] = index
         
         return index
-    
+
     def value_at(self, index):
         if self.has_default and index == 0:
             return self.default
@@ -146,7 +124,7 @@ class ValuePool(object):
         
         if self.has_default:
             index += 1
-
+        
         return index
 
     def kill(self, value):

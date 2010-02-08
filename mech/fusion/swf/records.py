@@ -25,16 +25,14 @@ def parse_style_list(bits):
     L = []
     for i in xrange(lst_len):
         TYPE = bits.read_int_value(8)
-        record = FillStyle.REVERSE_INDEX[TYPE]()
-        record.parse(bits)
-        L.append(record)
+        L.append(FillStyle.REVERSE_INDEX[TYPE].parse(bits))
     return L
 
 class RecordHeader(object):
     """
     RECORDHEADER struct, the header that signifies SWF tags.
     """
-    def __init__(self, type=0, length=0):
+    def __init__(self, type, length):
         self.type = type
         self.length = length
 
@@ -61,12 +59,14 @@ class RecordHeader(object):
             bits.write_int_value(self.length, 32, endianness="<")
         return bits
 
-    def parse(self, bitstream):
+    @classmethod
+    def parse(cls, bitstream):
         bits = bitstream.read_bits(16, endianess="<")
-        self.type = bits.read_int_value(10)
-        self.length = bits.read_int_value(6)
-        if self.length >= 0x3F:
-            self.length = bitstream.read_int_value(32, endianess="<")
+        type = bits.read_int_value(10)
+        length = bits.read_int_value(6)
+        if length >= 0x3F:
+            length = bitstream.read_int_value(32, endianess="<")
+        return cls(type, length)
 
 class _EndShapeRecord(object):
     """
@@ -86,7 +86,8 @@ class _EndShapeRecord(object):
         bitstream.zero_fill(6)
         return bitstream
 
-    def parse(self, bits):
+    @classmethod
+    def parse(cls, bits):
         bits.cursor += 6
 
 EndShapeRecord = _EndShapeRecord()
@@ -158,18 +159,20 @@ class Rect(object):
 
         return bits
 
-    def parse(self, bitstream):
+    @classmethod
+    def parse(cls, bitstream):
         NBits = bitstream.read_int_value(5)
-        self.XMin = bitstream.read_int_value(NBits) / 20
-        self.XMax = bitstream.read_int_value(NBits) / 20
-        self.YMin = bitstream.read_int_value(NBits) / 20
-        self.YMax = bitstream.read_int_value(NBits) / 20
+        XMin = bitstream.read_int_value(NBits) / 20
+        XMax = bitstream.read_int_value(NBits) / 20
+        YMin = bitstream.read_int_value(NBits) / 20
+        YMax = bitstream.read_int_value(NBits) / 20
+        return cls(XMin, XMax, YMin, YMax)
 
 class XY(object):
     """
     XY usually stores a position in the SWF format.
     """
-    def __init__(self, X=0, Y=0):
+    def __init__(self, X, Y):
         """
         Constructor.
 
@@ -205,10 +208,12 @@ class XY(object):
 
         return bits
 
-    def parse(self, bitstream):
+    @classmethod
+    def parse(cls, bitstream):
         NBits = bitstream.read_int_value(5)
-        self.X = bitstream.read_int_value(NBits) / 20
-        self.Y = bitstream.read_int_value(NBits) / 20
+        X = bitstream.read_int_value(NBits) / 20
+        Y = bitstream.read_int_value(NBits) / 20
+        return cls(X, Y)
 
 class RGB(object):
     """
@@ -238,8 +243,9 @@ class RGB(object):
         bits.write_int_value(self.color, 24)
         return bits
 
-    def parse(self, bitstream):
-        self.color = bitstream.read_int_value(24)
+    @classmethod
+    def parse(cls, bitstream):
+        return cls(bitstream.read_int_value(24))
 
 class RGBA(RGB):
     """
@@ -277,9 +283,12 @@ class RGBA(RGB):
         
         return bits
 
-    def parse(self, bitstream):
-        RGB.parse(self, bitstream)
-        self.alpha = bitstream.read_int_value(8) / 0xFF
+    @classmethod
+    def parse(cls, bitstream):
+        rgb = RGB.parse(bitstream)
+        color = rgb.color
+        alpha = bitstream.read_int_value(8) / 0xFF
+        return RGBA(color, alpha)
 
 class CXForm(object):
     """
@@ -365,23 +374,28 @@ class CXForm(object):
 
         return bits
 
-    def parse(self, bits):
+    @classmethod
+    def parse(cls, bits):
         has_add_terms = bits.read_bit()
         has_mul_terms = bits.read_bit()
         NBits = bits.read_int_value(4)
 
         if has_mul_terms:
-            self.rmul = bits.read_int_value(NBits) / 256.
-            self.gmul = bits.read_int_value(NBits) / 256.
-            self.bmul = bits.read_int_value(NBits) / 256.
-            if self.has_alpha: self.amul = bits.read_int_value(NBits) / 256.
+            rmul = bits.read_int_value(NBits) / 256.
+            gmul = bits.read_int_value(NBits) / 256.
+            bmul = bits.read_int_value(NBits) / 256.
+            if cls is CXFormWithAlpha: amul = bits.read_int_value(NBits) / 256.
 
         if has_add_terms:
-            self.radd = bits.read_int_value(NBits)
-            self.gadd = bits.read_int_value(NBits)
-            self.badd = bits.read_int_value(NBits)
-            if self.has_alpha: self.aadd = bits.read_int_value(NBits)
+            radd = bits.read_int_value(NBits)
+            gadd = bits.read_int_value(NBits)
+            badd = bits.read_int_value(NBits)
+            if cls is CXFormWithAlpha: aadd = bits.read_int_value(NBits)
 
+        if cls is CXFormWithAlpha:
+            return cls(rmul, gmul, bmul, amul, radd, gadd, badd, aadd)
+        return cls(rmul, gmul, bmul, radd, gadd, badd, aadd)
+        
 class CXFormWithAlpha(CXForm):
     has_alpha = True
     def __init__(self, rmul=1, gmul=1, bmul=1, amul=1, radd=0, gadd=0, badd=0, aadd=0):
@@ -458,18 +472,22 @@ class Matrix(object):
         write_prefixed_values(self.tx * 20, self.ty * 20)
         return bits
 
-    def parse(self, bits):
+    @classmethod
+    def parse(cls, bits):
         def read_prefixed_values():
             NBits = bits.read_int_value(5)
             return bits.read_int_value(NBits), bits.read_int_value(NBits)
+
+        a, b, c, d = 1, 0, 0, 1
         
         if bits.read_bit(): # HasScale
-            self.a, self.d = read_prefixed_values()
+            a, d = read_prefixed_values()
 
         if bits.read_bit(): # HasRotate
-            self.b, self.c = read_prefixed_values()
+            b, c = read_prefixed_values()
 
-        self.tx, self.ty = read_prefixed_values()
+        tx, ty = read_prefixed_values()
+        return cls(a, b, c, d, tx, ty)
 
 class Shape(object):
 
@@ -655,8 +673,8 @@ class LineStyle2(LineStyle):
 
         return bits
 
-    def parse(self, bits):
-        self.width = bits.read_int_value(16, endianness="<")
+    ## def parse(self, bits):
+    ##     self.width = bits.read_int_value(16, endianness="<")
 
     def cap_style_logic(self, style, last, delta):
         # Half thickness (radius of round cap; diameter is thickness)
@@ -749,10 +767,12 @@ class GradRecord(object):
         bits += self.color.serialize()
         return bits
 
-    def parse(self, bits):
-        self.ratio = bits.read_int_value(8)
-        self.color = RGBA()
-        self.color.parse(bits)
+    @classmethod
+    def parse(cls, bits):
+        ratio = bits.read_int_value(8)
+        color = RGBA.parse(bits)
+        color, alpha = color.color, color.alpha
+        return cls(ratio, color, alpha)
 
 class Gradient(object):
     has_focal = False
@@ -779,18 +799,24 @@ class Gradient(object):
         if self.has_focal:
             bits.write_fixed_value(self.focalpoint, 16, endianness="<")
 
-    def parse(self, bits):
-        self.spread = ["pad", "reflect", "repeat"][bits.read_int_value(2)]
-        self.interpolation = ["rgb", "linear"][bits.read_int_value(2)]
-
+    @classmethod
+    def parse(cls, bits):
+        spread = ["pad", "reflect", "repeat"][bits.read_int_value(2)]
+        interpolation = ["rgb", "linear"][bits.read_int_value(2)]
+        
+        grads = []
+        
         lst_len = bits.read_int_value(4)
         for i in xrange(lst_len):
             grad = GradRecord()
             grad.parse(bits)
-            self.grads.append(grad)
+            grads.append(grad)
 
-        if self.has_focal:
-            self.focalpoint = bits.read_fixed_value(16, endianness="<")
+        if cls.has_focal:
+            focalpoint = bits.read_fixed_value(16, endianness="<")
+            return cls(grads, spread, interpolation, focalpoint)
+
+        return cls(grads, spread, interpolation)
         
     @classmethod
     def from_begin_gradient_fill(cls, colors, alphas, ratios, spread, interpolation, focalpoint):
@@ -1030,20 +1056,22 @@ class StyleChangeRecord(object):
 
         return bits
 
-    def parse(self, bits):
-        StateNewStyles  = bits.read_bit()
-        StateLineStyle  = bits.read_bit()
-        StateFillStyle1 = bits.read_bit()
-        StateFillStyle0 = bits.read_bit()
-        StateMoveTo     = bits.read_bit()
+    ## def parse(self, bits):
+    ##     StateNewStyles  = bits.read_bit()
+    ##     StateLineStyle  = bits.read_bit()
+    ##     StateFillStyle1 = bits.read_bit()
+    ##     StateFillStyle0 = bits.read_bit()
+    ##     StateMoveTo     = bits.read_bit()
 
-        if StateMoveTo:
-            xy = XY()
-            xy.parse(bits)
-            self.delta_x, self.delta_y = xy.X, xy.Y
+    ##     if StateMoveTo:
+    ##         xy = XY()
+    ##         xy.parse(bits)
+    ##         self.delta_x, self.delta_y = xy.X, xy.Y
 
-        if StateFillStyle0:
-            pass
+    ##     if StateFillStyle0:
+    ##         pass
 
-        if StateFillStyle1:
-            pass
+    ##     if StateFillStyle1:
+    ##         pass
+
+

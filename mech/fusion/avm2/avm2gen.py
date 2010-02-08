@@ -1,6 +1,7 @@
 
-from mech.fusion.avm2 import assembler, constants, instructions, \
-    abc_ as abc, traits, util
+from mech.fusion.avm2 import (assembler, constants,
+                              instructions, abc_ as abc,
+                              traits, util)
 
 from itertools import chain
 

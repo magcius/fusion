@@ -1,8 +1,8 @@
 
 import struct
 
-from mech.fusion.avm2.constants import py_to_abc
-from mech.fusion.avm2.util import serialize_u32 as u32
+from mech.fusion.avm2.constants import py_to_abc, abc_to_py
+from mech.fusion.avm2.util import serialize_u32 as s_u32
 from mech.fusion.util import BitStream
 
 TRAIT_Slot     = 0
@@ -22,8 +22,6 @@ class AbcTrait(object):
         self.is_final = final
         self.is_override = override
 
-        print name, override
-
         self.metadata = []
         self._metadata_indices = None
 
@@ -33,15 +31,31 @@ class AbcTrait(object):
     def write_to_pool(self, pool):
         self._name_index = pool.multiname_pool.index_for(self.name)
 
-    @property
-    def data(self):
+    @classmethod
+    def parse(cls, bitstream, abc, constants):
+        name = constants.multiname_pool.value_at(bitstream.read_u32())
+        bitstream.cursor += 1
+        has_metadata = bitstream.read_bit()
+        override = bitstream.read_bit()
+        final    = bitstream.read_bit()
+        cls = TRAIT_KINDS[bitstream.read_int_value(4)]
+        inst = cls.parse_inner(bitstream, abc, constants)
+        inst.name     = name
+        inst.final    = final
+        inst.override = override
+        if has_metadata:
+            L = xrange(bitstream.read_u32())
+            inst.metadata = [abc.metadatas.value_at(bitstream.read_u32()) for i in L]
+        return inst
+    
+    def serialize_inner(self):
         return ""
-        
+    
     def serialize(self):
         
         code = ""
         
-        code += u32(self._name_index)
+        code += s_u32(self._name_index)
 
         flags = BitStream()
         flags.write_bit(False)
@@ -53,12 +67,12 @@ class AbcTrait(object):
 
         code += flags.serialize()
 
-        code += self.data
+        code += self.serialize_inner()
         
         if self.metadata:
-            code += u32(len(self.metadata))
+            code += s_u32(len(self.metadata))
             for m in self._metadata_indices:
-                code += u32(m)
+                code += s_u32(m)
 
         return code
 
@@ -75,9 +89,14 @@ class AbcClassTrait(AbcTrait):
         super(AbcClassTrait, self).write_to_abc(abc)
         self._class_index = abc.classes.index_for(self.cls)
 
-    @property
-    def data(self):
-        return u32(self.slot_id) + u32(self._class_index)
+    @classmethod
+    def parse_inner(cls, bitstream, abc, constants):
+        slot_id = bitstream.read_u32()
+        clazz   = abc.classes.value_at(bitstream.read_u32())
+        return cls(None, clazz, slot_id)
+    
+    def serialize_inner(self):
+        return s_u32(self.slot_id) + s_u32(self._class_index)
 
 class AbcSlotTrait(AbcTrait):
     KIND = TRAIT_Slot
@@ -104,16 +123,26 @@ class AbcSlotTrait(AbcTrait):
         
         self._type_name_index = pool.multiname_pool.index_for(self.type_name)
 
-    @property
-    def data(self):
+    @classmethod
+    def parse_inner(cls, bitstream, abc, constants):
+        slot_id   = bitstream.read_u32()
+        type_name = constants.multiname_pool.value_at(bitstream.read_u32())
+        vindex    = bitstream.read_u32()
+        value     = None
+        if vindex:
+            vkind = bitstream.read_u32()
+            value = abc_to_py((vkind, vindex))
         
+        return cls(None, type_name, value, slot_id)
+    
+    def serialize_inner(self):
         code = ""
         
-        code += u32(self.slot_id)
-        code += u32(self._type_name_index)
-        code += u32(self._value_index)
+        code += s_u32(self.slot_id)
+        code += s_u32(self._type_name_index)
+        code += s_u32(self._value_index)
         if self._value_index:
-            code += u32(self._value_kind)
+            code += s_u32(self._value_kind)
 
         return code
         
@@ -131,11 +160,16 @@ class AbcFunctionTrait(AbcTrait):
 
     def write_to_abc(self, abc):
         super(AbcFunctionTrait, self).write_to_abc(abc)
-        self._function_index = abc.methods.index_for(func)
+        self._function_index = abc.methods.index_for(self.function)
 
-    @property
-    def data(self):
-        return u32(self.slot_id) + u32(self._function_index)
+    @classmethod
+    def parse_inner(cls, bitstream, abc, constants):
+        slot_id  = bitstream.read_u32()
+        function = abc.methods.value_at(bitstream.read_u32())
+        return cls(None, function, slot_id)
+    
+    def serialize_inner(self):
+        return s_u32(self.slot_id) + s_u32(self._function_index)
 
 class AbcMethodTrait(AbcTrait):
     KIND = TRAIT_Method
@@ -150,12 +184,22 @@ class AbcMethodTrait(AbcTrait):
         super(AbcMethodTrait, self).write_to_abc(abc)
         self._method_index = abc.methods.index_for(self.method)
 
-    @property
-    def data(self):
-        return u32(self.disp_id) + u32(self._method_index)
+    def parse_inner(cls, bitstream, abc, constants):
+        pass
+    
+    def serialize_inner(self):
+        return s_u32(self.disp_id) + s_u32(self._method_index)
     
 class AbcGetterTrait(AbcMethodTrait):
     KIND = TRAIT_Getter
 
 class AbcSetterTrait(AbcMethodTrait):
     KIND = TRAIT_Setter
+
+TRAIT_KINDS = {0: AbcSlotTrait,
+               1: AbcMethodTrait,
+               2: AbcGetterTrait,
+               3: AbcSetterTrait,
+               4: AbcClassTrait,
+               5: AbcFunctionTrait,
+               6: AbcConstTrait}

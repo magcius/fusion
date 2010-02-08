@@ -12,8 +12,8 @@ otherwise known as "AVM1 Actions"
 # AVM1 = ActionScript Virtual Machine 1
 # Used for ActionScript 1 and 2
 
-from mech.fusion.avm1.types_ import STRING, NULL, UNDEFINED
-from mech.fusion.util import BitStream
+from mech.fusion.avm1 import types_ as types
+from mech.fusion.util import BitStream, camel_case_convert
 import struct
 
 preload = dict(this="preload_this",
@@ -23,15 +23,24 @@ preload = dict(this="preload_this",
                _parent="preload_parent",
                _global="preload_global")
 
+class ActionMeta(type):
+    def __init__(cls, name, bases, dct):
+        if name != 'Action' and 'ACTION_ID' in dct:
+            Action.REVERSE_INDEX[dct['ACTION_ID']] = cls
+
 class Action(object):
     
     """
     The base Action class.
     """
+
+    __metaclass__ = ActionMeta
     
     ACTION_NAME = "NotImplemented"
     ACTION_ID = 0x00
 
+    REVERSE_INDEX = {}
+    
     offset = 0
     label_name = ""
     
@@ -40,6 +49,21 @@ class Action(object):
         outer_data = self.gen_outer_data()
         header = struct.pack("<BH", self.ACTION_ID, len(inner_data))
         return header + inner_data + outer_data
+
+    @classmethod
+    def parse(cls, bits):
+        header = bits.read_bits(24)
+        actnid = header.read_int_value(8)
+        actcls = cls.REVERSE_INDEX[actnid]
+        if actnid < 0x70:
+            # Ignore this, it doesn't matter.
+            length = header.read_int_value(16, endianness="<")
+            action = actcls.parse_data(bits, length)
+        return action, length
+
+    @classmethod
+    def parse_data(cls, bits, length):
+        pass
     
     def __len__(self):
         return 6 + len(self.gen_data()) + len(self.gen_outer_data())
@@ -97,6 +121,13 @@ class ActionConstantPool(Action):
             return ""
         else:
             return super(ActionConstantPool, self).serialize()
+
+    @classmethod
+    def parse(cls, bits, length):
+        pool = []
+        while bits.bits_available() > 0:
+            pool.append(bits.read_cstring())
+        return cls(*pool)
     
     def gen_data(self):
         return struct.pack("H", len(self.pool)) + "\0".join(self.pool) + "\0"
@@ -107,7 +138,7 @@ class Block(object):
     MAX_REGISTERS = 4
     FUNCTION_TYPE = 0
     
-    def __init__(self, toplevel, insert_end=False):
+    def __init__(self, toplevel=None, insert_end=False):
         if toplevel:
             self.constants = toplevel.constants
             self.registers = toplevel.registers
@@ -212,7 +243,7 @@ class Block(object):
             bytes += "\0"
         self.code = "".join(bytes)
         return self.code
-
+    
     def new_label(self):
         self.label_count += 1
         name = Block.AUTO_LABEL_TEMPLATE % self.label_count
@@ -236,20 +267,35 @@ class ActionDefineFunction(Action, Block):
     ACTION_ID = 0x9b
     FUNCTION_TYPE = 1
 
-    def __init__(self, toplevel, name, parameters):
+    def __init__(self, toplevel=None, name="", parameters=None):
         Block.__init__(self, toplevel, False)
         self.function_name = name
-        self.params = parameters
+        self.params = parameters or []
 
     def gen_data(self):
         self.block_data = Block.serialize(self)
-        bytes = [self.function_name, "\0", struct.pack("H", len(self.params))]
+        bytes = [self.function_name, "\0", struct.pack("<H", len(self.params))]
         bytes += [p + "\0" for p in self.params]
-        bytes += struct.pack("H", len(self.block_data))
+        bytes += struct.pack("<H", len(self.block_data))
         return "".join(bytes)
 
     def gen_outer_data(self):
         return self.block_data
+
+    @classmethod
+    def parse(cls, bits, length):
+        actn = cls()
+        actn.function_name = bits.read_cstring()
+        paramlen = bits.read_bit_value(16, endianness="<")
+        for i in xrange(paramlen):
+            actn.params.append(bits.read_cstring())
+        blocklen = bits.read_bit_value(16, endianness="<")
+        while blocklen > 0:
+            action, length = Action.parse(bits)
+            actn.actions.append(action)
+            blocklen -= length
+            
+        return actn
 
 class ActionDefineFunction2(Action, Block):
     ACTION_NAME = "ActionDefineFunction2"
@@ -257,10 +303,10 @@ class ActionDefineFunction2(Action, Block):
     MAX_REGISTERS = 256
     FUNCTION_TYPE = 2
 
-    def __init__(self, toplevel, name, parameters):
+    def __init__(self, toplevel=None, name="", parameters=None):
         Block.__init__(self, toplevel, False)
         self.function_name = name
-        self.params = parameters
+        self.params = parameters or []
         self.preload_register_count = 1 # Start at 1.
         
         # Flags
@@ -282,29 +328,35 @@ class ActionDefineFunction2(Action, Block):
     def eval_flags(self):
         
         # According to the docs, this is the order of register allocation.
+        i = 0
         if self.preload_this and "this" not in self.registers:
             self.suppress_this = False
-            self.registers.insert(1, "this")
+            self.registers.insert(i, "this")
+            i += 1
             
         if self.preload_args and "arguments" not in self.registers:
             self.suppress_args = False
-            self.registers.insert(2, "arguments")
+            self.registers.insert(i, "arguments")
+            i += 1
             
         if self.preload_super and "super" not in self.registers:
             self.suppress_super = False
-            self.registers.insert(3, "super")
+            self.registers.insert(i, "super")
+            i += 1
             
         if self.preload_root and "_root" not in self.registers:
-            self.registers.insert(4, "_root")
+            self.registers.insert(i, "_root")
+            i += 1
             
         if self.preload_parent and "_parent" not in self.registers:
-            self.registers.insert(5, "_parent")
+            self.registers.insert(i, "_parent")
+            i += 1
         
         if self.preload_global and "_global" not in self.registers:
-            self.registers.insert(6, "_global")
+            self.registers.insert(i, "_global")
+            i += 1
         
     def gen_data(self):
-
         bits = BitStream()
         bits.write_bit(self.preload_parent)
         bits.write_bit(self.preload_root)
@@ -318,37 +370,75 @@ class ActionDefineFunction2(Action, Block):
         bits.write_bit(self.preload_global)
         
         self.block_data = Block.serialize(self)
-        bytes = [self.function_name, "\0",
-                 struct.pack("HB", len(self.params), len(self.registers)),
-                 bits.serialize()]
+        bits.write_cstring(self.function_name)
+        bits.write_int_value(len(self.params), 16, endianness="<")
+        bits.write_int_value(len(self.registers), 8)
         
         for name in self.params:
-            bytes += [chr(self.registers.index(name)), name, "\0"]
+            bits.write_int_value(chr(self.registers.index(name)), 8)
+            bits.write_cstring(name)
         
-        bytes += [struct.pack("H", len(self.block_data))]
-        return "".join(bytes)
+        bits.write_int_value(len(self.block_data), 16, endianness="<")
+        return bits.serialize()
 
     def gen_outer_data(self):
         return self.block_data
+
+    @classmethod
+    def parse_data(cls, bits, length):
+        actn = cls()
+        actn.preload_parent = bits.read_bit()
+        actn.preload_root   = bits.read_bit()
+        actn.suppress_super = bits.read_bit()
+        actn.preload_super  = bits.read_bit()
+        actn.suppress_args  = bits.read_bit()
+        actn.preload_args   = bits.read_bit()
+        actn.suppress_this  = bits.read_bit()
+        bits.cursor += 7
+        actn.preload_global = bits.read_bit()
+        actn.eval_flags()
+        
+        actn.function_name = bits.read_cstring()
+        paramlen = bits.read_int_value(16, endianness="<")
+        registerlen = bits.read_int_value(8)
+        
+        for i in xrange(paramlen):
+            register_num = bits.read_int_value(8)
+            actn.params.append(bits.read_cstring())
+        
+        blocklen = bits.read_bit_value(16, endianness="<")
+        while blocklen > 0:
+            action, length = Action.parse(bits)
+            actn.actions.append(action)
+            blocklen -= length
+
+        return actn
 
 class ActionGetURL(Action):
     ACTION_NAME = "ActionGetURL"
     ACTION_ID = 0x83
 
-    def __init__(self, url, target=""):
+    def __init__(self, url="", target=""):
         self.url = url
         self.target = target
 
     def gen_data(self):
         return "%s\0%s\0" % (self.url, self.target)
 
+    @classmethod
+    def parse_data(cls, bits, length):
+        url = bits.read_cstring()
+        target = bits.read_cstring()
+        return cls(url, target)
+
 class ActionGetURL2(Action):
     ACTION_NAME = "ActionGetURL2"
     ACTION_ID = 0x9a
 
     METHODS = {"": 0, "GET": 1, "POST": 2}
+    METHODR = {0: "", 1: "GET", 2: "POST"}
 
-    def __init__(self, method, load_target=False, load_variables=False):
+    def __init__(self, method="", load_target=False, load_variables=False):
         self.method = method
         self.load_target = load_target
         self.load_variables = load_variables
@@ -364,6 +454,15 @@ class ActionGetURL2(Action):
         bits.write_int_value(self.METHODS[self.method.upper()], 2)
         return bits.serialize()
 
+    @classmethod
+    def parse_data(cls, bits, length):
+        actn = cls("")
+        actn.load_variables = bits.read_bit()
+        actn.load_target    = bits.read_bit()
+        bits.cursor += 4
+        actn.method = cls.METHODR[bits.read_int_value(2)]
+        return actn
+
 class ActionGotoFrame(Action):
     ACTION_NAME = "ActionGotoFrame"
     ACTION_ID = 0x81
@@ -372,7 +471,11 @@ class ActionGotoFrame(Action):
         self.index = index
 
     def gen_data(self):
-        return struct.pack("H", self.index)
+        return struct.pack("<H", self.index)
+
+    @classmethod
+    def parse_data(cls, bits, length):
+        return cls(bits.read_int_value(16, endianness="<"))
 
 class ActionGotoFrame2(Action):
     ACTION_NAME = "ActionGotoFrame2"
@@ -393,6 +496,16 @@ class ActionGotoFrame2(Action):
 
         return bits.serialize()
 
+    @classmethod
+    def parse_data(cls, bits, length):
+        bits.cursor += 6
+        has_scene_bias = bits.read_bit()
+        play = bits.read_bit()
+
+        if has_scene_bias:
+            scene_bias = bits.read_int_value(16, endianness="<")
+        return cls(play, scene_bias)
+
 class ActionGotoLabel(Action):
     ACTION_NAME = "ActionGotoLabel"
     ACTION_ID = 0x81
@@ -403,23 +516,31 @@ class ActionGotoLabel(Action):
     def serialize(self):
         return self.label_name + "\0"
 
+    @classmethod
+    def parse_data(cls, bits, length):
+        return cls(bits.read_cstring())
+
 class BranchingActionBase(Action):
 
-    def __init__(self, branch):
+    def __init__(self, branch=None):
         if isinstance(branch, str):
             self.branch_label = branch
             self.branch_offset = 0
-        elif isinstance(branch, int):
+        else:
             self.branch_label = None
             self.branch_offset = branch
 
     def get_block_props_late(self, block):
-        if len(self.branch_label) > 0:
-            print "BRANCH:", self.branch_label, block.labels[self.branch_label], self.offset
+        if self.branch_label is not None:
+            # print "BRANCH:", self.branch_label, block.labels[self.branch_label], self.offset
             self.branch_offset = block.labels[self.branch_label] - self.offset - len(self)
 
     def gen_data(self):
-        return struct.pack("h", self.branch_offset)
+        return struct.pack("<h", self.branch_offset)
+
+    @classmethod
+    def parse_data(cls, bits, lengthj):
+        return cls(bits.read_int_value(16, signed=True, endianness="<"))
 
 class ActionJump(BranchingActionBase):
     ACTION_NAME = "ActionJump"
@@ -444,7 +565,7 @@ class ActionPush(Action):
             self.add_element(t)
     
     def add_element(self, element):
-        if element in (NULL, UNDEFINED):
+        if element in (types.NULL, types.UNDEFINED):
             element = (None, element)
         assert isinstance(element, tuple)
         self.values.append(element)
@@ -452,9 +573,9 @@ class ActionPush(Action):
     def get_block_props_early(self, block):
         if not ActionPush.USE_CONSTANTS: return
         for index, (value, type) in enumerate(self.values):
-            if type == STRING:
+            if type == types.STRING:
                 constant_index = block.constants.add_constant(value)
-                self.values[index] = (constant_index, CONSTANT8 if constant_index < 256 else CONSTANT16)
+                self.values[index] = (constant_index, types.CONSTANT8 if constant_index < 256 else types.CONSTANT16)
     
     def gen_data(self):
         bytes = []
@@ -466,6 +587,22 @@ class ActionPush(Action):
                 bytes += struct.pack("<"+type.size, value)
         return "".join(bytes)
 
+    @classmethod
+    def parse_data(cls, bits, length):
+        bytesread = 0
+        values = []
+        while bytesread < length:
+            Type = types.DataType.REVERSE_INDEX[bits.read_int_value(8)]
+            bytesread += 1
+            value = None
+            if type.size == "Z":
+                value = bits.read_cstring()
+                bytesread += len(value)
+            elif type.size != "!":
+                value = struct.unpack("<"+type.size, bits.read_string(struct.calcsize(type.size)))
+            values.append((type, value))
+        return cls(*values)
+
 class ActionSetTarget(Action):
     ACTION_NAME = "ActionSetTarget"
     ACTION_ID = 0x8b
@@ -476,6 +613,10 @@ class ActionSetTarget(Action):
     def gen_data(self):
         return self.target + "\0"
 
+    @classmethod
+    def parse_data(cls, bits, length):
+        return cls(bits.read_cstring())
+
 class ActionStoreRegister(Action):
     ACTION_NAME = "ActionStoreRegister"
     ACTION_ID = 0x87
@@ -485,6 +626,10 @@ class ActionStoreRegister(Action):
 
     def gen_data(self):
         return chr(self.index)
+
+    @classmethod
+    def parse_data(cls, bits, length):
+        return cls(bits.read_int_value(8))
 
 class ActionTry(Action):
     ACTION_NAME = "ActionTry"
@@ -529,17 +674,25 @@ class ActionWaitForFrame(Action):
         self.skip_count = skip_count
 
     def gen_data(self):
-        return struct.pack("HB", self.index, self.skip_count)
+        return struct.pack("<HB", self.index, self.skip_count)
+
+    @classmethod
+    def parse_data(cls, bits, length):
+        return cls(bits.read_int_value(16, endianness="<"), bits.read_int_value(8))
     
 class ActionWaitForFrame2(Action):
     ACTION_NAME = "ActionWaitForFrame2"
     ACTION_ID = 0x8d
 
-    def __init__(self, skip_count=0):
+    def __init__(self, skip_count):
         self.skip_count = skip_count
 
     def gen_data(self):
         return chr(self.skip_count)
+
+    @classmethod
+    def parse_data(cls, bits, length):
+        return cls(bits.read_int_value(8))
 
 class ActionWith(Action):
     ACTION_NAME = "ActionWith"
@@ -549,13 +702,12 @@ class ActionWith(Action):
         self.block = with_block or Block()
     
     def gen_data(self):
-        return struct.pack("H", len(self.block)) + self.block.serialize()
+        return struct.pack("<H", len(self.block))
+
+    def gen_outer_data(self):
+        return self.block.serialize()
 
 SHORT_ACTIONS = {}
-
-# turns NextFrame into next_frame
-def make_underlined(name):
-    return ''.join('_' + c.lower() if c.isupper() else c for c in name)[1:]
 
 def make_short_action(value, name, push=0):
     
@@ -575,7 +727,7 @@ def make_short_action(value, name, push=0):
     inner.__name__ = name
     
     SHORT_ACTIONS[name[6:].lower()] = inner
-    SHORT_ACTIONS[make_underlined(name[6:])] = inner
+    SHORT_ACTIONS[camel_case_convert(name[6:])] = inner
 
     return inner
 

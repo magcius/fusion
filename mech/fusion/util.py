@@ -1,8 +1,9 @@
 
-import struct
 import os
+import re
+import zlib
 
-from math import log, isnan, floor, ceil
+from math import log, isnan, floor
 
 ALIGN_LEFT = "left"
 ALIGN_RIGHT = "right"
@@ -25,6 +26,30 @@ def clamp(n, minimum, maximum):
     Clamp n between mniimum and maximum.
     """
     return max(minimum, min(n, maximum))
+
+def camel_case_match(string):
+    """
+    Properly matches the camelCase naming style so that a name like
+    writeXMLDocument gets parsed as ["write", "XML", "Document"].
+    """
+    return re.findall('(^[a-z]+|[A-Z][a-z]+|[A-Z]+|[0-9])(?![a-z])', string)
+
+def camel_case_convert(string):
+    """
+    Properly converts the camelCase naming style to underscore style so that
+    writeXMLDocument gets converted to write_xml_document.
+    """
+    return '_'.join(s.lower() for s in camel_case_match(string))
+
+# Fast lookup for write/read_string.
+# This seems really stupid, but I need it for SPEEEEED.
+
+BYTE_TO_BITS = {}
+BITS_TO_BYTE = {}
+for i in xrange(256):
+    tup = tuple(bool(i & (1 << j)) for j in reversed(xrange(8)))
+    BYTE_TO_BITS[chr(i)] = tup
+    BITS_TO_BYTE[tup] = chr(i)
 
 class BitStream(object):
 
@@ -84,10 +109,10 @@ class BitStream(object):
             self.bits.append(bool(value))
         self.cursor += 1
 
-    def read_bits(self, length, endianness=">"):
+    def read_bits(self, length, as_list=False, endianness=">"):
         """
         Reads length bits and return them in their own bit stream.
-        
+
         .. seealso
 
            :meth:`write_bits`
@@ -96,10 +121,15 @@ class BitStream(object):
         :rtype: BitStream
         :param length: the length of the BitStream that should be returned
         :type length:  an integer
+        :param as_list: fast switch
         :raises IndexError: when reading past the end of the stream.
         :param endianness: if "<", string is reversed.
         :type endianness:  anything, either equal to "<" or not
         """
+        if as_list:
+            self.cursor += length
+            return self.bits[self.cursor-length:self.cursor]
+        
         if length > self.bits_available():
             raise IndexError("Attempted to read off the end of the BitStream")
         
@@ -135,7 +165,7 @@ class BitStream(object):
         value = BitStream(bits[offset:offset+length]).read_int_value(length)
         self.write_int_value(value, length, endianness=endianness)
 
-    def read_string(self, length, endianness=">"):
+    def read_string(self, length=None):
         """
         Read and return a string of *length* **bytes** (not bits).
 
@@ -153,17 +183,18 @@ class BitStream(object):
         :param endianness: if "<", string is reversed.
         :type endianness:  anything, either equal to "<" or not
         """
-        buffer = ''.join(chr(self.read_int_value(8)) for i in xrange(length))
-        if endianness == "<":
-            return buffer[::-1]
+        if length is None:
+            if self.bits_available() & 7:
+                raise ValueError("You cannot read the rest of the BitStream "
+                                 "as a string. The length of the available "
+                                 "bits is not divisible by 8.")
+            length = self.bits_available() // 8
+        buffer = ''.join(BITS_TO_BYTE[tuple(self.read_bits(8, as_list=True))] for i in xrange(length))
         return buffer
 
     def write_string(self, string):
         """
         Writes *string* to the BitStream as if with bytes.
-
-        If endianness is "<", then the string is reversed
-        before writing.
         
         .. seealso
 
@@ -174,7 +205,7 @@ class BitStream(object):
         :type string:  an iterable of characters
         """
         for c in string:
-            self.write_int_value(ord(c), 8)
+            self.bits += BYTE_TO_BITS[c]
 
     def read_cstring(self):
         """
@@ -216,7 +247,7 @@ class BitStream(object):
         self.write_string(string)
         self.zero_fill(8)
         
-    def read_int_value(self, length, endianness=">"):
+    def read_int_value(self, length, signed=False, endianness=">"):
         """
         Read *length* bits and return a number in twos-complement form,
         with the last bit read being the least significant bit.
@@ -241,6 +272,8 @@ class BitStream(object):
         :rtype: an integer
         :param length: the amount of bits to be read
         :type length:  an integer
+        :param signed: whether the first bit should be read as a sign bit
+        :type signed:  True or False
         :param endianness: the byte-endianness to read
         :type endianness:  anything, either equal to "<" or not
         :raises IndexError: when reading past the end of the stream.
@@ -249,12 +282,19 @@ class BitStream(object):
             raise IndexError("Attempted to read off the end of the BitStream")
         
         n = 0
+        s = False
+        
+        if signed and self.read_bit():
+            s = True
+            length -= 1
         
         for i in reversed(xrange(length)):
             if endianness == "<":
-                i = (length/8 - i/8 - 1)*8 + i%8
+                i = (length // 8 - i // 8 - 1)*8 + i%8
             n |= self.read_bit() << i
-        
+
+        if s:
+            return -n
         return n
     
     def write_int_value(self, value, length=None, endianness=">"):
@@ -327,8 +367,8 @@ class BitStream(object):
         """
         if length not in (16, 32):
             raise ValueError("Fixed values must be of length 16 (8.8) or length 32 (16.16)")
-        return self.read_int_value(length) / \
-            float({8: 0x100, 16: 0x10000}[length], endianness=endianness)
+        return self.read_int_value(length, endianness=endianness) / \
+            float({8: 0x100, 16: 0x10000}[length])
 
     def write_fixed_value(self, value, length, endianness=">"):
         """
@@ -480,6 +520,21 @@ class BitStream(object):
             bits.write_int_value(exp, BitStream._N_EXPN_BITS[length])
             bits.write_int_value(int((value-1)*frac_total) & (frac_total - 1),
                                  BitStream._N_FRAC_BITS[length])
+    
+    def read_u32(self):
+        """
+        Read a U32, as defined in the ABC file format document.
+        
+        :raises ValueError: after 5 bytes read all with the high bit set
+        """
+        n = 0
+        i = 0
+        while self.read_bit():
+            if i == 5:
+                raise ValueError("u32 parsed beyond bounds")
+            n |= self.read_int_value(7) << 7*i
+            i += 1
+        return n
 
     def _fill(self, amount, value):
         n = self.bits_available()
@@ -550,6 +605,10 @@ class BitStream(object):
         if len(self.bits) % 8:
             self.zero_fill(8 - (len(self.bits) % 8))
 
+    def skip_flush(self):
+        if self.cursor % 8:
+            self.cursor += 8 - self.cursor % 8
+
     def __iter__(self):
         return iter(self.bits)
 
@@ -580,6 +639,17 @@ class BitStream(object):
     def __iadd__(self, bits):
         self.write_bits(bits)
         return self
+
+    def decompress(self):
+        """
+        Decompress and replace the contents of
+        this BitStream from cursor on outward.
+        """
+        cursor = self.cursor
+        bytes = zlib.decompress(self.read_string())
+        self.cursor = cursor
+        self.write_string(bytes)
+        self.cursor = cursor
     
     def serialize(self, align=ALIGN_LEFT):
         """
@@ -597,3 +667,23 @@ class BitStream(object):
                 lst += [False] * (8-leftover)
             numbytes += 1
         return BitStream(lst).read_string(numbytes)
+
+class BitStreamParseMixin(object):
+    @classmethod
+    def parse_bitstream(cls, bitstream):
+        raise NotImplementedError
+    
+    @classmethod
+    def parse_bytestring(cls, bytes):
+        bits = BitStream()
+        bits.write_string(bytes)
+        bits.rewind()
+        return cls.parse_bitstream(bits)
+
+    @classmethod
+    def parse_file(cls, file):
+        return cls.parse_bytestring(file.read())
+
+    @classmethod
+    def parse_filename(cls, filename):
+        return cls.parse_file(open(filename))

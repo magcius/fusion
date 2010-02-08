@@ -1,6 +1,7 @@
 
 import struct
-from mech.fusion.avm2.util import serialize_u32 as u32, ValuePool, U32_MAX, S32_MAX
+from mech.fusion.avm2.util import (serialize_u32 as s_u32,
+                                   ValuePool, U32_MAX, S32_MAX)
 
 # ======================================
 # Constants
@@ -86,6 +87,8 @@ TYPE_NAMESPACE_ProtectedNamespace = 0x18
 TYPE_NAMESPACE_ExplicitNamespace  = 0x19
 TYPE_NAMESPACE_StaticProtectedNs  = 0x1A
 
+TYPE_NAMESPACE_KINDS              = 0x05, 0x08, 0x16, 0x17, 0x18, 0x19, 0x1A
+
 # Namespace Set types
 TYPE_NAMESPACE_SET_NamespaceSet   = 0x15
 
@@ -118,15 +121,29 @@ def has_RTName(multiname):
                       TYPE_MULTINAME_RtqNameL,
                       TYPE_MULTINAME_RtqNameLA)
 
+class undefined(object):
+    def __repr__(self):
+        return "undefined"
+
+undefined = undefined()
+
+class null(object):
+    def __repr__(self):
+        return "null"
+
+null = null()
+
 def py_to_abc(value, pool):
     if value is True:
         return TYPE_BOOLEAN_True, 0
     if value is False:
         return TYPE_BOOLEAN_False, 0
-    if value is None:
+    if value is None or value is null:
         return TYPE_OBJECT_Null, 0
+    if value is undefined:
+        return TYPE_OBJECT_UNDEFINED, 0
     if isinstance(value, basestring):
-        return TYPE_STRING_Utf8
+        return TYPE_STRING_Utf8, pool.utf8_pool.index_for(value)
     if isinstance(value, (long, int)):
         if value > U32_MAX or value < -S32_MAX:
             return TYPE_NUMBER_Double, pool.double_pool.index_for(value)
@@ -142,7 +159,33 @@ def py_to_abc(value, pool):
         return TYPE_NAMESPACE_SET_NamespaceSet, pool.nsset_pool.index_for(value)
     if hasattr(value, "multiname"):
         return value.multiname().KIND, pool.multiname_pool.index_for(value.multiname())
-    raise ValueError, "This is not an ABC-compatible type."
+    raise ValueError("This is not an ABC-compatible type.")
+
+def abc_to_py(tup, pool):
+    TYPE, index = value
+    if TYPE == TYPE_BOOLEAN_True:
+        return True
+    if TYPE == TYPE_BOOLEAN_False:
+        return False
+    if TYPE == TYPE_OBJECT_Null:
+        return null
+    if TYPE == TYPE_OBJECT_Undefined:
+        return undefined
+    if TYPE == TYPE_STRING_Utf8:
+        return pool.utf8_pool.value_at(index)
+    if TYPE == TYPE_NUMBER_Double:
+        return pool.double_pool.value_at(index)
+    if TYPE == TYPE_NUMBER_UInt:
+        return pool.uint_pool.value_at(index)
+    if TYPE == TYPE_NUMBER_Int:
+        return pool.int_pool.value_at(index)
+    if TYPE in TYPE_NAMESPACE_KINDS:
+        return pool.namespace_pool.value_at(index)
+    if TYPE == TYPE_NAMESPACE_SET_NamespaceSet:
+        return pool.nsset_pool.value_at(index)
+    if TYPE in MULTINAME_KINDS:
+        return pool.multiname_pool.value_at(index)
+    raise ValueError("Unknown ABC type value %d." % (TYPE,))
 
 # ======================================
 # Namespaces
@@ -169,8 +212,12 @@ class Namespace(object):
 
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
-        return chr(self.kind) + u32(self._name_index)
+        return chr(self.kind) + s_u32(self._name_index)
 
+    @classmethod
+    def parse(cls, bitstream, constants):
+        return cls(bitstream.read_int_value(8), constants.utf8_pool.value_at(bitstream.read_u32()))
+    
     def __repr__(self):
         return self.name or 'global'
 
@@ -194,10 +241,14 @@ class NamespaceSet(object):
 
     def write_to_pool(self, pool):
         self._namespace_indices = [pool.namespace_pool.index_for(ns) for ns in self.namespaces]
+
+    @classmethod
+    def parse(cls, bitstream, constants):
+        return cls(*(Namespace.parse(bitstream, constants) for i in bitstream.read_u32()))
     
     def serialize(self):
         assert self._namespace_indices is not None, "Please call write_to_pool before serializing"
-        return u32(len(self.namespaces)) + ''.join(u32(index) for index in self._namespace_indices)
+        return s_u32(len(self.namespaces)) + ''.join(s_u32(index) for index in self._namespace_indices)
         
 
 NO_NAMESPACE  = Namespace(TYPE_NAMESPACE_Namespace, "")
@@ -239,9 +290,13 @@ class MultinameL(object):
     def write_to_pool(self, pool):
         self._ns_set_index = pool.nsset_pool.index_for(self.ns_set)
 
+    @classmethod
+    def parse_inner(cls, bitstream, constants):
+        return cls(constants.nsset_pool.value_at(bitstream.read_u32()))
+
     def serialize(self):
         assert self._ns_set_index is not None, "Please call write_to_pool before serializing"
-        return chr(self.KIND) + u32(self._ns_set_index)
+        return chr(self.KIND) + s_u32(self._ns_set_index)
 
     def multiname(self):
         return self
@@ -274,10 +329,20 @@ class Multiname(MultinameL):
         else:
             self._name_index = pool.utf8_pool.index_for(self.name)
 
+    @classmethod
+    def parse_inner(cls, bitstream, constants):
+        return cls(constants.utf8_pool.value_at(bitstream.read_u32()), constants.nsset_pool.value_at(bitstream.read_u32()))
+    
+    @classmethod
+    def parse(cls, bitstream, constants):
+        kind = bitstream.read_int_value(8)
+        cls = MULTINAME_KINDS[kind]
+        return cls.parse_inner(bitstream, constants)
+
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
         assert self._ns_set_index is not None, "Please call write_to_pool before serializing"
-        return chr(self.KIND) + u32(self._name_index) + u32(self._ns_set_index)
+        return chr(self.KIND) + s_u32(self._name_index) + s_u32(self._ns_set_index)
 
 class MultinameA(Multiname):
     KIND = TYPE_MULTINAME_MultinameA
@@ -309,11 +374,16 @@ class QName(object):
         else:
             self._name_index = pool.utf8_pool.index_for(self.name)
         self._ns_index = pool.namespace_pool.index_for(self.ns)
+
+    @classmethod
+    def parse_inner(cls, bitstream, constants):
+        return cls(constants.namespace_pool.value_at(bitstream.read_u32()),
+                   constants.utf8_pool.value_at(bitstream.read_u32()))
         
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
         assert self._ns_index is not None, "Please call write_to_pool before serializing"
-        return chr(self.KIND) + u32(self._ns_index) + u32(self._name_index)
+        return chr(self.KIND) + s_u32(self._ns_index) + s_u32(self._name_index)
 
     def multiname(self):
         return self
@@ -326,9 +396,6 @@ class QNameA(QName):
     
 class RtqNameL(object):
     KIND = TYPE_MULTINAME_RtqNameL
-    
-    def serialize(self):
-        return chr(self.KIND)
 
     def __eq__(self, other):
         return isinstance(other, self.__class__) and self.KIND == other.KIND
@@ -338,6 +405,16 @@ class RtqNameL(object):
 
     def __hash__(self):
         return hash((self.KIND))
+
+    def multiname(self):
+        return self
+
+    @classmethod
+    def parse_inner(cls, bitstream, constants):
+        return cls()
+
+    def serialize(self):
+        return chr(self.KIND)
 
 class RtqNameLA(RtqNameL):
     KIND = TYPE_MULTINAME_RtqNameLA
@@ -365,9 +442,13 @@ class RtqName(object):
         # else:
         self._name_index = pool.utf8_pool.index_for(self.name)
 
+    @classmethod
+    def parse_inner(cls, bitstream, constants):
+        return cls(constants.utf8_pool.value_at(bitstream.read_u32()))
+
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
-        return chr(self.KIND) + u32(self._name_index)
+        return chr(self.KIND) + s_u32(self._name_index)
 
     def multiname(self):
         return self
@@ -398,13 +479,31 @@ class TypeName(object):
         self._name_index = pool.multiname_pool.index_for(self.name)
         self._types_indices = [pool.multiname_pool.index_for(t) for t in self.types]
 
+    @classmethod
+    def parse_inner(cls, bitstream, constants):
+        return cls(constants.multiname_pool.value_at(bitstream.read_u32()),
+                 *(constants.multiname_pool.value_at(bitstream.read_u32()) for i in xrange(bitstream.read_u32())))
+
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
         assert self._types_indices is not None, "Please call write_to_pool before serializing"
-        return ''.join([chr(self.KIND), u32(self._name_index), u32(len(self._types_indices))] + [u32(a) for a in self._types_indices])
+        return ''.join([chr(self.KIND), s_u32(self._name_index), s_u32(len(self._types_indices))] + [s_u32(a) for a in self._types_indices])
 
     def multiname(self):
         return self
+
+MULTINAME_KINDS = {}
+MULTINAME_KINDS[MultinameL.KIND]  = MultinameL
+MULTINAME_KINDS[MultinameLA.KIND] = MultinameLA
+MULTINAME_KINDS[Multiname.KIND]   = Multiname
+MULTINAME_KINDS[MultinameA.KIND]  = MultinameA
+MULTINAME_KINDS[QName.KIND]       = QName
+MULTINAME_KINDS[QNameA.KIND]      = QNameA
+MULTINAME_KINDS[RtqNameL.KIND]    = RtqNameL
+MULTINAME_KINDS[RtqNameLA.KIND]   = RtqNameLA
+MULTINAME_KINDS[RtqName.KIND]     = RtqName
+MULTINAME_KINDS[RtqNameA.KIND]    = RtqNameA
+MULTINAME_KINDS[TypeName.KIND]    = TypeName
 
 # ======================================
 # Constant Pool
@@ -433,17 +532,17 @@ class AbcConstantPool(object):
             return struct.pack("<d", double)
 
         def utf8(string):
-            return u32(len(string)) + string
+            return s_u32(len(string)) + string
         
         def serializable(item):
             return item.serialize()
         
         def write_pool(pool, fn):
-            return u32(len(pool)) + ''.join(fn(i) for i in pool)
+            return s_u32(len(pool)) + ''.join(fn(i) for i in pool)
         
         buffer = ""
-        buffer += write_pool(self.int_pool, u32)
-        buffer += write_pool(self.uint_pool, u32)
+        buffer += write_pool(self.int_pool, s_u32)
+        buffer += write_pool(self.uint_pool, s_u32)
         buffer += write_pool(self.double_pool, double)
         buffer += write_pool(self.utf8_pool, utf8)
         buffer += write_pool(self.namespace_pool, serializable)
@@ -451,4 +550,33 @@ class AbcConstantPool(object):
         buffer += write_pool(self.multiname_pool, serializable)
 
         return buffer
+
+    @classmethod
+    def parse(cls, bitstream):
+
+        pool = cls()
         
+        def double():
+            return bitstream.read_float_value(64, endianness="<")
+
+        def utf8():
+            return bitstream.read_string(bitstream.read_u32())
+
+        def serializable(item):
+            def _inner():
+                return item.parse(bitstream, pool)
+
+        def read_pool(P, fn):
+            L = bitstream.read_u32()
+            for i in xrange(L):
+                P.index_of(fn())
+
+        read_pool(pool.int_pool, p_u32)
+        read_pool(pool.uint_pool, p_u32)
+        read_pool(pool.double_pool, double)
+        read_pool(pool.utf8_pool, utf8)
+        read_pool(pool.namespace_pool, serializable(Namespace))
+        read_pool(pool.nsset_pool, serializable(NamespaceSet))
+        read_pool(pool.multiname_pool, serializable(Multiname))
+
+        return pool
