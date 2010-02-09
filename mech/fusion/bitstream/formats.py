@@ -2,12 +2,18 @@
 # Fast lookup for write/read_string.
 # This seems really stupid, but I need it for SPEEEEED.
 
-from math import log, floor, ceil
+from math import log, floor, ceil, isnan
+
+from mech.fusion.bitstream.interfaces import IFormat
+
+from zope.interface import implements
+from zope.component import provideAdapter
 
 def lookup():
     b1 = {}
     b2 = {}
     b3 = {}
+    b4 = {}
     for i in xrange(256):
         tup = tuple(bool(i & (1 << j)) for j in reversed(xrange(8)))
         b1[i] = tup
@@ -38,10 +44,10 @@ def requires_length(can_be=None, cant_be=None):
     def requires_length(fn):
         def requires_length(self, *args, **kwargs):
             if can_be is not None and self.length not in can_be:
-                raise ValueError("Part %r requires a length in the set of "
+                raise ValueError("Format %r requires a length in the set of "
                                  "%s" % (type(self).__name__, can_be,))
             if cant_be is not None and self.length in cant_be:
-                raise ValueError("Part %r cannot be in the set of "
+                raise ValueError("Format %r cannot be in the set of "
                                  "%s" % (type(self).__name__, cant_be,))
             return fn(*args, **kwargs)
         return requires_length
@@ -50,16 +56,15 @@ def requires_length(can_be=None, cant_be=None):
 def no_endianness(fn):
     def no_endianness(self, *args, **kwargs):
         if self.endianness is not None:
-            raise ValueError("Part %r does cannot"
+            raise ValueError("Format %r does cannot"
                              " have endianness." % (type(self).__name__,))
         return fn(*args, **kwargs)
     return fn
 
-class _PartMeta(object):
+class _FormatMeta(type):
     """
-    The metaclass used to implement parts.
+    The metaclass used to implement formats.
     """
-    TYPE = "Part"
     def __getitem__(self, item):
         if isinstance(item, slice):
             assert isinstance(item.start, (int, long))
@@ -69,22 +74,30 @@ class _PartMeta(object):
             return self(length=item)
         elif item in "<>":
             return self(endianness=item)
-        raise ValueError("Part argument must either be an int (length), "
+        raise ValueError("Format argument must either be an int (length), "
                          "or < or > (endianness), or a slice of "
                          "length:endianness.")
 
-    def _read(self, bitstream):
-        return self()._read(bitstream)
-
-    def _write(self, bitstream, argument):
-        return self()._write(bitstream, argument)
+class _FormatMetaAdaptor(object):
+    implements(IFormat)
+    def __init__(self, format):
+        self.format = format
     
-class _Part(object):
+    def _read(self, bs, cursor):
+        return self.format()._read(bs, cursor)
+
+    def _write(self, bs, cursor, argument):
+        return self.format()._write(bs, cursor, argument)
+
+provideAdapter(_FormatMetaAdaptor, [_FormatMeta], IFormat)
+
+class _Format(object):
     """
-    A single field in a BitStream.
+    A single "field" in a BitStream.
     """
-    TYPE = "Part"
-    __metaclass__ = _PartMeta
+    __metaclass__ = _FormatMeta
+    implements(IFormat)
+    
     def __init__(self, length=None, endianness=None, repr=None):
         self.length = length
         self.endianness = endianness
@@ -92,7 +105,7 @@ class _Part(object):
 
     def __getitem__(self, item):
         assert isinstance(item, (int, long))
-        return _PartArray(self, item)
+        return _FormatArray(self, item)
 
     def __str__(self):
         if self.repr:
@@ -106,49 +119,55 @@ class _Part(object):
         raise NotImplementedError
 
     def _pre_read(self, struct):
-        self.length_old = self.length
-        if hasattr(self.length, "_pre_write"):
-            self.length._pre_write(struct, self)
-        if hasattr(self.length, "_evaluate"):
-            self.length = self.length._evaluate_write(struct, self)
-        if hasattr(self.length, "_evaluate_read"):
-            self.length = self.length._evaluate_read(struct, self)
+        if hasattr(self.length, "_pre_read"):
+            self.length._pre_read(struct, self)
 
-    def _post_read(self, struct):
-        self.length = self.length_old
-    
     def _pre_write(self, struct):
-        self.length_old = self.length
         if hasattr(self.length, "_pre_write"):
             self.length._pre_write(struct, self)
-        if hasattr(self.length, "_evaluate"):
-            self.length = self.length._evaluate_write(struct, self)
-        elif hasattr(self.length, "_evaluate_write"):
-            self.length = self.length._evaluate_write(struct, self)
-
-    def _post_write(self, struct):
-        self.length = self.length_old
     
-class _PartArray(object):
-    def __init__(self, part, repeat):
-        self.part = part
+    def _evaluate_read(self, struct):
+        length = None
+        if hasattr(self.length, "_evaluate"):
+            length = self.length._evaluate(struct, self)
+        elif hasattr(self.length, "_evaluate_read"):
+            length = self.length._evaluate_read(struct, self)
+        if length is None:
+            return self
+        else:
+            return type(self)(length=length, endianness=self.endianness)
+    
+    def _evaluate_write(self, struct):
+        length = None
+        if hasattr(self.length, "_evaluate"):
+            length = self.length._evaluate(struct, self)
+        elif hasattr(self.length, "_evaluate_write"):
+            length = self.length._evaluate_write(struct, self)
+        if length is None:
+            return self
+        else:
+            return type(self)(length=length, endianness=self.endianness)
+
+class _FormatArray(object):
+    def __init__(self, format, repeat):
+        self.format = format
         self.repeat = repeat
 
     def _read(self, bs, cursor):
         for i in xrange(self.repeat):
-            yield s.read(self.part)
-
+            yield bs.read(self.format)
+    
     def _write(self, bs, cursor, argument):
         if len(argument) != self.repeat:
             raise ValueError("This %s array is of length %d, you tried to wr"
-                             "ite an %s" % (self.part, self.repeat, argument))
+                             "ite an %s" % (self.format, self.repeat, argument))
         for i in argument:
-            bs.write(i, self.part)
+            bs.write(i, self.format)
 
     def __str__(self):
-        return "%s[%d]" % (self.part, self.repeat)
+        return "%s[%d]" % (self.format, self.repeat)
     
-class Bit(_Part):
+class Bit(_Format):
     """
     One bit.
     """
@@ -163,11 +182,11 @@ class Bit(_Part):
         bs[cursor] = bool(bit)
         return 1
     
-class BitsList(_Part):
-    @requires_length(cant_be=(None,))
+class BitsList(_Format):
     @no_endianness
     def _read(self, bs, cursor):
-        return bs[cursor:cursor+self.length], self.length
+        length = self.length or len(bs)
+        return bs[cursor:cursor+length], length
 
     @requires_length(can_be=(None,))
     @no_endianness
@@ -176,31 +195,27 @@ class BitsList(_Part):
         bs[cursor:cursor+lenL] = argument
         return lenL
 
-class _BoolPart(_Part):
+class _BoolFormat(_Format):
     VALUE = None
-    @requires_length(cant_be=(None,))
     @no_endianness
     def _read(self, bs, cursor):
-        assert bs.read(BitsList[self.length]) == [self.VALUE]*self.length
-        return None
-
-    @requires_length(cant_be=(None,))
+        length = self.length or 1
+        assert bs[cursor:cursor+length] == [self.VALUE]*length
+        return None, length
+    
     @no_endianness
-    def _write(self, bs, cursor):
-        bs.write([self.VALUE]*self.length, BitsList[self.length])
+    def _write(self, bs, cursor, argument):
+        length = self.length or 1
+        bs[cursor:cursor+length] = [self.VALUE]*length
+        return length
 
-class Zero(_BoolPart):
+class Zero(_BoolFormat):
     VALUE = False
 
-class One(_BoolPart):
+class One(_BoolFormat):
     VALUE = True
 
-class Ignore(_Part):
-    @no_endianness
-    def _read(self, bs, cursor):
-        return None, 1 if self.length is None else self.length
-
-class Byte(_Part):
+class Byte(_Format):
     signed=False
     def _read(self, bs, cursor):
         lookup = BITS_TO_BYTE
@@ -262,7 +277,7 @@ ByteString = Byte
 class SignedByte(Byte):
     signed=True
 
-class CString(_Part):
+class CString(_Format):
     @no_endianness
     @requires_length(can_be=(None,))
     def _read(self, bs, cursor):
@@ -276,15 +291,16 @@ class CString(_Part):
         bs.write(argument, ByteString)
         bs.write(0, Byte)
 
-class UTF8(_Part):
+class UTF8(_Format):
     @requires_length(cant_be=(None,))
     def _read(self, bs, cursor):
         return bs.read(ByteString[self.length]).decode("utf8")
-    
+
+    @requires_length(cant_be=(None,))
     def _write(self, bs, cursor, argument):
         bs.write(argument.encode("utf8"), ByteString[self.length])
 
-class CUTF8(_Part):
+class CUTF8(_Format):
     @requires_length(can_be=(None,))
     def _read(self, bs, cursor):
         return bs.read(CString).decode("utf8")
@@ -293,7 +309,7 @@ class CUTF8(_Part):
     def _write(self, bs, cursor, argument):
         bs.write(argument.encode("utf8"), CString)
     
-class UB(_Part):
+class UB(_Format):
     def _read(self, bs, cursor):
         length = 1 if self.length is None else self.length
         if length == 1:
@@ -331,14 +347,14 @@ class UB(_Part):
         
         for i, j in enumerate(R):
             bs[cursor+j] = argument & i
-        return n, length
-
+        return length
+    
     def _nbits(self, argument):
         return nbits(argument)
 
 Bit = UB
 
-class SB(_Part):
+class SB(_Format):
     def _read(self, bs, cursor):
         if self.length in (1, None):
             return bs[cursor], 1
@@ -355,24 +371,15 @@ class SB(_Part):
             return 1
         if length is not None:
             length -= 1
-        bs.write(argument < 0, Bit)
+        bs.write(argument < 0,  Bit)
         bs.write(abs(argument), UB[length])
 
     def _nbits(self, argument):
         return nbits_signed(argument)
 
-SI8  = SignedByte[1:"<":"SI8"]
-SI16 = SignedByte[2:"<":"SI16"]
-SI32 = SignedByte[4:"<":"SI32"]
-
-UI8  = Byte[1:"<":"UI8"]
-UI16 = Byte[2:"<":"UI16"]
-UI24 = Byte[3:"<":"UI24"]
-UI32 = Byte[4:"<":"UI32"]
-UI64 = Byte[8:"<":"UI64"]
-
-class U32(_Part):
+class U32(_Format):
     @requires_length(can_be=(None,))
+    @no_endianness
     def _read(self, bs, cursor):
         n = 0
         i = 0
@@ -386,13 +393,14 @@ class U32(_Part):
         return n
 
     @requires_length(can_be=(None,))
+    @no_endianness
     def _write(self, bs, cursor, n):
         while n > 0:
             bs.write((n >> 7) > 0,     Bit)
             bs.write((n & 0b01111111), UB[7])
-            
+            n >>= 7
 
-class _FixedPart(_Part):
+class FixedFormat(_Format):
     @requires_length(can_be=(16, 32))
     def _read(self, bs, cursor):
         return bs.read(Byte[self.length:self.endianness]) / \
@@ -403,28 +411,23 @@ class _FixedPart(_Part):
          bs.write(value * float({8: 0x100, 16: 0x10000}[self.length]),
                   Byte[self.length:self.endianness])
 
-class _FloatPart(_Part):
+class FloatFormat(_Format):
     _EXPN_BIAS = {16: 16, 32: 127, 64: 1023}
     _N_EXPN_BITS = {16: 5, 32: 8, 64: 11}
     _N_FRAC_BITS = {16: 10, 32: 23, 64: 52}
     _FLOAT_NAME = {16: "float16", 32: "float", 64: "double"}
-
+    
     @requires_length(can_be=(16, 32, 64))
     def _read(self, bs, cursor):
-        if self.length not in self._FLOAT_NAME:
-            raise ValueError("length is not 16, 32 or 64.")
-
-        bits = bs.read_bits(BitsList[self.length])
+        sign = bs.read(Bit)
         
-        sign = bits.read_bit()
+        expn_len = self._N_EXPN_BITS[self.length]
+        frac_len = self._N_FRAC_BITS[self.length]
         
-        expn_len = self._N_EXPN_BITS[length]
-        frac_len = self._N_FRAC_BITS[length]
+        expn = bs.read(UB[expn_len])
+        frac = bs.read(UB[frac_len])
         
-        expn = bits.read_int_value(expn_len)
-        frac = bits.read_int_value(frac_len)
-
-        bias = expn - self._EXPN_BIAS[length]
+        bias = expn - self._EXPN_BIAS[self.length]
         
         frac_total = float(1 << frac_len)
         expn_total = float(1 << expn_len)
@@ -439,5 +442,48 @@ class _FloatPart(_Part):
                 return float("-inf") if sign else float("inf")
             else:
                 return float("nan")
-
+        
         return (-1 if sign else 1) * 2**bias * (1 + frac / frac_total)
+
+    @requires_length(can_be=(16, 32, 64))
+    def _write(self, bs, cursor, value):
+        if value in (0, 0.0): # value is zero
+            bs.write(Zero[self.length])
+        elif value == -0.0:
+            bs.write(One)
+            bs.write(Zero[self.length-1])
+        
+        if isnan(value):
+            bs.write(One [self.length])
+        elif value == float("-inf"): # negative infinity
+            bs.write(One [self._N_EXPN_BITS[self.length] + 1]) # sign merged
+            bs.write(Zero[self._N_FRAC_BITS[self.length]])
+        elif value == float("inf"): # positive infinity
+            bs.write(Zero)
+            bs.write(One [self._N_EXPN_BITS[self.length]])
+            bs.write(Zero[self._N_FRAC_BITS[self.length]])
+        else:
+            if value < 0:
+                bs.write(One)
+                value = ~value + 1
+            else:
+                bs.write(Zero)
+            
+            exp = self._EXPN_BIAS[self.length]
+            if value < 1:
+                while int(value) != 1:
+                    value *= 2
+                    exp -= 1
+            else:
+                while int(value) != 1:
+                    value /= 2
+                    exp += 1
+            
+            if exp < 0 or exp > (1 << self._N_EXPN_BITS[self.length]):
+                raise ValueError("Exponent out of range in %s [%d]." %
+                                 (self._FLOAT_NAME[self.length], self.length))
+            
+            frac_total = 1 << self._N_FRAC_BITS[self.length]
+            bs.write(exp, UB[self._N_EXPN_BITS[self.length]])
+            bs.write(int((value-1)*frac_total) & (frac_total - 1),
+                     UB[self._N_FRAC_BITS[self.length]])

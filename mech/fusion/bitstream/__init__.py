@@ -1,12 +1,19 @@
 
-from mech.fusion.bitstream import parts as P
+import os
 
-class BitStream(object):
+from mech.fusion.bitstream import formats as F, flash_formats as FF
+from mech.fusion.bitstream.interfaces import IBitStream, IFormat
 
+from zope.interface import implements
+from zope.component import provideAdapter
+
+class BitStream(F._Format):
     """
     BitStream is a class for taking care of data
     structures that are bit-packed, like SWF.
     """
+    
+    implements(IBitStream)
     
     def __init__(self, bits=[]):
         """
@@ -26,18 +33,15 @@ class BitStream(object):
 
     # New API.
     def read(self, part):
-        retval, cursor = part._read(self, self.cursor), 
+        retval, cursor = part._read(self, self.cursor), 0
         if isinstance(retval, tuple):
             retval, cursor = retval
         self.cursor += cursor
     
     def write(self, argument, part=None):
         if part is None:
-            if argument.TYPE == "Part":
-                return argument.write(self, self.cursor)
-            elif argument.TYPE == "BitStream":
-                self.bits += argument.bits
-        self.cursor += part._write(self, self.cursor, argument) or 0
+            part = argument
+        self.cursor += IFormat(part)._write(self, self.cursor, argument) or 0
     
     def read_bit(self):
         """
@@ -51,11 +55,7 @@ class BitStream(object):
         :rtype: bool
         :raises IndexError: when reading past the end of the stream.
         """
-        if self.bits_available() < 1:
-            raise IndexError("Attempted to read off the end of the BitStream")
-        
-        self.cursor += 1
-        return self.bits[self.cursor-1]
+        return self.read(F.Bit)
     
     def write_bit(self, value):
         """
@@ -68,11 +68,7 @@ class BitStream(object):
         
         :param value: either True or False; ``bool(value)`` is called
         """
-        if self.cursor < len(self.bits):
-            self.bits[self.cursor] = bool(value)
-        else:
-            self.bits.append(bool(value))
-        self.cursor += 1
+        self.write(value, F.Bit)
 
     def read_bits(self, length, as_list=False, endianness=">"):
         """
@@ -93,7 +89,7 @@ class BitStream(object):
         """
         if length > self.bits_available():
             raise IndexError("Attempted to read off the end of the BitStream")
-
+        
         if as_list:
             bits = self.bits[self.cursor:self.cursor+length]
             self.cursor += length
@@ -451,27 +447,25 @@ class BitStream(object):
             raise ValueError, "length is not 16, 32 or 64."
         
         if value == 0: # value is zero, so we don't care about length
-            self.write_int_value(0, length)
-
-        bits = BitStream()
+            self.zero_fill(0, length)
             
         if isnan(value):
             self.one_fill(length)
             return
         elif value == float("-inf"): # negative infinity
-            bits.one_fill(BitStream._N_EXPN_BITS[length] + 1) # sign merged
-            bits.zero_fill(BitStream._N_FRAC_BITS[length])
+            self.one_fill(BitStream._N_EXPN_BITS[length] + 1) # sign merged
+            self.zero_fill(BitStream._N_FRAC_BITS[length])
         elif value == float("inf"): # positive infinity
-            bits.write_bit(False)
-            bits.one_fill(BitStream._N_EXPN_BITS[length])
-            bits.zero_fill(BitStream._N_FRAC_BITS[length])
+            self.write_bit(False)
+            self.one_fill(BitStream._N_EXPN_BITS[length])
+            self.zero_fill(BitStream._N_FRAC_BITS[length])
         else:
             if value < 0:
-                bits.write_bit(True)
+                self.write_bit(True)
                 value = ~value + 1
             else:
-                bits.write_bit(False)
-                
+                self.write_bit(False)
+            
             exp = BitStream._EXPN_BIAS[length]
             if value < 1:
                 while int(value) != 1:
@@ -485,10 +479,10 @@ class BitStream(object):
             if exp < 0 or exp > ( 1 << BitStream._N_EXPN_BITS[length] ):
                 raise ValueError("Exponent out of range in %s [%d]." %
                                  (BitStream._FLOAT_NAME[length], length))
-
+            
             frac_total = 1 << BitStream._N_FRAC_BITS[length]
-            bits.write_int_value(exp, BitStream._N_EXPN_BITS[length])
-            bits.write_int_value(int((value-1)*frac_total) & (frac_total - 1),
+            self.write_int_value(exp, BitStream._N_EXPN_BITS[length])
+            self.write_int_value(int((value-1)*frac_total) & (frac_total - 1),
                                  BitStream._N_FRAC_BITS[length])
     
     def read_u32(self):
@@ -506,7 +500,6 @@ class BitStream(object):
                 raise ValueError("u32 parsed beyond bounds")
             n |= self.read_int_value(7) << 7*i
             i += 1
-        print
         return n
 
     def _fill(self, amount, value):
@@ -643,6 +636,19 @@ class BitStream(object):
                 lst += [False] * (8-leftover)
             numbytes += 1
         return BitStream(lst).read_string(numbytes)
+
+class BitStreamFormatAdaptor(object):
+    def __init__(self, bitstream):
+        self.bitstream = bitstream
+
+    @F.no_endianness
+    def _read(self, bs, cursor):
+        return BitStream(bs.read(P.BitsList[self.length]))
+
+    @F.no_endianness
+    @F.requiresLength(can_be=(None,))
+    def _write(self, bs, cursor, argument):
+        bs.write(argument.read(P.BitsList), P.BitsList)
 
 class BitStreamParseMixin(object):
     @classmethod
