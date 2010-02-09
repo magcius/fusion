@@ -1,4 +1,6 @@
 
+from mech.fusion.bitstream import parts as P
+
 class BitStream(object):
 
     """
@@ -31,7 +33,10 @@ class BitStream(object):
     
     def write(self, argument, part=None):
         if part is None:
-            return argument.write(self, self.cursor)
+            if argument.TYPE == "Part":
+                return argument.write(self, self.cursor)
+            elif argument.TYPE == "BitStream":
+                self.bits += argument.bits
         self.cursor += part._write(self, self.cursor, argument) or 0
     
     def read_bit(self):
