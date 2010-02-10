@@ -6,7 +6,7 @@ from math import log, floor, ceil, isnan
 from mech.fusion.bitstream.interfaces import IFormat
 
 from zope.interface import implements
-from zope.component import provideAdapter
+from zope.component import provideAdapter, adapts
 
 # Fast lookup for write/read_string.
 # This seems really stupid, but I need it for SPEEEEED.
