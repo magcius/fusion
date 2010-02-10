@@ -10,7 +10,7 @@ from mech.fusion.bitstream import formats as F, flash_formats as FF
 from mech.fusion.bitstream.interfaces import IBitStream, IFormat
 
 from zope.interface import implements
-from zope.component import provideAdapter
+from zope.component import provideAdapter, adapts
 
 class _BitStreamMeta(F._FormatMeta):
     pass
@@ -223,9 +223,10 @@ class BitStreamMixin(object):
         return copy.read(F.ByteString[numbytes])
 
 class BitStream(BitStreamMixin):
-    # New API.
-
     implements(IBitStream)
+    
+    adapts(list)
+    adapts(tuple)
     
     def __init__(self, bits=[]):
         """
@@ -242,6 +243,8 @@ class BitStream(BitStreamMixin):
                          (isinstance(b, str) and b.strip() != "") or not \
                          isinstance(b, str)]
         self._cursor = 0
+
+    # New API.
     
     def read(self, part):
         retval, cursor = IFormat(part)._read(self, self._cursor), 0
@@ -278,11 +281,17 @@ class BitStream(BitStreamMixin):
     def __iter__(self):
         return iter(self.bits)
 
-provideAdapter(BitStream, [list], IBitStream)
-provideAdapter(BitStream, [tuple], IBitStream)
+provideAdapter(BitStream)
 
 class _BitStreamFormatAdaptor(object):
     implements(IFormat)
+    
+    # bs.read(BitStream)
+    # bs.write(bs2, BitStream)
+    adapts(_BitStreamMeta)
+    
+    # bs.write(bs2)
+    adapts(IBitStream)
     
     def __init__(self, bitstream):
         self.bitstream = bitstream
@@ -302,12 +311,7 @@ class _BitStreamFormatAdaptor(object):
         L = len(argument)
         bs.write(argument.read(F.UB[L]), F.UB[L])
 
-# bs.read(BitStream)
-# bs.write(bs2, BitStream)
-provideAdapter(_BitStreamFormatAdaptor, [_BitStreamMeta], IFormat)
-
-# bs.write(bs2)
-provideAdapter(_BitStreamFormatAdaptor, [IBitStream], IFormat)
+provideAdapter(_BitStreamFormatAdaptor)
 
 class _BitStreamDataFormat(object):
     implements(IFormat)

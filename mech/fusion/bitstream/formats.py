@@ -88,7 +88,10 @@ class _FormatMeta(type):
         return self.__name__
 
 class _FormatMetaAdaptor(object):
+    
     implements(IFormat)
+    adapts(_FormatMeta)
+    
     def __init__(self, format):
         self.format = format
     
@@ -100,7 +103,7 @@ class _FormatMetaAdaptor(object):
         return self.format(FormatData(
             None, None, None))._write(bs, cursor, argument)
 
-provideAdapter(_FormatMetaAdaptor, [_FormatMeta], IFormat)
+provideAdapter(_FormatMetaAdaptor)
 
 class _Format(object):
     """
