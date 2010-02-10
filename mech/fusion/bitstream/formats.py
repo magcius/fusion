@@ -1,6 +1,5 @@
 
-# Fast lookup for write/read_string.
-# This seems really stupid, but I need it for SPEEEEED.
+from collections import namedtuple
 
 from math import log, floor, ceil, isnan
 
@@ -8,6 +7,9 @@ from mech.fusion.bitstream.interfaces import IFormat
 
 from zope.interface import implements
 from zope.component import provideAdapter
+
+# Fast lookup for write/read_string.
+# This seems really stupid, but I need it for SPEEEEED.
 
 def lookup():
     b1 = {}
@@ -47,9 +49,9 @@ def requires_length(can_be=None, cant_be=None):
                 raise ValueError("Format %r requires a length in the set of "
                                  "%s" % (type(self).__name__, can_be,))
             if cant_be is not None and self.length in cant_be:
-                raise ValueError("Format %r cannot be in the set of "
-                                 "%s" % (type(self).__name__, cant_be,))
-            return fn(*args, **kwargs)
+                raise ValueError("Format %r cannot have a length in the set "
+                                 "of %s" % (type(self).__name__, cant_be,))
+            return fn(self, *args, **kwargs)
         return requires_length
     return requires_length
 
@@ -58,25 +60,32 @@ def no_endianness(fn):
         if self.endianness is not None:
             raise ValueError("Format %r does cannot"
                              " have endianness." % (type(self).__name__,))
-        return fn(*args, **kwargs)
+        return fn(self, *args, **kwargs)
     return fn
+
+FormatData = namedtuple("FormatData", "length endianness repr")
 
 class _FormatMeta(type):
     """
     The metaclass used to implement formats.
     """
     def __getitem__(self, item):
-        if isinstance(item, slice):
-            assert isinstance(item.start, (int, long))
-            assert isinstance(item.stop , basestring)
-            return self(item.start, item.stop, item.step)
+        if item is None:
+            return self.specialize(FormatData(None, None, None))
+        elif isinstance(item, slice):
+            # assert isinstance(item.start, (int, long)) or item.start is None
+            # assert isinstance(item.stop , basestring)
+            return self.specialize(FormatData(item.start, item.stop, item.step))
         elif isinstance(item, (int, long)):
-            return self(length=item)
+            return self.specialize(FormatData(item, None, None))
         elif item in "<>":
-            return self(endianness=item)
+            return self.specialize(FormatData(None, item, None))
         raise ValueError("Format argument must either be an int (length), "
                          "or < or > (endianness), or a slice of "
                          "length:endianness.")
+    
+    def __str__(self):
+        return self.__name__
 
 class _FormatMetaAdaptor(object):
     implements(IFormat)
@@ -84,10 +93,12 @@ class _FormatMetaAdaptor(object):
         self.format = format
     
     def _read(self, bs, cursor):
-        return self.format()._read(bs, cursor)
-
+        return self.format(FormatData(
+            None, None, None))._read(bs, cursor)
+    
     def _write(self, bs, cursor, argument):
-        return self.format()._write(bs, cursor, argument)
+        return self.format(FormatData(
+            None, None, None))._write(bs, cursor, argument)
 
 provideAdapter(_FormatMetaAdaptor, [_FormatMeta], IFormat)
 
@@ -97,12 +108,17 @@ class _Format(object):
     """
     __metaclass__ = _FormatMeta
     implements(IFormat)
-    
-    def __init__(self, length=None, endianness=None, repr=None):
-        self.length = length
-        self.endianness = endianness
-        self.repr = repr
 
+    @classmethod
+    def specialize(cls, data):
+        return cls(data)
+    
+    def __init__(self, data=None):
+        if data:
+            self.length     = data.length
+            self.endianness = data.endianness
+            self.repr       = data.repr
+    
     def __getitem__(self, item):
         assert isinstance(item, (int, long))
         return _FormatArray(self, item)
@@ -111,7 +127,7 @@ class _Format(object):
         if self.repr:
             return self.repr
         return "%s[%d]" % (type(self).__name__, self.length)
-    
+
     def _read(self, bitstream, cursor):
         raise NotImplementedError
 
@@ -125,7 +141,7 @@ class _Format(object):
     def _pre_write(self, struct):
         if hasattr(self.length, "_pre_write"):
             self.length._pre_write(struct, self)
-    
+
     def _evaluate_read(self, struct):
         length = None
         if hasattr(self.length, "_evaluate"):
@@ -136,7 +152,7 @@ class _Format(object):
             return self
         else:
             return type(self)(length=length, endianness=self.endianness)
-    
+
     def _evaluate_write(self, struct):
         length = None
         if hasattr(self.length, "_evaluate"):
@@ -156,11 +172,11 @@ class _FormatArray(object):
     def _read(self, bs, cursor):
         for i in xrange(self.repeat):
             yield bs.read(self.format)
-    
+
     def _write(self, bs, cursor, argument):
         if len(argument) != self.repeat:
-            raise ValueError("This %s array is of length %d, you tried to wr"
-                             "ite an %s" % (self.format, self.repeat, argument))
+            raise ValueError("This %s array is of length %d, you tried to wri"
+                             "te an %s" % (self.format, self.repeat, argument))
         for i in argument:
             bs.write(i, self.format)
 
@@ -169,11 +185,17 @@ class _FormatArray(object):
     
 class Bit(_Format):
     """
-    One bit.
+    One bit, either True or False.
     """
     @requires_length(can_be=(1, None))
     @no_endianness
     def _read(self, bs, cursor):
+        """
+        Reads a bit from the bit stream and returns it as either True or False.
+        
+        :rtype: bool
+        :raises IndexError: when reading past the end of the stream.
+        """
         return bs[cursor], 1
     
     @requires_length(can_be=(1, None))
@@ -181,17 +203,20 @@ class Bit(_Format):
     def _write(self, bs, cursor, bit):
         bs[cursor] = bool(bit)
         return 1
-    
+
 class BitsList(_Format):
     @no_endianness
     def _read(self, bs, cursor):
-        length = self.length or len(bs)
-        return bs[cursor:cursor+length], length
-
-    @requires_length(can_be=(None,))
+        length = self.length
+        if length is None:
+             length = len(bs)
+        data = bs[cursor:cursor+length]
+        return data, length
+    
     @no_endianness
     def _write(self, bs, cursor, argument):
         lenL = len(argument)
+        assert lenL == self.length or self.length is None
         bs[cursor:cursor+lenL] = argument
         return lenL
 
@@ -200,7 +225,6 @@ class _BoolFormat(_Format):
     @no_endianness
     def _read(self, bs, cursor):
         length = self.length or 1
-        assert bs[cursor:cursor+length] == [self.VALUE]*length
         return None, length
     
     @no_endianness
@@ -216,34 +240,57 @@ class One(_BoolFormat):
     VALUE = True
 
 class Byte(_Format):
-    signed=False
+    """
+    A byte/bytestring.
+    """
+    string = False
+    signed = False
     def _read(self, bs, cursor):
         lookup = BITS_TO_BYTE
         if self.signed:
             lookup = BITS_TO_SIGNED_BYTE
         
-        if self.length in (None, 1):
-            byte = lookup[bs.read(BitsList[8])]
-            if self.length == 1:
+        length = self.length
+        if (length in (None, 1) and not self.string) or length == 1:
+            if bs.bits_available < 8:
+                raise ValueError("%s read beyond boundaries" % (bs,))
+            byte = lookup[tuple(bs.read(BitsList[8]))]
+            if self.string:
                 return chr(byte)
+            if length == 1:
+                return [byte]
             return byte
+        elif length is None:
+            if bs.bits_available() & 7:
+                raise ValueError("You cannot read the rest of the BitStream "
+                                 "as a ByteString. The length of the "
+                                 "available bits is not divisible by 8.")
+            length = bs.bits_available() // 8
         
-        bytes = ''.join(chr(lookup[bs.read(BitsList[8])]) \
-                        for i in xrange(self.length))
+        R = (lookup[tuple(bs.read(BitsList[8]))] for i in xrange(length))
+
+        try:
+            if self.string:
+                bytes = ''.join(chr(a) for a in R)
+            else:
+                bytes = list(R)
+        except KeyError:
+            raise ValueError("%s read beyond boundaries" % (bs,))
         
         if self.endianness == "<":
             return bytes[::-1]
         
         return bytes
-    
+
     def _write(self, bs, cursor, bytes):
         lookup = BYTE_TO_BITS
         if self.signed:
             lookup = SIGNED_BYTE_TO_BITS
         
         if isinstance(bytes, (int, long)):
-            if bytes < 256:
-                return bs.write(lookup[bytes], BitsList[8])
+            if bytes < 256 and self.length in (1, None):
+                bs[cursor:cursor+8] = lookup[bytes]
+                return 8
             Len = int(ceil(nbits(bytes) / 8.))
             L = Len - self.length
             if L > 0:
@@ -252,39 +299,46 @@ class Byte(_Format):
                 raise ValueError("%r does not fit in %d bytes"
                                  ""% (bytes, self.length))
             
-            R = xrange(Len)
+            R = xrange(0, Len*8, 8)
             if self.endianness == "<":
                 R = reversed(R)
             for i in R:
-                bs.write(lookup[bytes & (0xFF << 8*i)])
-        else:
-            L = len(bytes) - self.length
-            if L > 0:
-                bs.write(Zero[8*L])
-            elif L < 0:
-                raise ValueError("%r does not fit in %d bytes"
-                                 "" % (bytes, self.length))
+                bs.write(lookup[(bytes & (0xFF << i)) >> i])
+        elif isinstance(bytes, str):
+            if self.length is not None:
+                L = len(bytes) - self.length
+                if L > 0:
+                    bs.write(Zero[8*L])
+                elif L < 0:
+                    raise ValueError("%r does not fit in %d bytes"
+                                     "" % (bytes, self.length))
             
             if self.endianness == "<":
                 bytes = reversed(bytes)
             for i in bytes:
-                if isinstance(bytes, str):
+                if isinstance(i, str):
                     i = ord(i)
-                bs.write(BYTE_TO_BITS[i], BitsList[8])
+                bs.write(BYTE_TO_BITS[i], BitsList)
+        else:
+            raise TypeError("Invalid type for Byte/ByteString")
 
-ByteString = Byte
+class ByteString(Byte):
+    string = True
 
 class SignedByte(Byte):
-    signed=True
+    signed = True
 
 class CString(_Format):
+    """
+    A string ended with a NUL, like a c-string.
+    """
     @no_endianness
     @requires_length(can_be=(None,))
     def _read(self, bs, cursor):
         bytes = [0xDEADBEEF]
         while bytes[-1] != 0:
             bytes.append(bs.read(Byte))
-        return ''.join(chr(i) for i in bytes[1:])
+        return ''.join(chr(i) for i in bytes[1:-1])
     
     @requires_length(can_be=(None,))
     def _write(self, bs, cursor, argument):
@@ -292,6 +346,9 @@ class CString(_Format):
         bs.write(0, Byte)
 
 class UTF8(_Format):
+    """
+    A UTF8 string.
+    """
     @requires_length(cant_be=(None,))
     def _read(self, bs, cursor):
         return bs.read(ByteString[self.length]).decode("utf8")
@@ -301,6 +358,9 @@ class UTF8(_Format):
         bs.write(argument.encode("utf8"), ByteString[self.length])
 
 class CUTF8(_Format):
+    """
+    A UTF8 string ended with a NUL, like a CString.
+    """
     @requires_length(can_be=(None,))
     def _read(self, bs, cursor):
         return bs.read(CString).decode("utf8")
@@ -310,12 +370,47 @@ class CUTF8(_Format):
         bs.write(argument.encode("utf8"), CString)
     
 class UB(_Format):
+    """
+    Unsigned Bits, most significant bit first.
+
+    .. seealso:
+    
+    When writing, if length is None, the log base 2 of the value is
+    taken.
+    
+    >>> bits = BitStream()
+    >>> bits.write_int_value(7, length=10)
+    >>> str(bits)
+    "00000111"
+    >>> bits.rewind()
+    >>> bits.write(0xDDEEFF, Byte[3:"<"])
+    >>> bits.rewind()
+    >>> bits.read(ByteString[3:">"]) == "\xFF\xEE\xDD"
+    True
+    
+    .. seealso
+
+        `Wikipedia: Two's complement
+         <http://en.wikipedia.org/wiki/Two%27s_complement>`_
+            Has information on the two's complement number system.
+    
+        `SWF specification v10 <http://www.adobe.com/devnet/swf/>`_
+           Has information on UB, page 16
+    
+    """
+    @requires_length(cant_be=(None,))
     def _read(self, bs, cursor):
-        length = 1 if self.length is None else self.length
+        length = self.length
         if length == 1:
             return bs[cursor], 1
-        elif length & 7:
-            return bs.read(Byte[length//8])
+        elif length & 7 == 0:
+            bytes, n = bs.read(Byte[length//8]), 0
+            R = xrange(len(bytes))
+            if self.endianness != "<":
+                R = reversed(R)
+            for i, b in zip(R, bytes):
+                n |= b << 8*i
+            return n
         
         n = 0
         
@@ -324,7 +419,7 @@ class UB(_Format):
             R = ((length // 8 - i // 8 - 1)*8 + i%8 for i in R)
         
         for i, j in enumerate(R):
-            n |= bs[cursor+j] << i
+            n |= bs[cursor+i] << j
         return n, length
     
     def _write(self, bs, cursor, argument):
@@ -338,7 +433,7 @@ class UB(_Format):
         elif length == 1:
             bs[cursor] = bool(argument)
             return 1
-        elif length & 7:
+        elif length & 7 == 0:
             return bs.write(argument, Byte[length//8])
         
         R = reversed(xrange(length))
@@ -346,29 +441,35 @@ class UB(_Format):
             R = ((length // 8 - i // 8 - 1)*8 + i%8 for i in R)
         
         for i, j in enumerate(R):
-            bs[cursor+j] = argument & i
+            bs[cursor+i] = bool(argument & (1 << j))
         return length
     
     def _nbits(self, argument):
         return nbits(argument)
 
-Bit = UB
-
 class SB(_Format):
+    """
+    Signed Bits.
+
+    When writing, if length is None, the log base 2
+    of the value is taken.
+
+    .. seealso:
+    
+        `SWF specification v10 <http://www.adobe.com/devnet/swf/>`_
+           Has information on SB, page 16
+    
+    """
+    @requires_length(cant_be=(None,))
     def _read(self, bs, cursor):
-        if self.length in (1, None):
-            return bs[cursor], 1
         signed = bs.read(Bit)
         n = bs.read(UB[self.length-1])
         if signed:
             return -n
         return n
-
+    
     def _write(self, bs, cursor, argument):
         length = self.length
-        if self.length == 1:
-            bs[cursor] = bool(argument)
-            return 1
         if length is not None:
             length -= 1
         bs.write(argument < 0,  Bit)
@@ -377,7 +478,35 @@ class SB(_Format):
     def _nbits(self, argument):
         return nbits_signed(argument)
 
+class FB(_Format):
+    """
+    Fixed Bits.
+
+    When writing, if length is None, the log base 2
+    of the value is taken.
+    
+    .. seealso:
+    
+        `SWF specification v10 <http://www.adobe.com/devnet/swf/>`_
+           Has information on FB, page 16.
+    """
+    @requires_length(cant_be=(None,))
+    def _read(self, bs, cursor):
+        return bs.read(SB) / float(0x10000)
+    
+    def _write(self, bs, cursor, value):
+        bs.write(value / float(0x10000), SB)
+    
 class U32(_Format):
+    """
+    A U32/EncodedU32, as defined in the ABC file format specification.
+    
+    .. seealso:
+    
+       `ABC file format specification
+       <http://www.adobe.com/devnet/actionscript/articles/avm2overview.pdf>`_
+          Has information on U32.
+    """
     @requires_length(can_be=(None,))
     @no_endianness
     def _read(self, bs, cursor):
@@ -401,6 +530,17 @@ class U32(_Format):
             n >>= 7
 
 class FixedFormat(_Format):
+    """
+    A fixed point number.
+    
+    If length is 16, an 8.8 format is used.
+    If length is 32, a 16.16 format is used.
+    
+    .. seealso:
+    
+        `SWF specification v10 <http://www.adobe.com/devnet/swf/>`_
+           Has information on fixed-point values.
+    """
     @requires_length(can_be=(16, 32))
     def _read(self, bs, cursor):
         return bs.read(Byte[self.length:self.endianness]) / \
@@ -412,10 +552,21 @@ class FixedFormat(_Format):
                   Byte[self.length:self.endianness])
 
 class FloatFormat(_Format):
+    """
+    A IEEE floating-point number.
+
+    .. seealso:
+
+        `Wikipedia: IEEE floating-point standard
+        <http://en.wikipedia.org/wiki/IEEE_floating-point_standard>`_
+           A good overview article of the IEEE floating-point standard, from Wikipedia.
+
+    .. warning: Flash's FLOAT16 exponent bias is 16, not 15.
+    """
+    # Precalculated, see the Wikipedia links below.
     _EXPN_BIAS = {16: 16, 32: 127, 64: 1023}
     _N_EXPN_BITS = {16: 5, 32: 8, 64: 11}
     _N_FRAC_BITS = {16: 10, 32: 23, 64: 52}
-    _FLOAT_NAME = {16: "float16", 32: "float", 64: "double"}
     
     @requires_length(can_be=(16, 32, 64))
     def _read(self, bs, cursor):
@@ -480,10 +631,22 @@ class FloatFormat(_Format):
                     exp += 1
             
             if exp < 0 or exp > (1 << self._N_EXPN_BITS[self.length]):
-                raise ValueError("Exponent out of range in %s [%d]." %
-                                 (self._FLOAT_NAME[self.length], self.length))
+                raise ValueError("Exponent out of range in %s." % (self,))
             
             frac_total = 1 << self._N_FRAC_BITS[self.length]
             bs.write(exp, UB[self._N_EXPN_BITS[self.length]])
             bs.write(int((value-1)*frac_total) & (frac_total - 1),
                      UB[self._N_FRAC_BITS[self.length]])
+
+def bool_adaptor(bit):
+    if bit:
+        return One
+    return Zero
+
+def list_adaptor(bits):
+    from mech.fusion.bitstream.bitstream import BitStream
+    return IFormat(BitStream(bits))
+
+provideAdapter(bool_adaptor, [bool], IFormat)
+provideAdapter(list_adaptor, [list], IFormat)
+provideAdapter(list_adaptor, [tuple], IFormat)

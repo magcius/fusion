@@ -1,7 +1,8 @@
 
-from mech.fusion.bitstream import BitStream
+from mech.fusion.bitstream.bitstream import BitStream
 from mech.fusion.bitstream.formats import UB
-from mech.fusion.bitstream.interfaces import IFormat, IStruct, IStructClass
+from mech.fusion.bitstream.interfaces import (IBitStream, IStruct,
+                                              IStructClass, IFormat)
 
 from zope.interface import implements, classProvides
 from zope.component import provideAdapter
@@ -204,35 +205,32 @@ class Group(object):
             stat._struct_read(struct, bitstream)
         del self._TEMP
 
-class StructMeta(type):
-    """
-    Struct's metaclass used to implement IFormat.
-    """
-    implements(IFormat)
-    def _read(self, bs, cursor):
-        return self.from_bits(bs)
-
-    def _write(self, bs, cursor, argument):
-        assert isinstance(argument, self)
-        bs += argument.as_bits()
-
 class Struct(object):
     """
     A struct of bit fields.
     """
-    __metaclass__ = StructMeta
     
     implements(IStruct)
+    classProvides(IFormat)
     classProvides(IStructClass)
     
     FORMAT = None
     POSITIONAL = [] # for backwards compatibility
-    
+
     def __init__(self, *args, **kwargs):
         for k, v in zip(self.POSITIONAL, args):
             setattr(self, k, v)
         for k, v in kwargs.iteritems():
             setattr(self, k, v)
+    
+    @classmethod
+    def _read(cls, bs, cursor):
+        return cls.from_bits(bs)
+
+    @classmethod
+    def _write(cls, bs, cursor, argument):
+        assert isinstance(argument, cls)
+        bs += argument.as_bits()
     
     def as_bits(self):
         bitstream = BitStream()
@@ -246,3 +244,6 @@ class Struct(object):
         for statement in cls.FORMAT:
             statement._struct_read(instance, bitstream)
         return instance
+
+provideAdapter(Struct.as_bits, [IStruct], IBitStream)
+provideAdapter(Struct.as_bits, [IStruct], IFormat)

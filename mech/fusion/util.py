@@ -5,9 +5,6 @@ import zlib
 
 from math import isnan
 
-ALIGN_LEFT = "left"
-ALIGN_RIGHT = "right"
-
 def clamp(n, minimum, maximum):
     """
     Clamp n between mniimum and maximum.
@@ -28,4 +25,4 @@ def camel_case_convert(string):
     """
     return '_'.join(s.lower() for s in camel_case_match(string))
 
-from mech.fusion.bitstream import BitStream, BitStreamParseMixin, parts, nbits_signed, nbits
+from mech.fusion.bitstream import BitStream, BitStreamParseMixin, formats, nbits_signed, nbits
