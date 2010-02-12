@@ -70,13 +70,13 @@ class IFormat(Interface):
         """
 
 class IStruct(Interface):
-    def as_bits():
+    def as_bitstream():
         """
         Return this struct represented as an instance of an IBitStream.
         """
 
 class IStructClass(Interface):
-    def from_bits(bitstream):
+    def from_bitstream(bitstream):
         """
         Read and return an instance of this struct from an IBitStream.
         """

@@ -3,7 +3,7 @@ from collections import namedtuple
 
 from math import log, floor, ceil, isnan
 
-from mech.fusion.bitstream.interfaces import IFormat
+from mech.fusion.bitstream.interfaces import IFormat, IBitStream
 
 from zope.interface import implements
 from zope.component import provideAdapter, adapts
@@ -65,7 +65,7 @@ def no_endianness(fn):
 
 FormatData = namedtuple("FormatData", "length endianness repr")
 
-class _FormatMeta(type):
+class FormatMeta(type):
     """
     The metaclass used to implement formats.
     """
@@ -87,10 +87,10 @@ class _FormatMeta(type):
     def __str__(self):
         return self.__name__
 
-class _FormatMetaAdaptor(object):
+class FormatMetaAdaptor(object):
     
     implements(IFormat)
-    adapts(_FormatMeta)
+    adapts(FormatMeta)
     
     def __init__(self, format):
         self.format = format
@@ -103,13 +103,13 @@ class _FormatMetaAdaptor(object):
         return self.format(FormatData(
             None, None, None))._write(bs, cursor, argument)
 
-provideAdapter(_FormatMetaAdaptor)
+provideAdapter(FormatMetaAdaptor)
 
-class _Format(object):
+class Format(object):
     """
     A single "field" in a BitStream.
     """
-    __metaclass__ = _FormatMeta
+    __metaclass__ = FormatMeta
     implements(IFormat)
 
     @classmethod
@@ -124,7 +124,7 @@ class _Format(object):
     
     def __getitem__(self, item):
         assert isinstance(item, (int, long))
-        return _FormatArray(self, item)
+        return FormatArray(self, item)
 
     def __str__(self):
         if self.repr:
@@ -167,7 +167,7 @@ class _Format(object):
         else:
             return type(self)(length=length, endianness=self.endianness)
 
-class _FormatArray(object):
+class FormatArray(object):
     def __init__(self, format, repeat):
         self.format = format
         self.repeat = repeat
@@ -186,7 +186,7 @@ class _FormatArray(object):
     def __str__(self):
         return "%s[%d]" % (self.format, self.repeat)
     
-class Bit(_Format):
+class Bit(Format):
     """
     One bit, either True or False.
     """
@@ -207,7 +207,7 @@ class Bit(_Format):
         bs[cursor] = bool(bit)
         return 1
 
-class BitsList(_Format):
+class BitsList(Format):
     @no_endianness
     def _read(self, bs, cursor):
         length = self.length
@@ -223,7 +223,7 @@ class BitsList(_Format):
         bs[cursor:cursor+lenL] = argument
         return lenL
 
-class _BoolFormat(_Format):
+class BoolFormat(Format):
     VALUE = None
     @no_endianness
     def _read(self, bs, cursor):
@@ -236,13 +236,21 @@ class _BoolFormat(_Format):
         bs[cursor:cursor+length] = [self.VALUE]*length
         return length
 
-class Zero(_BoolFormat):
+class Zero(BoolFormat):
     VALUE = False
 
-class One(_BoolFormat):
+class One(BoolFormat):
     VALUE = True
 
-class Byte(_Format):
+class Ignore(Format):
+    @no_endianness
+    def _read(self, bs, cursor):
+        return None, self.length
+
+    def _write(self, bs, cursor, argument):
+        return self.length
+
+class Byte(Format):
     """
     A byte/bytestring.
     """
@@ -331,7 +339,7 @@ class ByteString(Byte):
 class SignedByte(Byte):
     signed = True
 
-class CString(_Format):
+class CString(Format):
     """
     A string ended with a NUL, like a c-string.
     """
@@ -346,9 +354,9 @@ class CString(_Format):
     @requires_length(can_be=(None,))
     def _write(self, bs, cursor, argument):
         bs.write(argument, ByteString)
-        bs.write(0, Byte)
+        bs.write(Zero[8])
 
-class UTF8(_Format):
+class UTF8(Format):
     """
     A UTF8 string.
     """
@@ -360,7 +368,7 @@ class UTF8(_Format):
     def _write(self, bs, cursor, argument):
         bs.write(argument.encode("utf8"), ByteString[self.length])
 
-class CUTF8(_Format):
+class CUTF8(Format):
     """
     A UTF8 string ended with a NUL, like a CString.
     """
@@ -372,7 +380,7 @@ class CUTF8(_Format):
     def _write(self, bs, cursor, argument):
         bs.write(argument.encode("utf8"), CString)
     
-class UB(_Format):
+class UB(Format):
     """
     Unsigned Bits, most significant bit first.
 
@@ -450,7 +458,7 @@ class UB(_Format):
     def _nbits(self, argument):
         return nbits(argument)
 
-class SB(_Format):
+class SB(Format):
     """
     Signed Bits.
 
@@ -481,7 +489,7 @@ class SB(_Format):
     def _nbits(self, argument):
         return nbits_signed(argument)
 
-class FB(_Format):
+class FB(Format):
     """
     Fixed Bits.
 
@@ -500,7 +508,7 @@ class FB(_Format):
     def _write(self, bs, cursor, value):
         bs.write(value / float(0x10000), SB)
     
-class U32(_Format):
+class U32(Format):
     """
     A U32/EncodedU32, as defined in the ABC file format specification.
     
@@ -532,7 +540,7 @@ class U32(_Format):
             bs.write((n & 0b01111111), UB[7])
             n >>= 7
 
-class FixedFormat(_Format):
+class FixedFormat(Format):
     """
     A fixed point number.
     
@@ -554,7 +562,7 @@ class FixedFormat(_Format):
          bs.write(value * float({8: 0x100, 16: 0x10000}[self.length]),
                   Byte[self.length:self.endianness])
 
-class FloatFormat(_Format):
+class FloatFormat(Format):
     """
     A IEEE floating-point number.
 
@@ -573,13 +581,14 @@ class FloatFormat(_Format):
     
     @requires_length(can_be=(16, 32, 64))
     def _read(self, bs, cursor):
-        sign = bs.read(Bit)
+        bits = bs.read(IBitStream[self.length:self.endianness])
+        sign = bits.read(Bit)
         
         expn_len = self._N_EXPN_BITS[self.length]
         frac_len = self._N_FRAC_BITS[self.length]
         
-        expn = bs.read(UB[expn_len])
-        frac = bs.read(UB[frac_len])
+        expn = bits.read(UB[expn_len])
+        frac = bits.read(UB[frac_len])
         
         bias = expn - self._EXPN_BIAS[self.length]
         
@@ -601,27 +610,28 @@ class FloatFormat(_Format):
 
     @requires_length(can_be=(16, 32, 64))
     def _write(self, bs, cursor, value):
+        from mech.fusion.bitstream.bitstream import BitStream
+        bits = BitStream()
         if value in (0, 0.0): # value is zero
-            bs.write(Zero[self.length])
+            bits.write(Zero[self.length])
         elif value == -0.0:
-            bs.write(One)
-            bs.write(Zero[self.length-1])
-        
-        if isnan(value):
-            bs.write(One [self.length])
+            bits.write(One)
+            bits.write(Zero[self.length-1])
+        elif isnan(value):
+            bits.write(One [self.length])
         elif value == float("-inf"): # negative infinity
-            bs.write(One [self._N_EXPN_BITS[self.length] + 1]) # sign merged
-            bs.write(Zero[self._N_FRAC_BITS[self.length]])
+            bits.write(One [self._N_EXPN_BITS[self.length] + 1]) # sign merged
+            bits.write(Zero[self._N_FRAC_BITS[self.length]])
         elif value == float("inf"): # positive infinity
-            bs.write(Zero)
-            bs.write(One [self._N_EXPN_BITS[self.length]])
-            bs.write(Zero[self._N_FRAC_BITS[self.length]])
+            bits.write(Zero)
+            bits.write(One [self._N_EXPN_BITS[self.length]])
+            bits.write(Zero[self._N_FRAC_BITS[self.length]])
         else:
             if value < 0:
-                bs.write(One)
+                bits.write(One)
                 value = ~value + 1
             else:
-                bs.write(Zero)
+                bits.write(Zero)
             
             exp = self._EXPN_BIAS[self.length]
             if value < 1:
@@ -637,19 +647,33 @@ class FloatFormat(_Format):
                 raise ValueError("Exponent out of range in %s." % (self,))
             
             frac_total = 1 << self._N_FRAC_BITS[self.length]
-            bs.write(exp, UB[self._N_EXPN_BITS[self.length]])
-            bs.write(int((value-1)*frac_total) & (frac_total - 1),
+            bits.write(exp, UB[self._N_EXPN_BITS[self.length]])
+            bits.write(int((value-1)*frac_total) & (frac_total - 1),
                      UB[self._N_FRAC_BITS[self.length]])
+        bs.write(bits, BitStream[self.endianness])
 
-def bool_adaptor(bit):
+def bool_to_iformat(bit):
     if bit:
         return One
     return Zero
 
-def list_adaptor(bits):
+def list_to_bitstream(bits):
+    bits = list(bits)
     from mech.fusion.bitstream.bitstream import BitStream
-    return IFormat(BitStream(bits))
+    if all(bit in (0, 1, True, False) for bit in bits):
+        return BitStream(bits)
+    if all(bit in xrange(256) for bit in bits):
+        bits = BitStream()
+        bits.write(bits, Byte)
+        return bits
+    raise ValueError("Uncertain how to adapt this list into an"
+                     "IFormat. Please check your input.")
 
-provideAdapter(bool_adaptor, [bool], IFormat)
-provideAdapter(list_adaptor, [list], IFormat)
-provideAdapter(list_adaptor, [tuple], IFormat)
+def generic_to_iformat(obj):
+    return IFormat(IBitStream(obj))
+
+provideAdapter(bool_to_iformat,    [bool],  IFormat)
+provideAdapter(list_to_bitstream,  [list],  IBitStream)
+provideAdapter(list_to_bitstream,  [tuple], IBitStream)
+provideAdapter(generic_to_iformat, [list],  IFormat)
+provideAdapter(generic_to_iformat, [tuple], IFormat)

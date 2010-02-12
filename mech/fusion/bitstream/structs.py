@@ -205,7 +205,11 @@ class Group(object):
             stat._struct_read(struct, bitstream)
         del self._TEMP
 
-class Struct(object):
+class StructMixin(object):
+    def as_format(self):
+        return IFormat(self.as_bitstream())
+
+class Struct(StructMixin):
     """
     A struct of bit fields.
     """
@@ -225,25 +229,27 @@ class Struct(object):
     
     @classmethod
     def _read(cls, bs, cursor):
-        return cls.from_bits(bs)
-
+        return cls.from_bitstream(bs)
+    
     @classmethod
     def _write(cls, bs, cursor, argument):
+        if isinstance(argument, dict):
+            argument = cls(**argument)
         assert isinstance(argument, cls)
         bs += argument.as_bits()
     
-    def as_bits(self):
+    def as_bitstream(self):
         bitstream = BitStream()
         for statement in self.FORMAT:
             statement._struct_write(self, bitstream)
         return bitstream
 
     @classmethod
-    def from_bits(cls, bitstream):
+    def from_bitstream(cls, bitstream):
         instance = cls()
         for statement in cls.FORMAT:
             statement._struct_read(instance, bitstream)
         return instance
 
-provideAdapter(Struct.as_bits, [IStruct], IBitStream)
-provideAdapter(Struct.as_bits, [IStruct], IFormat)
+provideAdapter(Struct.as_bitstream, [IStruct], IBitStream)
+provideAdapter(Struct.as_format,    [IStruct], IFormat)

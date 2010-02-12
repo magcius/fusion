@@ -12,7 +12,7 @@ from mech.fusion.bitstream.interfaces import IBitStream, IFormat
 from zope.interface import implements
 from zope.component import provideAdapter, adapts
 
-class _BitStreamMeta(F._FormatMeta):
+class BitStreamMeta(F.FormatMeta):
     pass
 
 class BitStreamMixin(object):
@@ -21,11 +21,11 @@ class BitStreamMixin(object):
     for those that implement the core methods defined in IBitStream.
     """
 
-    __metaclass__ = _BitStreamMeta
+    __metaclass__ = BitStreamMeta
 
     @classmethod
     def specialize(cls, data):
-        return _BitStreamDataFormat(cls, data)
+        return BitStreamDataFormat(cls, data)
     
     # Old API.
     def read_bit(self):
@@ -166,11 +166,15 @@ class BitStreamMixin(object):
         The number of bits available to be read, or the
         distance from the cursor to the end of the stream.
         """
-        return len(self) - self.cursor
+        def bits_available(bs, cursor):
+            return len(bs) - cursor, cursor
+        return self.modify(bits_available)
     
     @bits_available.setter
     def bits_available(self, value):
-        self.cursor = len(self) - value
+        def bits_available(bs, cursor):
+            return None, len(bs) - value
+        self.modify(bits_available)
     
     def __add__(self, bits):
         b = BitStream()
@@ -283,12 +287,12 @@ class BitStream(BitStreamMixin):
 
 provideAdapter(BitStream)
 
-class _BitStreamFormatAdaptor(object):
+class BitStreamFormatAdaptor(object):
     implements(IFormat)
     
     # bs.read(BitStream)
     # bs.write(bs2, BitStream)
-    adapts(_BitStreamMeta)
+    adapts(BitStreamMeta)
     
     # bs.write(bs2)
     adapts(IBitStream)
@@ -311,9 +315,9 @@ class _BitStreamFormatAdaptor(object):
         L = len(argument)
         bs.write(argument.read(F.UB[L]), F.UB[L])
 
-provideAdapter(_BitStreamFormatAdaptor)
+provideAdapter(BitStreamFormatAdaptor)
 
-class _BitStreamDataFormat(object):
+class BitStreamDataFormat(object):
     implements(IFormat)
 
     def __init__(self, cls, data):

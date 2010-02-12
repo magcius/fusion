@@ -2,123 +2,123 @@
 import py.test
 import os
 
-from mech.fusion.util import BitStream, nbits
+from mech.fusion.bitstream.bitstream import BitStream
+from mech.fusion.bitstream.formats import Bit, Byte, ByteString, CString, Zero
 
 def test_constructor():
     bits = BitStream("10")
     assert bits.bits == [True, False]
-    
+
     bits = BitStream("10101100")
     assert bits.bits == [True, False, True, False, True, True, False, False]
-    
+
     bits = BitStream("  1  ")
     assert len(bits) == 1
-    
+
     bits = BitStream([True, False, True, False])
     assert str(bits) == "1010"
 
 def test_read_bit():
     bits = BitStream("1001")
-    assert bits.read_bit() == 1
-    assert bits.read_bit() == 0
-    assert bits.read_bit() == 0
-    assert bits.read_bit() == 1
+    assert bits.read(Bit) == 1
+    assert bits.read(Bit) == 0
+    assert bits.read(Bit) == 0
+    assert bits.read(Bit) == 1
     assert bits.bits_available == 0
-    py.test.raises(IndexError, bits.read_bit)
+    py.test.raises(IndexError, bits.read, Bit)
 
 def test_write_bit():
     bits = BitStream()
-    bits.write_bit(True)
-    bits.write_bit(False)
-    bits.write_bit(1)
-    bits.write_bit(0)
+    bits.write(True)
+    bits.write(False)
+    bits.write(1, Bit)
+    bits.write(0, Bit)
     assert str(bits) == "1010"
     assert bits.bits_available == 0
-
 
 def test_cursor():
     bits = BitStream("01001101")
     assert bits.cursor == 0
     bits.seek(1, os.SEEK_END)
     assert bits.bits_available == 1
-    assert bits.read_bit() == 1
-    py.test.raises(IndexError, bits.read_bit)
+    assert bits.read(Bit) == 1
+    py.test.raises(IndexError, bits.read, Bit)
 
-    bits.seek(0)
+    bits.rewind()
     assert bits.bits_available == 8
 
-    result = bits.read_bit()
+    result = bits.read(Bit)
     assert result == 0
-    
-    result = bits.read_bits(2)
+
+    result = bits.read(BitStream[2])
     assert result == [True, False]
-    
+
     bits.seek(1, os.SEEK_CUR)
     assert bits.bits_available == 4
-    assert bits.read_bits(2) == [True, True]
+    assert bits.read(BitStream[2]) == [True, True]
 
     bits.skip_to_end()
     assert bits.cursor == len(bits)
 
     bits.cursor = 0
-    result = bits.read_bits(8)
-    print str(result)
-    print str(bits)
+    result = bits.read(BitStream[8])
     assert str(result) == str(bits)
 
 def test_read_string():
     bits = BitStream("00101010")
-    result = bits.read_string(1)
+    result = bits.read(ByteString[1])
     assert result == chr(42)
     assert bits.bits_available == 0
 
     bits = BitStream("00101010 00101111")
-    result = bits.read_string(2)
+    result = bits.read(ByteString[2])
     assert result == chr(42) + chr(47)
     assert bits.bits_available == 0
 
     bits.rewind()
-    result = bits.read_string(2, endianness="<")
+    result = bits.read(ByteString[2:"<"])
     assert result == chr(47) + chr(42)
     assert bits.bits_available == 0
 
     bits.rewind()
-    bits.write_cstring("foo foo foo")
+    test_data = "test 123\x01\xFF"
+    bits.write(test_data, ByteString)
+    bits.write(Zero[8])
     bits.rewind()
-    result = bits.read_cstring()
-    assert result == "foo foo foo"
+    result = bits.read(CString)
+    assert result == test_data
 
     bits = BitStream()
-    bits.write_string("adsfasfdgjklhrgokrjygaosaf")
+    bits.write("adsfasfdgjklhrgokrjygaosaf", ByteString)
     bits.rewind()
-    py.test.raises(ValueError, bits.read_cstring)
+    py.test.raises(ValueError, bits.read, CString)
 
 def test_write_string():
     bits = BitStream()
-    bits.write_string("FWS")
+    bits.write("FWS", ByteString)
     assert bits.bits_available == 0
     assert len(bits) == 24
     bits.rewind()
-    result = bits.read_int_value(8)
+    result = bits.read(Byte)
     assert result == ord("F")
-    result = bits.read_int_value(8)
+    result = bits.read(Byte)
     assert result == ord("W")
-    result = bits.read_int_value(8)
+    result = bits.read(Byte)
     assert result == ord("S")
     assert bits.bits_available == 0
 
     bits = BitStream()
-    bits.write_cstring("FWS")
+    bits.write("FWS", CString)
     assert bits.bits_available == 0
     assert len(bits) == 32
     bits.rewind()
-    result = bits.read_int_value(8)
+    result = bits.read(Byte)
     assert result == ord("F")
-    result = bits.read_int_value(8)
+    result = bits.read(Byte)
     assert result == ord("W")
-    result = bits.read_int_value(8)
+    result = bits.read(Byte)
     assert result == ord("S")
-    result = bits.read_int_value(8)
+    result = bits.read(Byte)
     assert result == 0
     assert bits.bits_available == 0
 
@@ -130,11 +130,11 @@ def test_read_bits():
     ## py.test.raises(IndexError, bits.read_bits, 4)
 
     bits = BitStream()
-    bits.write_string("SWF")
+    bits.write("SWF", ByteString)
     
     bits.rewind()
-    result = bits.read_bits(24, endianness="<")
-    result = result.read_string(3)
+    result = bits.read(BitStream[24:"<"])
+    result = result.read(ByteString[3])
     assert result == "FWS"
     assert bits.bits_available == 0
     
@@ -142,16 +142,16 @@ def test_write_bits():
     L = [1, 0, True, False]
     
     bits = BitStream()
-    bits.write_bits(L)
+    bits.write(L)
     assert str(bits) == "1010"
     
     bits = BitStream("11")
-    bits.write_bits(L)
+    bits.write(L)
     assert str(bits) == "1010"
 
     bits = BitStream()
-    bits.write_bits(L, 3, 1)
-    bits.write_bits(L, 2, 1)
+    bits.write(L[3:], BitStream[1])
+    bits.write(L[2:], BitStream[1])
     assert str(bits) == "01"
 
     test = BitStream()
