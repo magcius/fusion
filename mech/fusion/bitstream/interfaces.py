@@ -1,5 +1,5 @@
 
-from zope.interface import Interface
+from zope.interface import Interface, Attribute
 
 class IBitStream(Interface):
     
@@ -69,6 +69,20 @@ class IFormat(Interface):
         increment to be added to the current cursor.
         """
 
+class IFormatData(Interface):
+    """
+    TODO: document
+    """
+    length     = Attribute("length")
+    endianness = Attribute("endianness")
+    repr       = Attribute("repr")
+
+
+class IFormatLength(Interface):
+    """
+    TODO: document
+    """
+
 class IStruct(Interface):
     def as_bitstream():
         """
@@ -79,4 +93,27 @@ class IStructClass(Interface):
     def from_bitstream(bitstream):
         """
         Read and return an instance of this struct from an IBitStream.
+        """
+
+class IStructEvaluateable(Interface):
+    """
+    TODO: document
+    """
+    def _evaluate(struct):
+        """
+        TODO: document
+        """
+
+class IStructPrereadable(Interface):
+    """
+    TODO: document
+    """
+    def _pre_read(struct, field):
+        """
+        TODO: document
+        """
+
+    def _pre_write(struct, field):
+        """
+        TODO: document
         """

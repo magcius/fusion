@@ -3,10 +3,15 @@ from collections import namedtuple
 
 from math import log, floor, ceil, isnan
 
-from mech.fusion.bitstream.interfaces import IFormat, IBitStream
+from mech.fusion.bitstream.interfaces import IBitStream
+from mech.fusion.bitstream.interfaces import IFormat
+from mech.fusion.bitstream.interfaces import IFormatData, IFormatLength
+from mech.fusion.bitstream.interfaces import IStructEvaluateable
 
-from zope.interface import implements
-from zope.component import provideAdapter, adapts
+from types import NoneType
+
+from zope.interface import implements, classImplements
+from zope.component import provideAdapter, adapter
 
 # Fast lookup for write/read_string.
 # This seems really stupid, but I need it for SPEEEEED.
@@ -65,43 +70,53 @@ def no_endianness(fn):
 
 FormatData = namedtuple("FormatData", "length endianness repr")
 
+classImplements(FormatData, IFormatData)
+
+classImplements(int,  IFormatLength)
+classImplements(long, IFormatLength)
+
 class FormatMeta(type):
     """
     The metaclass used to implement formats.
     """
     def __getitem__(self, item):
-        if item is None:
-            return self.specialize(FormatData(None, None, None))
-        elif isinstance(item, slice):
-            # assert isinstance(item.start, (int, long)) or item.start is None
-            # assert isinstance(item.stop , basestring)
-            return self.specialize(FormatData(item.start, item.stop, item.step))
-        elif isinstance(item, (int, long)):
-            return self.specialize(FormatData(item, None, None))
-        elif item in "<>":
-            return self.specialize(FormatData(None, item, None))
-        raise ValueError("Format argument must either be an int (length), "
-                         "or < or > (endianness), or a slice of "
-                         "length:endianness.")
+        return self.specialize(IFormatData(item))
     
     def __str__(self):
         return self.__name__
 
+def none_as_formatdata(none):
+    return FormatData(None, None, None)
+
+def slice_as_formatdata(slice):
+    return FormatData(slice.start, slice.stop, slice.step)
+
+def length_as_formatdata(length):
+    return FormatData(IFormatLength(length), None, None)
+
+def string_as_formatdata(string):
+    if string in "<>":
+        return FormatData(None, string, None)
+    raise TypeError("cannot adapt string %r to IFormatData" % (string,))
+
+provideAdapter(none_as_formatdata,   [NoneType],      IFormatData)
+provideAdapter(slice_as_formatdata,  [slice],         IFormatData)
+provideAdapter(length_as_formatdata, [IFormatLength], IFormatData)
+provideAdapter(string_as_formatdata, [str],           IFormatData)
+
+@adapter(FormatMeta)
 class FormatMetaAdaptor(object):
     
     implements(IFormat)
-    adapts(FormatMeta)
     
     def __init__(self, format):
         self.format = format
     
     def _read(self, bs, cursor):
-        return self.format(FormatData(
-            None, None, None))._read(bs, cursor)
+        return self.format(None)._read(bs, cursor)
     
     def _write(self, bs, cursor, argument):
-        return self.format(FormatData(
-            None, None, None))._write(bs, cursor, argument)
+        return self.format(None)._write(bs, cursor, argument)
 
 provideAdapter(FormatMetaAdaptor)
 
@@ -110,14 +125,16 @@ class Format(object):
     A single "field" in a BitStream.
     """
     __metaclass__ = FormatMeta
-    implements(IFormat)
+    implements(IFormat, IStructEvaluateable)
 
     @classmethod
     def specialize(cls, data):
         return cls(data)
     
     def __init__(self, data=None):
+        self.length, self.endianness, self.repr = None, None, None
         if data:
+            data = IFormatData(data)
             self.length     = data.length
             self.endianness = data.endianness
             self.repr       = data.repr
@@ -137,37 +154,20 @@ class Format(object):
     def _write(self, bitstream, cursor, argument):
         raise NotImplementedError
 
-    def _pre_read(self, struct):
-        if hasattr(self.length, "_pre_read"):
-            self.length._pre_read(struct, self)
+    def _pre_write(self, struct, field):
+        if getattr(self.length, "_pre_write_inner", None):
+            self.length._pre_write_inner(struct, self, field)
 
-    def _pre_write(self, struct):
-        if hasattr(self.length, "_pre_write"):
-            self.length._pre_write(struct, self)
-
-    def _evaluate_read(self, struct):
-        length = None
-        if hasattr(self.length, "_evaluate"):
-            length = self.length._evaluate(struct, self)
-        elif hasattr(self.length, "_evaluate_read"):
-            length = self.length._evaluate_read(struct, self)
-        if length is None:
-            return self
-        else:
-            return type(self)(length=length, endianness=self.endianness)
-
-    def _evaluate_write(self, struct):
-        length = None
-        if hasattr(self.length, "_evaluate"):
-            length = self.length._evaluate(struct, self)
-        elif hasattr(self.length, "_evaluate_write"):
-            length = self.length._evaluate_write(struct, self)
-        if length is None:
-            return self
-        else:
-            return type(self)(length=length, endianness=self.endianness)
+    def _evaluate(self, struct, field):
+        return type(self).specialize(FormatData(
+            IStructEvaluateable(self.length)._evaluate(struct, field),
+            IStructEvaluateable(self.endianness)._evaluate(struct, field),
+            self.repr))
 
 class FormatArray(object):
+    
+    implements(IStructEvaluateable, IFormat)
+    
     def __init__(self, format, repeat):
         self.format = format
         self.repeat = repeat
@@ -183,6 +183,12 @@ class FormatArray(object):
         for i in argument:
             bs.write(i, self.format)
 
+    def _pre_write(self, struct, field):
+        self.format._pre_write(struct, field)
+
+    def _evaluate(self, struct, field):
+        return type(self)(self.format._evaluate(struct, field), self.repeat)
+    
     def __str__(self):
         return "%s[%d]" % (self.format, self.repeat)
     
@@ -277,7 +283,7 @@ class Byte(Format):
                                  "as a ByteString. The length of the "
                                  "available bits is not divisible by 8.")
             length = bs.bits_available() // 8
-        
+
         R = (lookup[tuple(bs.read(BitsList[8]))] for i in xrange(length))
 
         try:
@@ -303,7 +309,7 @@ class Byte(Format):
                 bs[cursor:cursor+8] = lookup[bytes]
                 return 8
             Len = int(ceil(nbits(bytes) / 8.))
-            L = Len - self.length
+            L = self.length - Len
             if L > 0:
                 bs.write(Zero[8*L])
             elif L < 0:
@@ -311,7 +317,7 @@ class Byte(Format):
                                  ""% (bytes, self.length))
             
             R = xrange(0, Len*8, 8)
-            if self.endianness == "<":
+            if self.endianness != "<":
                 R = reversed(R)
             for i in R:
                 bs.write(lookup[(bytes & (0xFF << i)) >> i])
@@ -445,7 +451,7 @@ class UB(Format):
             bs[cursor] = bool(argument)
             return 1
         elif length & 7 == 0:
-            return bs.write(argument, Byte[length//8])
+            return bs.write(argument, Byte[length//8:self.endianness])
         
         R = reversed(xrange(length))
         if self.endianness == "<":
@@ -455,8 +461,8 @@ class UB(Format):
             bs[cursor+i] = bool(argument & (1 << j))
         return length
     
-    def _nbits(self, argument):
-        return nbits(argument)
+    def _nbits(self, *args):
+        return nbits(*args)
 
 class SB(Format):
     """
@@ -486,8 +492,8 @@ class SB(Format):
         bs.write(argument < 0,  Bit)
         bs.write(abs(argument), UB[length])
 
-    def _nbits(self, argument):
-        return nbits_signed(argument)
+    def _nbits(self, *args):
+        return nbits_signed(*args)
 
 class FB(Format):
     """
@@ -581,7 +587,8 @@ class FloatFormat(Format):
     
     @requires_length(can_be=(16, 32, 64))
     def _read(self, bs, cursor):
-        bits = bs.read(IBitStream[self.length:self.endianness])
+        from mech.fusion.bitstream.bitstream import BitStream
+        bits = bs.read(BitStream[self.length:self.endianness])
         sign = bits.read(Bit)
         
         expn_len = self._N_EXPN_BITS[self.length]
@@ -654,8 +661,8 @@ class FloatFormat(Format):
 
 def bool_to_iformat(bit):
     if bit:
-        return One
-    return Zero
+        return IFormat(One)
+    return IFormat(Zero)
 
 def list_to_bitstream(bits):
     bits = list(bits)
@@ -677,3 +684,12 @@ provideAdapter(list_to_bitstream,  [list],  IBitStream)
 provideAdapter(list_to_bitstream,  [tuple], IBitStream)
 provideAdapter(generic_to_iformat, [list],  IFormat)
 provideAdapter(generic_to_iformat, [tuple], IFormat)
+
+
+
+
+
+
+
+
+

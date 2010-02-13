@@ -126,7 +126,7 @@ def test_write_string():
 
 def test_read_bits():
     bits = BitStream("1011001")
-    result = bits.read(4, BitStream[4])
+    result = bits.read(BitStream[4])
     assert result == [True, False, True, True]
     assert bits.bits_available == 3
     py.test.raises(IndexError, bits.read, BitStream[4])
@@ -158,10 +158,12 @@ def test_write_bits():
 
     test = BitStream()
     test.write("SWF", ByteString)
+    test.rewind()
+    
     bits = BitStream()
     bits.write(test, BitStream["<"])
-    
     bits.rewind()
+    
     result = bits.read(ByteString[3])
     assert result == "FWS"
     assert bits.bits_available == 0
@@ -169,7 +171,7 @@ def test_write_bits():
 def test_read_int_value():
     bits = BitStream("101010")
     assert bits.read(UB[6]) == 42
-    assert bits.bits_available == 9
+    assert bits.bits_available == 0
 
     bits = BitStream("01011111111111")
     assert bits.read(UB[3]) == 2

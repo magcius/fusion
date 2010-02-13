@@ -10,7 +10,7 @@ from mech.fusion.bitstream import formats as F, flash_formats as FF
 from mech.fusion.bitstream.interfaces import IBitStream, IFormat
 
 from zope.interface import implements
-from zope.component import provideAdapter, adapts
+from zope.component import provideAdapter, adapter
 
 class BitStreamMeta(F.FormatMeta):
     pass
@@ -37,10 +37,10 @@ class BitStreamMixin(object):
     def read_bits(self, length, as_list=False, endianness=">"):
         if as_list:
             return self.read(F.BitsList[length])
-        return self.read(type(self)[length])
+        return self.read(type(self)[length:endianness])
 
     def write_bits(self, bits, offset=0, length=None, endianness=">"):
-        self.write(bits[offset:], BitStream[length])
+        self.write(bits[offset:], BitStream[length:endianness])
     
     def read_string(self, length=None, endianness=">"):
         return self.read(F.ByteString[length:endianness])
@@ -229,9 +229,6 @@ class BitStreamMixin(object):
 class BitStream(BitStreamMixin):
     implements(IBitStream)
     
-    adapts(list)
-    adapts(tuple)
-    
     def __init__(self, bits=[]):
         """
         Constructor.
@@ -285,17 +282,11 @@ class BitStream(BitStreamMixin):
     def __iter__(self):
         return iter(self.bits)
 
-provideAdapter(BitStream)
+provideAdapter(BitStream, [list],  IBitStream)
+provideAdapter(BitStream, [tuple], IBitStream)
 
 class BitStreamFormatAdaptor(object):
     implements(IFormat)
-    
-    # bs.read(BitStream)
-    # bs.write(bs2, BitStream)
-    adapts(BitStreamMeta)
-    
-    # bs.write(bs2)
-    adapts(IBitStream)
     
     def __init__(self, bitstream):
         self.bitstream = bitstream
@@ -315,7 +306,12 @@ class BitStreamFormatAdaptor(object):
         L = len(argument)
         bs.write(argument.read(F.UB[L]), F.UB[L])
 
-provideAdapter(BitStreamFormatAdaptor)
+# bs.read(BitStream)
+# bs.write(bs2, BitStream)
+provideAdapter(BitStreamFormatAdaptor, [BitStreamMeta], IFormat)
+
+# bs.write(bs2)
+provideAdapter(BitStreamFormatAdaptor, [IBitStream], IFormat)
 
 class BitStreamDataFormat(object):
     implements(IFormat)
@@ -328,8 +324,8 @@ class BitStreamDataFormat(object):
     # bs.read(BitStream[8])
     def _read(self, bs, cursor):
         inst = self.cls()
-        inst.write(bs.read(F.UB[self.length:self.endianness]),
-                   F.UB[self.length])
+        inst.write(bs.read(F.UB[self.length]),
+                   F.UB[self.length:self.endianness])
         inst.rewind()
         return inst
 
@@ -339,8 +335,8 @@ class BitStreamDataFormat(object):
         length = self.length
         if length is None:
             length = len(argument)
-        bs.write(argument.read(F.UB[length:self.endianness]),
-                 F.UB[length])
+        bs.write(argument.read(F.UB[length]),
+                 F.UB[length:self.endianness])
 
 class BitStreamParseMixin(object):
     @classmethod
