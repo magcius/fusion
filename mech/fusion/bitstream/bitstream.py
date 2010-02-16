@@ -127,6 +127,8 @@ class BitStreamMixin(object):
     def __str__(self):
         return "".join("1" if b else "0" for b in self.bits)
 
+    __repr__ = __str__
+
     def seek(self, offset, whence=os.SEEK_SET):
         """
         Standard file protocol *seek* method.

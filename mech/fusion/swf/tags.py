@@ -163,7 +163,6 @@ class SwfTag(object):
         return cls.parse_inner(bitstream.read_bits(recordheader.length*8))
 
 class SetBackgroundColor(SwfTag):
-
     TAG_TYPE = 9
     TAG_MIN_VERSION = 1
 
@@ -193,7 +192,6 @@ class SetBackgroundColor(SwfTag):
         return cls(RGB.parse(bits).color)
 
 class DoAction(SwfTag, Block):
-
     TAG_TYPE = 12
     TAG_MIN_VERSION = 3
 
@@ -218,7 +216,6 @@ class DoAction(SwfTag, Block):
     
 
 class DoABC(SwfTag, AbcFile):
-
     TAG_TYPE = 82
     TAG_MIN_VERSION = 9
 
@@ -261,7 +258,6 @@ class DoABC(SwfTag, AbcFile):
         return bits.serialize() + AbcFile.serialize(self)
 
 class DoABCDefine(SwfTag, AbcFile):
-
     TAG_TYPE = 72
     TAG_MIN_VERSION = 9
 
@@ -284,7 +280,6 @@ class DoABCDefine(SwfTag, AbcFile):
         return AbcFile.serialize(self)
     
 class SymbolClass(SwfTag):
-
     TAG_TYPE = 76
     TAG_MIN_VERSION = 9
 
@@ -325,7 +320,6 @@ class SymbolClass(SwfTag):
         return cls(symbols)
 
 class DefineShape(SwfTag):
-
     TAG_TYPE = 2
     TAG_MIN_VERSION = 1
     TAG_VARIANT = 1
@@ -365,7 +359,6 @@ class DefineShape3(DefineShape):
     TAG_VARIANT = 3
 
 class DefineShape4(DefineShape):
-    
     TAG_TYPE = 83
     TAG_MIN_VERSION = 8
     TAG_VARIANT = 4
@@ -400,7 +393,6 @@ class ShowFrame(SwfTag):
         return cls()
 
 class FileAttributes(SwfTag):
-    
     TAG_TYPE = 69
     TAG_MIN_VERSION = 1
     
@@ -563,7 +555,7 @@ class DefineEditText(SwfTag):
         if HasFontClass: FontClass = bits.read_cstring()
         if HasFont:      FontSize  = bits.read_int_value(16, endianness="<")
 
-        if HasColor:     Color     = RGBA.parse(bits)
+        if HasColor:     Color     = RGB.parse(bits)
         if HasMaxLength: MaxLength = bits.read_int_value(16, endianness="<")
         if HasLayout:    Layout    = NonExistant.parse(bits)
 

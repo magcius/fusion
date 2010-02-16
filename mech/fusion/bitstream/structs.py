@@ -1,14 +1,50 @@
 
+import sys
+import operator
+
 from types import NoneType
 
-from mech.fusion.bitstream.bitstream import BitStream
-from mech.fusion.bitstream.formats import UB
+from mech.fusion.bitstream.bitstream import BitStream, BitStreamParseMixin
+from mech.fusion.bitstream.formats import UB, FormatArray
 
 from mech.fusion.bitstream.interfaces import IBitStream, IFormat, IFormatLength
-from mech.fusion.bitstream.interfaces import IStruct, IStructClass, IStructEvaluateable
+from mech.fusion.bitstream.interfaces import IStruct, IStructClass
+from mech.fusion.bitstream.interfaces import IStructEvaluateable, IStructStatement
 
 from zope.interface import implements, classProvides
 from zope.component import adapter, provideAdapter
+
+class IterableStructStatementAdapter(object):
+    implements(IStructStatement)
+
+    def __init__(self, statements):
+        self.statements = statements
+
+    def _struct_read(self, struct, bitstream):
+        for stat in self.statements:
+            stat._struct_read(struct, bitstream)
+
+    def _struct_write(self, struct, bitstream):
+        for stat in self.statements:
+            stat._struct_write(struct, bitstream)
+
+provideAdapter(IterableStructStatementAdapter, [list], IStructStatement)
+provideAdapter(IterableStructStatementAdapter, [tuple], IStructStatement)
+
+class FormatStructStatementAdapter(object):
+    def __init__(self, format):
+        self.format = format
+
+    def _pre_write(self, struct):
+        self.format._pre_write(struct, self)
+    
+    def _struct_read(self, struct, bitstream):
+        bitstream.read(format)
+
+    def _struct_write(self, struct, bitstream):
+        bitstream.write(format)
+
+provideAdapter(FormatStructStatementAdapter, [IFormat], IStructStatement)
 
 class Atom(object):
     implements(IStructEvaluateable)
@@ -16,8 +52,8 @@ class Atom(object):
     def __init__(self, function):
         self.function = function
     
-    def _evaluate(self, struct, field):
-        return self.function(struct, field)
+    def _evaluate(self, struct):
+        return self.function(struct)
     
     def and_(self, other):
         def atom_and(struct):
@@ -44,11 +80,21 @@ or_ = Atom.or_
 
 def binary_atomizer(name):
     def atom(self, other):
-        def atom(struct, field):
-            return getattr(IStructEvaluateable(self) ._evaluate(struct, field),
-                           "__%s__" % (name,)) \
-                          (IStructEvaluateable(other)._evaluate(struct, field))
+        def atom(struct):
+            self_  = IStructEvaluateable(self)._evaluate(struct)
+            other_ = IStructEvaluateable(other)._evaluate(struct)
+            return getattr(operator, name)(self_, other_)
         atom.__name__ = "atom_%s_%s_%s" % (name, self, other)
+        return Atom(atom)
+    atom.__name__ = "__%s__" % (name,)
+    return atom
+
+def unary_atomizer(name):
+    def atom(self):
+        def atom(struct):
+            return getattr(IStructEvaluateable(self)._evaluate(struct),
+                           "__%s__" % (name,))()
+        atom.__name__ = "atom_%s_%s" % (name, self)
         return Atom(atom)
     atom.__name__ = "__%s__" % (name,)
     return atom
@@ -59,12 +105,12 @@ def simple_op_filter(name):
     name_write = "__%s__" % (name,)
     name_read  = "__%s__" % (SOPMAP[name],)
     def op(self, other):
-        def op_filter_read(struct, value, field):
+        def op_filter_read(struct, value):
             return getattr(value, name_read) \
-                   (IStructEvaluateable(other)._evaluate(struct, field))
-        def op_filter_write(struct, value, field):
+                   (IStructEvaluateable(other)._evaluate(struct))
+        def op_filter_write(struct, value):
             return getattr(value, name_write) \
-                   (IStructEvaluateable(other)._evaluate(struct, field))
+                   (IStructEvaluateable(other)._evaluate(struct))
         self.filter_read .append(op_filter_read)
         self.filter_write.append(op_filter_write)
         return self
@@ -72,26 +118,28 @@ def simple_op_filter(name):
     return op
 
 class FieldTemp(object):
-    
+
+    implements(IStructStatement)
+    default = True
+
     def __init__(self, name, format=None):
         self.name = name
         self.format = format
         self.filter_read  = []
         self.filter_write = []
-        self.context = None
 
     def _pre_read(self, struct):
-        pass
+        self._struct_set(struct, self.default)
 
     def _pre_write(self, struct):
-        self.format._pre_write(struct, self)
+        IFormat(self.format)._pre_write(struct, self)
 
     def _struct_get(self, struct):
         raise NotImplementedError
-    
-    def _struct_set(self, struct):
+
+    def _struct_set(self, struct, value):
         raise NotImplementedError
-    
+
     def _filter_read(self, struct, argument):
         for filter in self.filter_read:
             argument = filter(struct, argument)
@@ -101,18 +149,20 @@ class FieldTemp(object):
         for filter in self.filter_write:
             argument = filter(struct, argument)
         return argument
-    
+
     def _struct_read(self, struct, bitstream):
-        format = IStructEvaluateable(self.format)._evaluate(struct, self)
+        format = IFormat(self.format)
+        format = IStructEvaluateable(format)._evaluate(struct)
         value  = self._filter_read(struct, bitstream.read(format))
         self._struct_set(struct, value)
         return value
-    
+
     def _struct_write(self, struct, bitstream):
-        format = IStructEvaluateable(self.format)._evaluate(struct, self)
+        format = IFormat(self.format)
+        format = IStructEvaluateable(format)._evaluate(struct)
         bitstream.write(self._filter_write(struct, self._struct_get(struct)),
                         format)
-    
+
     __eq__  = binary_atomizer("eq")
     __ne__  = binary_atomizer("ne")
     __ge__  = binary_atomizer("ge")
@@ -120,52 +170,79 @@ class FieldTemp(object):
     __lt__  = binary_atomizer("lt")
     __gt__  = binary_atomizer("gt")
 
+    ## __cmp__ = binary_atomizer("cmp")
+
+    __nonzero__ = unary_atomizer("nonzero")
+
     __add__ = simple_op_filter("add")
     __sub__ = simple_op_filter("sub")
     __mul__ = simple_op_filter("mul")
     __div__ = simple_op_filter("div")
 
+@adapter(FieldTemp)
+class FieldStructEvaluateableAdapter(object):
+    implements(IStructEvaluateable)
+    def __init__(self, field):
+        self.field = field
+
+    def _evaluate(self, struct):
+        return self.field._struct_get(struct)
+
+provideAdapter(FieldStructEvaluateableAdapter)
+
 class Field(FieldTemp):
     def _struct_set(self, struct, value):
-        struct._FIELDS[self.name] = value
+        return setattr(struct, self.name, value)
 
     def _struct_get(self, struct):
-        return struct._FIELDS[self.name]
+        return getattr(struct, self.name)
 
     def __str__(self):
         return "Field(%r)" % (self.name,)
     
 class Local(FieldTemp):
     def _struct_set(self, struct, value):
-        self.context._TEMP_FIELDS[self.name] = value
+        struct.set_local(self.name, value)
 
     def _struct_get(self, struct):
-        return self.context._TEMP_FIELDS[self.name]
+        return struct.get_local(self.name)
 
     def __str__(self):
         return "Local(%r)" % (self.name,)
 
-class Fields(Field):
+class FieldTempArray(Field):
+    var_name = None
+    default = []
     def __init__(self, fields, format):
         self.fields = fields.split()
-        super(Fields, self).__init__(None, format[len(self.fields)])
+        repeat = len(self.fields)
+        super(FieldTempArray, self).__init__(None, FormatArray(format, repeat))
 
     def _struct_set(self, struct, value):
         for k, v in zip(self.fields, value):
-            struct._FIELDS[k] = v
+            getattr(struct, self.var_name)[k] = v
 
     def _struct_get(self, struct):
-        return [struct._FIELDS[k] for k in self.fields]
+        return [getattr(struct, self.var_name)[k] for k in self.fields]
 
     def _filter_read(self, struct, value):
         for filter in self.filter_read:
-            value = [filter(struct, a, self) for a in value]
+            value = [filter(struct, a) for a in value]
         return value
 
     def _filter_write(self, struct, value):
         for filter in self.filter_write:
-            value = [filter(struct, a, self) for a in value]
+            value = [filter(struct, a) for a in value]
         return value
+
+    def __str__(self):
+        return "Fields(%r)" % (' '.join(self.fields),)
+    
+class Fields(FieldTempArray):
+    var_name = "_FIELDS"
+
+class Locals(FieldTempArray):
+    var_name = "_TEMP_FIELDS"
 
 class NBitsMeta(type):
     
@@ -178,9 +255,9 @@ class NBitsMeta(type):
         return "NBits"
 
     @staticmethod
-    def _evaluate(struct, field):
-        return field.context._TEMP_FIELDS["NBits%d" % \
-                   (field.context._TEMP_FIELDS["NBitsCount"],)]
+    def _evaluate(struct):
+        return struct.get_local("NBits%d" % \
+                   (struct.get_local("NBitsCount"),))
 
     @staticmethod
     def _pre_write_inner(struct, format, field):
@@ -188,70 +265,90 @@ class NBitsMeta(type):
         if isinstance(value, (int, float, long)):
             value = [value]
         nbits = format._nbits(*value)
-        name = "NBits%d" % (field.context._TEMP_FIELDS["NBitsCount"],)
-        if nbits > field.context._TEMP_FIELDS[name]:
-            field.context._TEMP_FIELDS[name] = nbits
+        name = "NBits%d" % (struct.get_local("NBitsCount"),)
+        if nbits > struct.get_local(name, -1):
+            struct.set_local(name, nbits)
 
-class NBits(Local):
+class NBits(object):
     
     __metaclass__ = NBitsMeta
+
+    implements(IStructStatement)
     
     def __init__(self, length):
-        super(NBits, self).__init__(None, UB[length])
         self.length = length
-
+        # XXX: find a better way to do this
+        frame = sys._getframe(2)
+        self.hash = (frame.f_lineno, frame.f_code.co_filename)
+    
     def _prequel(self, struct):
-        if "NBitsCount" in self.context._TEMP_FIELDS:
-            self.context._TEMP_FIELDS["NBitsCount"] += 1
-        self.context._TEMP_FIELDS["NBitsCount"] = 1
-        self.name = "NBits%d" % (self.context._TEMP_FIELDS["NBitsCount"],)
-
+        self.count = struct.get_local("NBitsCount", 0) + 1
+        struct.set_local("NBitsCount", self.count)
+        self.name = "NBits%d" % (self.count,)
+        
     def _pre_read(self, struct):
         self._prequel(struct)
 
     def _pre_write(self, struct):
         self._prequel(struct)
-        self.context._TEMP_FIELDS[self.name] = 0
-        
+
+    def _realquel(self, struct):
+        struct.set_local("NBitsCount", self.count)
+
+    def _struct_read(self, struct, bitstream):
+        self._realquel(struct)
+        struct.set_local(self.name,
+                   bitstream.read(UB[self.length]))
+
+    def _struct_write(self, struct, bitstream):
+        self._realquel(struct)
+        bitstream.write(struct.get_local(self.name),
+                        UB[self.length])
+
+    def __hash__(self):
+        return hash(self.hash)
+
+    def __eq__(self, other):
+        return isinstance(other, type(self)) and self.hash == other.hash
+    
     def __str__(self):
         return "NBits[%d]" % (self.length,)
 
-def DictionaryMap(map, field):
+def DictionaryMap(field, map):
     reverse_map = {}
     for k, v in map.iteritems():
         reverse_map[v] = k
-    def map_filter_read(key):
+    def map_filter_read(key, struct):
         return map[key]
-    def map_filter_write(key):
+    def map_filter_write(key, struct):
         return reverse_map[key]
     field.filter_read .append(map_filter_read)
     field.filter_write.append(map_filter_write)
+    return field
 
-class If(object):
-    def __init__(self, read, write, *statements):
-        self.read  = read
-        self.write = write
-        self.statements  = statements
+def Map(field, read, write):
+    field.filter_read .append(read)
+    field.filter_write.append(write)
+    return field
 
-    def _struct_write(self, struct, bitstream):
-        if self.write._evaluate(struct):
-            for stat in self.statements:
-                stat._struct_write(struct, bitstream)
+## class If(object):
+##     method = None
+##     def __init__(self, test, *statements):
+##         self.test = test
+##         self.statements  = statements
+##         setattr(self, self.method, self._internal)
+    
+##     def _internal(self, struct, bitstream):
+##         method = self.method
+##         if self.test._evaluate(struct):
+##             for stat in self.statements:
+##                 getattr(stat, method)(struct, bitstream)
 
-    def _struct_read(self, struct, bitstream):
-        if self.read._evaluate(struct):
-            for stat in self.statements:
-                stat._struct_read(struct, bitstream)
+## class IfRead(If):
+##     method = "_struct_read"
 
-    @property
-    def context(self):
-        return self._context
-
-    @context.setter
-    def context(self, value):
-        self._context = value
-        for stat in self.statements:
-            stat.context = value
+## class IfWrite(If):
+##     method = "_struct_write"
 
 ## class Group(object):
 ##     def __init__(self, *statements):
@@ -292,7 +389,7 @@ class If(object):
 ##             stat._struct_read(struct, bitstream)
 ##         del self._TEMP
 
-class StructMixin(object):
+class StructMixin(BitStreamParseMixin):
     @adapter(IFormat)
     def as_format(self):
         return IFormat(self.as_bitstream())
@@ -301,14 +398,13 @@ class IdentityStructEvaluateableAdaptor(object):
     def __init__(self, value):
         self.value = value
 
-    def _evaluate(self, struct, field):
+    def _evaluate(self, struct):
         return self.value
 
 provideAdapter(IdentityStructEvaluateableAdaptor, [int], IStructEvaluateable)
 provideAdapter(IdentityStructEvaluateableAdaptor, [long], IStructEvaluateable)
 provideAdapter(IdentityStructEvaluateableAdaptor, [str], IStructEvaluateable)
 provideAdapter(IdentityStructEvaluateableAdaptor, [NoneType], IStructEvaluateable)
-
 
 class Struct(StructMixin):
     """
@@ -321,14 +417,16 @@ class Struct(StructMixin):
     def __init__(self, kwargs=None):
         if "self" in kwargs:
             del kwargs["self"]
+        self.reading, self.writing = False, False
         self._FIELDS = kwargs or {}
         self.__setattr__ = self._setattr
 
-    def createFields(self):
+    def create_fields(self):
         pass
 
     def __str__(self):
-        return "<Struct(%r): %s>" % (type(self).__name__, ', '.join("%r=%s" % (k, v) for k, v in self._FIELDS.iteritems()))
+        return "<Struct(%r): %s>" % (type(self).__name__,
+            ', '.join("%r=%s" % (k, v) for k, v in self._FIELDS.iteritems()))
 
     def __getattr__(self, name):
         return self._FIELDS[name]
@@ -340,6 +438,25 @@ class Struct(StructMixin):
     def _read(cls, bs, cursor):
         return cls.from_bitstream(bs)
 
+    def set(self, field, value):
+        field._struct_set(self, IStructEvaluateable(value)._evaluate(self))
+
+    def get(self, field, default=None):
+        if default is not None:
+            try:
+                return field._struct_get(self)
+            except KeyError:
+                return default
+        return field._struct_get(self)
+
+    def get_local(self, name, default=None):
+        if default is not None:
+            return self._TEMP_FIELDS.get(name, default)
+        return self._TEMP_FIELDS[name]
+
+    def set_local(self, name, value):
+        self._TEMP_FIELDS[name] = IStructEvaluateable(value)._evaluate(self)
+    
     @classmethod
     def _write(cls, bs, cursor, argument):
         if isinstance(argument, dict):
@@ -351,24 +468,37 @@ class Struct(StructMixin):
     def as_bitstream(self):
         bitstream = BitStream()
         self._TEMP_FIELDS = {}
-        fields = list(self.createFields())
-        for statement in fields:
-            statement.context = self
+        statements = {}
+        for statement in self.create_fields():
+            print statement
+            statement = IStructStatement(statement)
             statement._pre_write(self)
-        for statement in fields:
+            statements[statement] = statement
+        print self._TEMP_FIELDS
+        self.writing = True
+        for statement in self.create_fields():
+            print statement
+            statement = statements.get(statement, statement)
             statement._struct_write(self, bitstream)
         del self._TEMP_FIELDS
+        self.writing = False
+        bitstream.rewind()
         return bitstream
 
     @classmethod
     def from_bitstream(cls, bitstream):
         instance = cls()
         instance._TEMP_FIELDS = {}
-        fields = list(instance.createFields())
-        for statement in fields:
-            statement.context = instance
+        statements = {}
+        for statement in instance.create_fields():
+            statement = IStructStatement(statement)
             statement._pre_read(instance)
-        for statement in fields:
+            statements[statement] = statement
+        instance.reading = True
+        for statement in instance.create_fields():
+            statement = statements.get(statement, statement)
             statement._struct_read(instance, bitstream)
         del instance._TEMP_FIELDS
+        print
+        instance.reading = False
         return instance

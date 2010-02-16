@@ -32,18 +32,33 @@ def lookup():
 BYTE_TO_BITS, BITS_TO_BYTE, SIGNED_BYTE_TO_BITS, BITS_TO_SIGNED_BYTE = lookup()
 del lookup
 
+def nbits_fixed(num, *args):
+    """
+    Returns the number of bits in the max of all the arguments,
+    assuming FBits.
+    """
+    if all(a == 0 for a in (num,)+args):
+        return 0
+    return nbits_signed(*(int(a*float(0x10000)) for a in (num,) + args))
+
 def nbits_signed(num, *args):
     """
     Returns nbits + 1, for the sign bit. Please use this
     instead of adding one manually.
     """
+    if all(a == 0 for a in (num,)+args):
+        return 0
     return nbits(num, *args) + 1
 
 def nbits(num, *args):
     """
     Returns the number of bits in the max of all the arguments.
     """
-    return int(floor(log(max(1, abs(num), *(abs(a) for a in args)), 2))) + 1
+    # according to StackOverflow, using the string
+    # length is faster than everything else
+    if all(a == 0 for a in (num,)+args):
+        return 0
+    return max(len(bin(abs(a))) for a in (num,) + args)  - 2
 
 # New API for the BitStream, suggested by Jon Morton.
 
@@ -107,7 +122,7 @@ provideAdapter(string_as_formatdata, [str],           IFormatData)
 @adapter(FormatMeta)
 class FormatMetaAdaptor(object):
     
-    implements(IFormat)
+    implements(IFormat, IStructEvaluateable)
     
     def __init__(self, format):
         self.format = format
@@ -118,7 +133,16 @@ class FormatMetaAdaptor(object):
     def _write(self, bs, cursor, argument):
         return self.format(None)._write(bs, cursor, argument)
 
-provideAdapter(FormatMetaAdaptor)
+    def _pre_read(self, struct):
+        pass
+
+    def _pre_write(self, struct, field):
+        pass
+
+    def _evaluate(self, struct):
+        return self
+
+provideAdapter(FormatMetaAdaptor, None, IFormat)
 
 class Format(object):
     """
@@ -132,12 +156,10 @@ class Format(object):
         return cls(data)
     
     def __init__(self, data=None):
-        self.length, self.endianness, self.repr = None, None, None
-        if data:
-            data = IFormatData(data)
-            self.length     = data.length
-            self.endianness = data.endianness
-            self.repr       = data.repr
+        data = IFormatData(data)
+        self.length     = data.length
+        self.endianness = data.endianness
+        self.repr       = data.repr
     
     def __getitem__(self, item):
         assert isinstance(item, (int, long))
@@ -146,7 +168,7 @@ class Format(object):
     def __str__(self):
         if self.repr:
             return self.repr
-        return "%s[%d]" % (type(self).__name__, self.length)
+        return "%s[%s]" % (type(self).__name__, self.length)
 
     def _read(self, bitstream, cursor):
         raise NotImplementedError
@@ -158,18 +180,18 @@ class Format(object):
         if getattr(self.length, "_pre_write_inner", None):
             self.length._pre_write_inner(struct, self, field)
 
-    def _evaluate(self, struct, field):
+    def _evaluate(self, struct):
         return type(self).specialize(FormatData(
-            IStructEvaluateable(self.length)._evaluate(struct, field),
-            IStructEvaluateable(self.endianness)._evaluate(struct, field),
+            IStructEvaluateable(self.length)._evaluate(struct),
+            IStructEvaluateable(self.endianness)._evaluate(struct),
             self.repr))
 
 class FormatArray(object):
     
-    implements(IStructEvaluateable, IFormat)
+    implements(IFormat, IStructEvaluateable)
     
     def __init__(self, format, repeat):
-        self.format = format
+        self.format = IFormat(format)
         self.repeat = repeat
 
     def _read(self, bs, cursor):
@@ -186,25 +208,20 @@ class FormatArray(object):
     def _pre_write(self, struct, field):
         self.format._pre_write(struct, field)
 
-    def _evaluate(self, struct, field):
-        return type(self)(self.format._evaluate(struct, field), self.repeat)
+    def _evaluate(self, struct):
+        return type(self)(self.format._evaluate(struct), self.repeat)
     
     def __str__(self):
-        return "%s[%d]" % (self.format, self.repeat)
+        return "%s[%s]" % (self.format, self.repeat)
     
 class Bit(Format):
+    
     """
     One bit, either True or False.
     """
     @requires_length(can_be=(1, None))
     @no_endianness
     def _read(self, bs, cursor):
-        """
-        Reads a bit from the bit stream and returns it as either True or False.
-        
-        :rtype: bool
-        :raises IndexError: when reading past the end of the stream.
-        """
         return bs[cursor], 1
     
     @requires_length(can_be=(1, None))
@@ -418,7 +435,9 @@ class UB(Format):
     @requires_length(cant_be=(None,))
     def _read(self, bs, cursor):
         length = self.length
-        if length == 1:
+        if length == 0:
+            return 0
+        elif length == 1:
             return bs[cursor], 1
         elif length & 7 == 0:
             bytes, n = bs.read(Byte[length//8]), 0
@@ -444,6 +463,8 @@ class UB(Format):
         nb = nbits(argument)
         if length is None:
             length = nbits(argument)
+        elif length == 0:
+            return 0
         elif length < nb:
             raise ValueError(("length of %d is not large "
                               "enough to store %d") % (length, argument))
@@ -460,8 +481,9 @@ class UB(Format):
         for i, j in enumerate(R):
             bs[cursor+i] = bool(argument & (1 << j))
         return length
-    
-    def _nbits(self, *args):
+
+    @staticmethod
+    def _nbits(*args):
         return nbits(*args)
 
 class SB(Format):
@@ -479,6 +501,8 @@ class SB(Format):
     """
     @requires_length(cant_be=(None,))
     def _read(self, bs, cursor):
+        if self.length == 0:
+            return 0
         signed = bs.read(Bit)
         n = bs.read(UB[self.length-1])
         if signed:
@@ -487,12 +511,15 @@ class SB(Format):
     
     def _write(self, bs, cursor, argument):
         length = self.length
-        if length is not None:
+        if length == 0:
+            return 0
+        elif length is not None:
             length -= 1
         bs.write(argument < 0,  Bit)
         bs.write(abs(argument), UB[length])
 
-    def _nbits(self, *args):
+    @staticmethod
+    def _nbits(*args):
         return nbits_signed(*args)
 
 class FB(Format):
@@ -509,10 +536,15 @@ class FB(Format):
     """
     @requires_length(cant_be=(None,))
     def _read(self, bs, cursor):
-        return bs.read(SB) / float(0x10000)
+        return bs.read(SB[self.length]) / float(0x10000)
     
     def _write(self, bs, cursor, value):
-        bs.write(value / float(0x10000), SB)
+        if self.length == 0:
+            return 0
+        bs.write(int(value * float(0x10000)), SB[self.length])
+
+    def _nbits(self, *args):
+        return nbits_fixed(*args)
     
 class U32(Format):
     """

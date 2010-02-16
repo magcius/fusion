@@ -1,25 +1,83 @@
 
 from mech.fusion.bitstream.bitstream import BitStream
 
-from mech.fusion.bitstream.formats import SB
-from mech.fusion.bitstream.structs import Struct, Fields, NBits
+from mech.fusion.swf.records import Rect
 
-class Rect(Struct):
+from mech.fusion.bitstream.formats import SB, FB, Bit
+from mech.fusion.bitstream.structs import Struct, Fields, NBits
+from mech.fusion.bitstream.structs import Field, Local
+
+from zope.interface import implementedBy
+
+rect_data   = Rect(XMin=20, YMin=80, XMax=600, YMax=800).as_bitstream()
+rect_data.rewind()
+
+class TestRect(Struct):
     def __init__(self, XMin=0, YMin=0, XMax=0, YMax=0):
-        super(Rect, self).__init__(locals())
+        super(TestRect, self).__init__(locals())
     
-    def createFields(self):
+    def create_fields(self):
         yield NBits[5]
         yield Fields("XMin XMax YMin YMax", SB[NBits]) * 20
 
 def test_rect_write():
-    rect = Rect(0, 0, 600, 800)
-    assert str(rect.as_bitstream()) == "01111000000000000000010111011100000000000000000000011111010000000"
-
+    rect = TestRect(20, 80, 600, 800)
+    print rect_data
+    print rect.as_bitstream()
+    assert rect.as_bitstream() == rect_data
+    
 def test_rect_read():
-    bits = BitStream("01111000000000000000010111011100000000000000000000011111010000000")
-    rect = Rect.from_bitstream(bits)
-    assert rect.XMin == 0
+    rect = TestRect.from_bitstream(rect_data)
+    assert rect.XMin == 20
+    assert rect.YMin == 80
     assert rect.XMax == 600
-    assert rect.YMin == 0
     assert rect.YMax == 800
+
+class TestMatrix(Struct):
+    def __init__(self, a=1, b=0, c=0, d=1, tx=0, ty=0):
+        super(TestMatrix, self).__init__(locals())
+
+    def create_fields(self):
+        if self.writing:
+            self.set_local("HasScale", (Field("a") != 1) & (Field("d") != 1))
+        
+        yield Local("HasScale", Bit)
+        if self.get_local("HasScale", True):
+            yield NBits[5]
+            yield Fields("a d", FB[NBits])
+
+        if self.writing:
+            self.set_local("HasRotate", (Field("b") != 0) & (Field("c") != 0))
+
+        yield Local("HasRotate", Bit)
+        if self.get_local("HasRotate", True):
+            yield NBits[5]
+            yield Fields("b c", FB[NBits])
+
+        yield NBits[5]
+        yield Fields("tx ty", SB[NBits]) * 20
+
+matrix_testcases = [
+    ((1, 0, 0, 1, 0, 0),   "0000000"),
+    ((1, 0, 0, 1, 10, 10), "0001001011001000011001000"),
+    ((2, 0, 0, 2, 0, 0),   "11001101000000000000000000100000000000000000000000"),
+]
+
+def test_matrix_write():
+    for tup, bits in matrix_testcases:
+        matrix = TestMatrix(*tup)
+        assert matrix.as_bitstream() == BitStream(bits)
+
+def test_matrix_read():
+    for tup, bits in matrix_testcases:
+        matrix = TestMatrix.from_bitstream(BitStream(bits))
+        assert matrix.a  == tup[0]
+        assert matrix.b  == tup[1]
+        assert matrix.c  == tup[2]
+        assert matrix.d  == tup[3]
+        assert matrix.tx == tup[4]
+        assert matrix.ty == tup[5]
+
+## test_rect_read()
+## test_matrix_read()
+## test_matrix_write()

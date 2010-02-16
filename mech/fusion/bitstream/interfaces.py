@@ -89,6 +89,22 @@ class IStruct(Interface):
         Return this struct represented as an instance of an IBitStream.
         """
 
+    def create_fields():
+        """
+        This should be a generator that yields IStructStatements that make
+        up this struct.
+        """
+
+    def set_local(self, name, value):
+        """
+        Set the local (temporary) variable name to value.
+        """
+
+    def get_local(self, name):
+        """
+        Get the local (temporary) variable name.
+        """
+
 class IStructClass(Interface):
     def from_bitstream(bitstream):
         """
@@ -116,4 +132,15 @@ class IStructPrereadable(Interface):
     def _pre_write(struct, field):
         """
         TODO: document
+        """
+
+class IStructStatement(IStructPrereadable):
+    def _struct_read(struct, bitstream):
+        """
+        Read this statement from bitstream and store it in struct.
+        """
+
+    def _struct_write(struct, bitstream):
+        """
+        Write this statement to the bitstream using struct.
         """

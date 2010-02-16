@@ -36,7 +36,7 @@ class RecordHeader(object):
         self.type = type
         self.length = length
 
-    def as_bits(self):
+    def as_bitstream(self):
         """
         Serializes this record, according to the following format.
 
@@ -72,7 +72,7 @@ class _EndShapeRecord(object):
     """
     Don't worry about me ;)
     """
-    def as_bits(self):
+    def as_bitstream(self):
         """
         Serializes this record, according to the following format.
 
@@ -120,7 +120,7 @@ class Rect(object):
             return r.union(*rects)
         return r
     
-    def as_bits(self):
+    def as_bitstream(self):
         """
         Serializes this record, according to the following format.
 
@@ -182,7 +182,7 @@ class XY(object):
         self.X = X
         self.Y = Y
 
-    def as_bits(self):
+    def as_bitstream(self):
         """
         Serializes this record, according to the following format.
 
@@ -227,7 +227,7 @@ class RGB(object):
         """
         self.color = color & 0xFFFFFF
 
-    def as_bits(self):
+    def as_bitstream(self):
         """
         Serializes this record, according to the following format.
 
@@ -261,7 +261,7 @@ class RGBA(RGB):
         super(RGBA, self).__init__(color)
         self.alpha = alpha
 
-    def as_bits(self):
+    def as_bitstream(self):
         """
         ====== ===========
         Format Parameter
@@ -272,7 +272,7 @@ class RGBA(RGB):
         U[8]   alpha value
         ====== ===========
         """
-        bits = RGB.as_bits(self)
+        bits = RGB.as_bitstream(self)
         
         from mech.fusion.swf.tags import DefineShape
         
@@ -285,6 +285,7 @@ class RGBA(RGB):
 
     @classmethod
     def parse(cls, bitstream):
+        from mech.fusion.swf.tags import DefineShape
         rgb = RGB.parse(bitstream)
         color = rgb.color
         alpha = 1.0
@@ -322,7 +323,7 @@ class CXForm(object):
         self.badd = badd
         self.aadd = 0
 
-    def as_bits(self):
+    def as_bitstream(self):
         """
         Serializes this record, according to the following format.
         
@@ -405,7 +406,7 @@ class CXFormWithAlpha(CXForm):
         self.amul = amul
         self.aadd = aadd
 
-    def as_bits(self):
+    def as_bitstream(self):
         """
         Serializes this record, according to the following format.
         
@@ -425,14 +426,14 @@ class CXFormWithAlpha(CXForm):
         if HasADdTerms, U[NBits]  AlphaOffset
         ========================= =============
         """
-        return super(CXFormWithAlpha, self).as_bits()
+        return super(CXFormWithAlpha, self).as_bitstream()
 
 class Matrix(object):
     
     def __init__(self, a=1, b=0, c=0, d=1, tx=0, ty=0):
         self.a, self.b, self.c, self.d, self.tx, self.ty = a, b, c, d, tx, ty
 
-    def as_bits(self):
+    def as_bitstream(self):
         """
         Serializes this record, according to the following format.
         
@@ -447,7 +448,7 @@ class Matrix(object):
         U[5]                                NRotateBits
         if HasScale, U[NRotateBits]         RotateSkew0
         if HasScale, U[NRotateBits]         RotateSkew1
-        U[5]                                NTranslateBits
+        U[5]                                NTransxlateBits
         if HasScale, U[NTranslateBits]      TranslateX
         if HasScale, U[NTranslateBits]      TranslateY
         =================================== =============
@@ -512,7 +513,7 @@ class Shape(object):
         self.shapes += shape.shapes
         self.bounds_calculated = False
 
-    def as_bits(self):
+    def as_bitstream(self):
         """
         Serializes this record, according to the following format.
 
@@ -605,7 +606,7 @@ class LineStyle(object):
     def index(self):
         return self.parent.find(self)
     
-    def as_bits(self):
+    def as_bitstream(self):
         bits = BitStream()
         bits.write_int_value(self.width * 20, 16, endianness="<")
         bits += self.color
@@ -647,7 +648,7 @@ class LineStyle2(LineStyle):
 
         self.miter_limit = miter_limit
 
-    def as_bits(self):
+    def as_bitstream(self):
 
         h_scale = (self.scale_mode == "normal" or self.scale_mode == "horizontal")
         v_scale = (self.scale_mode == "normal" or self.scale_mode == "vertical")
@@ -741,13 +742,13 @@ class FillStyle(object):
     def index(self):
         return self.parent.find(self)
     
-    def as_bits(self):
+    def as_bitstream(self):
         bits = BitStream()
         bits.write_int_value(self.TYPE, 8)
-        bits += self.as_bits_inner()
+        bits += self.as_bitstream_inner()
         return bits
 
-    def as_bits_inner(self):
+    def as_bitstream_inner(self):
         pass
     
 class FillStyleSolidFill(FillStyle):
@@ -757,8 +758,8 @@ class FillStyleSolidFill(FillStyle):
     def __init_(self, color, alpha=1.0):
         self.color = RGBA(color, alpha)
 
-    def as_bits_inner(self):
-        return self.color.as_bits()
+    def as_bitstream_inner(self):
+        return self.color.as_bitstream()
 
 class GradRecord(object):
 
@@ -766,7 +767,7 @@ class GradRecord(object):
         self.ratio = ratio
         self.color = RGBA(color, alpha)
 
-    def as_bits(self):
+    def as_bitstream(self):
         bits = BitStream()
         bits.write_int_value(self.ratio, 8)
         bits += self.color
@@ -789,7 +790,7 @@ class Gradient(object):
         self.interpolation = interpolation
         self.focalpoint = 0
 
-    def as_bits(self):
+    def as_bitstream(self):
         spread = dict(pad=0, reflect=1, repeat=2).get(self.spread, 0)
         interpolation = dict(rgb=0, linear=1).get(self.interpolation, 0)
 
@@ -842,7 +843,7 @@ class FillStyleLinearGradientFill(FillStyle):
         self.matrix = matrix
         self.gradient = gradient
 
-    def as_bits_inner(self):
+    def as_bitstream_inner(self):
         return self.matrix.serialize() + self.gradient.serialize()
 
 class StraightEdgeRecord(object):
@@ -852,7 +853,7 @@ class StraightEdgeRecord(object):
         self.delta_y = delta_y
         self.bounds_calculated = False
 
-    def as_bits(self):
+    def as_bitstream(self):
             
         bits = BitStream()
         
@@ -907,7 +908,7 @@ class CurvedEdgeRecord(object):
         self.anchorx = anchorx
         self.anchory = anchory
 
-    def as_bits(self):
+    def as_bitstream(self):
             
         bits = BitStream()
 
@@ -1020,7 +1021,7 @@ class StyleChangeRecord(object):
         self.fillstyles = fillstyles
         self.linestyles = linestyles
 
-    def as_bits(self):
+    def as_bitstream(self):
         bits = BitStream()
         if self.fillstyle0 is not None and self.fillstyle1 is not None and \
                self.fillstyle0.parent != self.fillstyle1.parent:
