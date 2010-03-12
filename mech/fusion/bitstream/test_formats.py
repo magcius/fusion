@@ -159,16 +159,18 @@ def test_write_bits():
     test = BitStream()
     test.write("SWF", ByteString)
     test.rewind()
+    print str(test)
     
     bits = BitStream()
     bits.write(test, BitStream["<"])
     bits.rewind()
+    print str(bits)
     
     result = bits.read(ByteString[3])
     assert result == "FWS"
     assert bits.bits_available == 0
 
-def test_read_int_value():
+def test_read_ub():
     bits = BitStream("101010")
     assert bits.read(UB[6]) == 42
     assert bits.bits_available == 0
@@ -190,7 +192,7 @@ def test_read_int_value():
     assert result == 0xFFEEDD
     assert bits.bits_available == 0 
 
-def test_write_int_value():
+def test_write_ub():
     bits = BitStream()
     bits.write(0b1111, UB[4])
     assert len(bits) == 4 and str(bits) == "1111"
@@ -211,7 +213,13 @@ def test_write_int_value():
     bits.rewind()
     result = bits.read(ByteString[3])
     assert result == "\xFF\xEE\xDD"
-    assert bits.bits_available  == 0
+    assert bits.bits_available == 0
+
+def test_write_byte():
+    bits = BitStream()
+    bits.write(0xFFEEDD, Byte[4:"<"])
+    print bits
+    assert False
 
 def test_read_fixed_value():
     # TODO

@@ -48,16 +48,22 @@ class ScriptContext(_MethodContextMixin):
         self.traits = []
         self.pending_classes = {}
         self.pending_classes_order = []
+        self.done = False
     
     def make_init(self):
         if not self.init:
             self.init = abc.AbcMethodInfo("", [], constants.ANY_NAME)
-        ctx = MethodContext(self.gen, self.init, self, [])
-        self.gen.enter_context(ctx)
-        return ctx
+            self.init.ctx = MethodContext(self.gen, self.init, self, [])
+        self.gen.enter_context(self.init.ctx)
+        return self.init.ctx
     
     def new_class(self, name, super_name=None, bases=None):
         # allow hardcoded bases
+        if name in self.pending_classes:
+            # XXX
+            ctx, _ = self.pending_classes[name]
+            self.gen.enter_context(ctx)
+            return ctx
         ctx = ClassContext(self.gen, name, super_name, self)
         self.pending_classes[name] = (ctx, bases)
         self.pending_classes_order.append(name)
@@ -71,13 +77,14 @@ class ScriptContext(_MethodContextMixin):
     add_instance_trait = add_trait
     
     def exit(self):
-        assert self.parent.CONTEXT_TYPE == "global"
+        if self.done:
+            return self.parent
 
+        self.done = True
         self.make_init()
         
         for key in self.pending_classes_order:
             context, parents = self.pending_classes[key]
-
             if parents is None:
                 parents = []
                 ctx = self.gen.get_class_context(context.super_name, self.pending_classes)
@@ -120,9 +127,9 @@ class ClassContext(_MethodContextMixin):
     def make_cinit(self):
         if not self.cinit:
             self.cinit = abc.AbcMethodInfo("", [], constants.ANY_NAME)
-        ctx = MethodContext(self.gen, self.cinit, self, [])
-        self.gen.enter_context(ctx)
-        return ctx
+            self.cinit.ctx = MethodContext(self.gen, self.cinit, self, [])
+        self.gen.enter_context(self.cinit.ctx)
+        return self.cinit.ctx
 
     def make_iinit(self, params=None):
         params = params or ()
@@ -131,12 +138,13 @@ class ClassContext(_MethodContextMixin):
                 raise ValueError("parameters cannot be redefined")
         else:
             self.iinit = self.new_method_info("", params, constants.QName("void"))
-
-        ctx = MethodContext(self.gen, self.iinit, self, [])
-        self.gen.enter_context(ctx)
+            self.iinit.ctx = MethodContext(self.gen, self.iinit, self, [])
         
-        self.gen.push_this()
-        self.gen.emit("constructsuper", 0)
+        self.gen.enter_context(self.iinit.ctx)
+
+        if not self.iinit.done:
+            self.gen.push_this()
+            self.gen.emit("constructsuper", 0)
 
     def add_instance_trait(self, trait):
         self.instance_traits.append(trait)
@@ -164,7 +172,7 @@ class ClassContext(_MethodContextMixin):
         
 class MethodContext(object):
     CONTEXT_TYPE = "method"
-    catch_nest = 0
+    scope_nest = 0
     
     def __init__(self, gen, method, parent, params, stdprologue=True):
         self.gen, self.method, self.parent = gen, method, parent
@@ -177,7 +185,10 @@ class MethodContext(object):
             self.restore_scopes()
     
     def exit(self):
-        self.asm.add_instruction(instructions.returnvoid())
+        if self.method.done:
+            return self.parent
+
+        self.method.done = True
         self.gen.abc.methods.index_for(self.method)
         self.gen.abc.bodies.index_for(abc.AbcMethodBodyInfo(
                 self.method, self.asm, self.acv_traits, self.exceptions))
@@ -196,7 +207,7 @@ class MethodContext(object):
         self.asm.scope_depth += 1
     
     def add_instructions(self, *i):
-        self.asm.add(*i)
+        self.asm.add_instructions(*i)
     
     @property
     def next_free_local(self):
@@ -215,25 +226,26 @@ class MethodContext(object):
         return self.asm.has_local(name)
 
     def restore_scopes(self):
-        self.asm.add_instruction(instructions.getlocal(0))
+        self.asm.add_instruction(instructions.getlocal(self.scope_nest))
         self.asm.add_instruction(instructions.pushscope())
 
 class CatchContext(object):
     def __init__(self, gen, parent):
         self.gen = gen
         self.parent = parent
-        self.catch_nest = parent.catch_nest + 1
-        self.catch_var_name = "MF::ExceptionHolder::Nest%s" % (self.catch_nest,)
+        self.scope_nest = parent.scope_nest + 1
+        self.local = "MF::ExceptionLocal%d" % (self.scope_nest,)
 
     def __getattr__(self, name):
         return getattr(self.parent, name)
     
     def restore_scopes(self):
-        self.gen.push_var(self.catch_var_name)
+        self.parent.restore_scores()
+        self.gen.GL(self.local)
         self.gen.emit("pushscope")
 
     def exit(self):
-        pass
+        return self.parent
     
 class Avm2ilasm(object):
     """ AVM2 'assembler' generator routines """
@@ -258,7 +270,6 @@ class Avm2ilasm(object):
 
     def SL(self, name):
         index = self.context.set_local(name)
-
         self.I(instructions.setlocal(index))
         return index
 
@@ -353,6 +364,9 @@ class Avm2ilasm(object):
 
     def store(self, v):
         self.store_var(v.name)
+
+    def call_method(self, name, argcount):
+        self.emit('callproperty', constants.QName(name), argcount)
     
     # def prepare_call_oostring(self, OOTYPE):
     #     self.I(instructions.findpropstrict(types._str_qname))
@@ -363,7 +377,7 @@ class Avm2ilasm(object):
     # call_oounicode = call_oostring
     # prepare_call_oounicode = prepare_call_oostring
 
-    def newarray(self, TYPE, length=1):
+    def newarray(self, length=1):
         self.load(constants.QName("Array"))
         self.push_const(length)
         self.I(instructions.construct(1))
@@ -394,10 +408,10 @@ class Avm2ilasm(object):
             if v > util.U32_MAX or v < -util.S32_MAX:
                 self.I(instructions.pushdouble(
                         self.constants.double_pool.index_for(v)))
-                if v > 0:
-                    self.I(instructions.convert_u())
-                else:
-                    self.I(instructions.convert_i())
+                #if v > 0:
+                #    self.I(instructions.convert_u())
+                #else:
+                #    self.I(instructions.convert_i())
             elif 0 <= v < 256:
                 self.I(instructions.pushbyte(v))
             elif v >= 0:
@@ -419,10 +433,10 @@ class Avm2ilasm(object):
         else:
             assert False, "value for push_const not a literal value"
 
-    def push_undefined(self, TYPE=None):
+    def push_undefined(self):
         self.I(instructions.pushundefined())
 
-    def push_null(self, TYPE=None):
+    def push_null(self):
         self.I(instructions.pushnull())
 
     def init_array(self, members=None):
@@ -440,8 +454,11 @@ class Avm2ilasm(object):
             self.load(*members)
         self.oonewarray(TYPE, len(members))
 
-    def set_field(self, TYPE, fieldname):
+    def set_field(self, fieldname):
         self.emit('setproperty', constants.QName(fieldname))
+
+    def get_field(self, fieldname):
+        self.emit('getproperty', constants.QName(fieldname))
 
     def new(self, TYPE):
         # XXX: assume no args for now
@@ -453,6 +470,14 @@ class Avm2ilasm(object):
         TYPE = self._get_type(TYPE)
         self.emit('coerce', TYPE)
 
+    def isinstance(self, TYPE):
+        TYPE = self._get_type(TYPE)
+        self.emit('istype', TYPE)
+
+    def gettype(self):
+        self.get_field("prototype")
+        self.get_field("constructor")
+
     def begin_try(self):
         assert self.context.CONTEXT_TYPE == "method"
         self.context.code_start = len(self.context.asm)
@@ -462,25 +487,26 @@ class Avm2ilasm(object):
         self.context.code_end = len(self.context.asm)
 
     def begin_catch(self, TYPE):
-        # Stolen from ESC directly.
         assert self.context.CONTEXT_TYPE == "method"
-        TYPE = self._get_type(TYPE).multiname()
+        name = TYPE.multiname()
         ctx = CatchContext(self, self.context)
-        idx = self.context.add_exception(TYPE, ctx.catch_var_name)
+        idx = self.context.add_exception(name, "")
         self.context.start_catch()
-        self.context.set_local(ctx.catch_var_name) # Reserve a spot for us.
         self.context.restore_scopes()
         self.enter_context(ctx)
-        self.emit("newcatch", idx)
+        self.emit('newcatch', idx)
         self.dup()
-        self.store_var(ctx.catch_var_name)
+        self.store_var(ctx.local)
         self.dup()
-        self.emit("pushscope")
-        
+        self.emit('pushscope')
         self.swap()
-        self.set_field(ctx.catch_var_name)
+        self.emit('setslot', 1)
+
+    def push_exception(self, nest=None):
+        self.emit('getscopeobject', nest or self.context.scope_nest)
+        self.emit('getslot', 1)
 
     def end_catch(self):
-        self.KL(self.context.catch_var_name)
-        self.emit("popscope")
+        self.emit('popscope')
+        self.KL(self.context.local)
         self.exit_context()

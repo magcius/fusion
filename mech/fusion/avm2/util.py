@@ -31,11 +31,11 @@ def serialize_s24(value):
         raise ValueError, "value does not fit in a s24"
     return m[:3]
 
-Avm2Backpatch = namedtuple("Avm2Backpatch", "location base lbl")
-
 class Avm2Label(object):
     _next_label = 1000
-
+    
+    backref = False
+    
     def __init__(self, asm, address=-1):
         self.asm = asm
         self.name = Avm2Label._next_label
@@ -52,12 +52,8 @@ class Avm2Label(object):
     def address(self, value):
         self._address = value
         
-    def write_relative_offset(self, base, location):
-        if self.address == -1:
-            self.asm.add_backpatch(Avm2Backpatch(location, base, self))
-            return "\0\0\0"
-        else:
-            return serialize_s24(self.address - base)
+    def relative_offset(self, base):
+        return serialize_s24(self.address - base)
 
     def __repr__(self):
         return "<Avm2Label (name=%d, address=%d, stack_depth=%d, scope_depth=%d)>" \
@@ -81,6 +77,9 @@ class ValuePool(object):
     def __iter__(self):
         return iter(self.pool)
 
+    def __str__(self):
+        return "ValuePool(%r)" % (self.pool,)
+
     def __len__(self):
         return len(self.pool) + int(self.has_default)
 
@@ -100,9 +99,12 @@ class ValuePool(object):
         if hasattr(self.parent, "write_to"):
             self.parent.write(value)
         
-        index = self.next_free()
-        
-        self.pool.append(value)
+        index, reuse = self.next_free()
+
+        if reuse:
+            self.pool[index] = value
+        else:
+            self.pool.append(value)
         self.index_map[value] = index
         
         return index
@@ -119,13 +121,15 @@ class ValuePool(object):
     def next_free(self):
         if empty in self.pool:
             index = self.pool.index(empty)
+            reuse = True
         else:
             index = len(self.pool)
+            reuse = False
         
         if self.has_default:
             index += 1
         
-        return index
+        return index, reuse
 
     def kill(self, value):
         index = self.index_map[value]

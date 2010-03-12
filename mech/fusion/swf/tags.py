@@ -1,4 +1,9 @@
 
+from zope.interface import implements, classProvides
+
+from mech.fusion.bitstream.interfaces import IStruct, IStructClass
+from mech.fusion.bitstream.formats import CString, Bit
+from mech.fusion.bitstream.flash_formats import SI16, UI16
 from mech.fusion.swf.records import (RecordHeader, ShapeWithStyle,
                                      Matrix, CXForm, RGB, Rect)
 from mech.fusion.avm1.actions import Block
@@ -131,6 +136,9 @@ class SwfTag(object):
     instead use one of its subclasses.
     """
 
+    implements(IStruct)
+    classProvides(IStructClass)
+
     __metaclass__ = SwfTagMeta
 
     TAG_TYPE = -1
@@ -147,16 +155,16 @@ class SwfTag(object):
     def __repr__(self):
         return "<%s (%#X)>" % (type(self).__name__, self.TAG_TYPE)
     
-    def serialize(self):
+    def as_bitstream(self):
         """
         Return a bytestring containing the appropriate structures of the tag.
         """
         data = self.serialize_data()
-        return RecordHeader(self.TAG_TYPE, len(data)).as_bits().serialize() + data
+        return RecordHeader(self.TAG_TYPE, len(data)).as_bitstream().serialize() + data
 
     @classmethod
-    def parse(cls, bitstream):
-        recordheader = RecordHeader.parse(bitstream)
+    def from_bitstream(cls, bitstream):
+        recordheader = RecordHeader.from_bitstream(bitstream)
         cls = REVERSE_INDEX[recordheader.type]
         if not hasattr(cls, "parse_inner"):
             cls = UnknownSwfTag(recordheader.type)
@@ -185,11 +193,11 @@ class SetBackgroundColor(SwfTag):
         RGB      color
         =======  =========
         """
-        return self.color.as_bits().serialize()
+        return self.color.as_bitstream().serialize()
 
     @classmethod
     def parse_inner(cls, bits):
-        return cls(RGB.parse(bits).color)
+        return cls(RGB.from_bitstream(bits).color)
 
 class DoAction(SwfTag, Block):
     TAG_TYPE = 12
@@ -237,7 +245,7 @@ class DoABC(SwfTag, AbcFile):
     def parse_inner(cls, bitstream):
         flags = bitstream.read_int_value(32, endianness="<")
         name  = bitstream.read_cstring()
-        AbcFile.parse_bitstream(bitstream)
+        AbcFile.from_bitstream(bitstream)
         return cls(flags, name)
     
     def serialize_data(self):
@@ -278,7 +286,7 @@ class DoABCDefine(SwfTag, AbcFile):
         =======  ==========
         """
         return AbcFile.serialize(self)
-    
+
 class SymbolClass(SwfTag):
     TAG_TYPE = 76
     TAG_MIN_VERSION = 9
@@ -521,26 +529,26 @@ class DefineEditText(SwfTag):
 
     @classmethod
     def parse_inner(cls, bits):
-        CharacterID = bits.read_int_value(16, endianness="<")
-        Bounds      = Rect.parse(bits)
+        CharacterID = bits.read(UI16)
+        Bounds      = Rect.from_bitstream(bits)
         
-        HasText       = bits.read_bit()
-        WordWrap      = bits.read_bit()
-        Multiline     = bits.read_bit()
-        Password      = bits.read_bit()
-        ReadOnly      = bits.read_bit()
-        HasColor      = bits.read_bit()
-        HasMaxLength  = bits.read_bit()
-        HasFont       = bits.read_bit()
+        HasText       = bits.read(Bit)
+        WordWrap      = bits.read(Bit)
+        Multiline     = bits.read(Bit)
+        Password      = bits.read(Bit)
+        ReadOnly      = bits.read(Bit)
+        HasColor      = bits.read(Bit)
+        HasMaxLength  = bits.read(Bit)
+        HasFont       = bits.read(Bit)
 
-        HasFontClass  = bits.read_bit()
-        AutoSize      = bits.read_bit()
-        HasLayout     = bits.read_bit()
-        NotSelectable = bits.read_bit()
-        HasBorder     = bits.read_bit()
-        WasStatic     = bits.read_bit()
-        IsHTML        = bits.read_bit()
-        HasOutlines   = bits.read_bit()
+        HasFontClass  = bits.read(Bit)
+        AutoSize      = bits.read(Bit)
+        HasLayout     = bits.read(Bit)
+        NotSelectable = bits.read(Bit)
+        HasBorder     = bits.read(Bit)
+        WasStatic     = bits.read(Bit)
+        IsHTML        = bits.read(Bit)
+        HasOutlines   = bits.read(Bit)
 
         FontID    = None
         FontClass = None
@@ -551,16 +559,16 @@ class DefineEditText(SwfTag):
         Layout    = None
         Text      = None
         
-        if HasFont:      FontID    = bits.read_int_value(16, endianness="<")
-        if HasFontClass: FontClass = bits.read_cstring()
-        if HasFont:      FontSize  = bits.read_int_value(16, endianness="<")
+        if HasFont:      FontID    = bits.read(UI16)
+        if HasFontClass: FontClass = bits.read(CString)
+        if HasFont:      FontSize  = bits.read(UI16)
 
-        if HasColor:     Color     = RGB.parse(bits)
-        if HasMaxLength: MaxLength = bits.read_int_value(16, endianness="<")
+        if HasColor:     Color     = RGB.from_bitstream(bits)
+        if HasMaxLength: MaxLength = bits.read(UI16)
         if HasLayout:    Layout    = NonExistant.parse(bits)
 
-        Variable         = bits.read_cstring()
-        if HasText: Text = Text.read_cstring()
+        Variable         = bits.read(CString)
+        if HasText: Text = Text.read(CString)
 
         inst = cls(Bounds, Variable, Text, ReadOnly, IsHTML, WordWrap,
                    Multiline, Password, AutoSize, not NotSelectable,
@@ -572,51 +580,50 @@ class DefineEditText(SwfTag):
 
     def serialize_data(self):
         bits = BitStream()
-        bits.write_int_value(self.characterid, 16, endianness="<")
+        bits.write(self.characterid, SI16)
         
         bits += self.rect
         bits.flush()
         
         flags = BitStream()
-        flags.write_bit(self.text != "")
-        flags.write_bit(self.wordwrap)
-        flags.write_bit(self.multiline)
-        flags.write_bit(self.password)
-        flags.write_bit(self.readonly)
-        flags.write_bit(self.color is not None)
-        flags.write_bit(self.maxlength is not None)
-        flags.write_bit(self.font is not None)
+        flags.write(self.text != "")
+        flags.write(self.wordwrap)
+        flags.write(self.multiline)
+        flags.write(self.password)
+        flags.write(self.readonly)
+        flags.write(self.color is not None)
+        flags.write(self.maxlength is not None)
+        flags.write(self.font is not None)
         
-        flags.write_bit(self.fontclass is not None)
-        flags.write_bit(self.autosize)
-        flags.write_bit(self.layout is not None)
-        flags.write_bit(not self.selectable)
-        flags.write_bit(self.border)
-        flags.write_bit(self.wasstatic)
-        flags.write_bit(self.isHTML)
-        flags.write_bit(self.outlines)
-        
+        flags.write(self.fontclass is not None)
+        flags.write(self.autosize)
+        flags.write(self.layout is not None)
+        flags.write(not self.selectable)
+        flags.write(self.border)
+        flags.write(self.wasstatic)
+        flags.write(self.isHTML)
+        flags.write(self.outlines)
+
         bits += flags
         
         if self.font is not None:
-            bits.write_int_value(self.font.id, 16, endianness="<") # Doesn't exist yet.
+            bits.write(self.font.id, UI16) # Doesn't exist yet.
         if self.fontclass is not None:
-            bits.write_cstring(self.fontclass)
+            bits.write(self.fontclass, CString)
         if self.font is not None:
-            bits.write_int_value(self.size, 16, endianness="<")
-            
+            bits.write(self.size, UI16)
+        
         if self.color is not None:
             bits += self.color
         if self.maxlength is not None:
-            bits.write_int_value(self.maxlength, 16, endianness="<")
+            bits.write(self.maxlength, UI16)
         if self.layout is not None:
             bits += self.layout # Doesn't exist yet.
-            
-        bits.write_cstring(self.variable)
 
+        bits.write_cstring(self.variable)
+        
         if self.text != "":
             bits.write_cstring(self.text)
-        
         return bits.serialize()
         
 class End(SwfTag):

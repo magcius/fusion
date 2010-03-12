@@ -185,7 +185,6 @@ class AVM1Gen(object):
     
     def push_var(self, v):
         k = self.find_register(v)
-        print k
         if k >= 0:
             self.push_stack(Variable(v))
             self.push_reg_index(k)

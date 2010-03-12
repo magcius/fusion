@@ -1,7 +1,9 @@
 
 import struct
 
-from mech.fusion.util import BitStream, BitStreamParseMixin
+from mech.fusion.bitstream.formats import UB, SB, ByteString, ByteList
+from mech.fusion.bitstream.flash_formats import UI8, UI16, UI32, FIXED8
+from mech.fusion.bitstream.bitstream import BitStream, BitStreamParseMixin
 from mech.fusion.swf.records import Rect
 from mech.fusion.swf.tags import REVERSE_INDEX, ShowFrame, SwfTag
 
@@ -71,7 +73,7 @@ class SwfData(BitStreamParseMixin):
         """
         header = self._gen_header()
         data = self._gen_data_stub()
-        data += ''.join(tag.serialize() for tag in self.tags)
+        data += ''.join(tag.as_bitstream() for tag in self.tags)
         
         header[2] = struct.pack("<L", 8 + len(data)) # FileSize
         if self.compress:
@@ -81,31 +83,31 @@ class SwfData(BitStreamParseMixin):
         return "".join(header + [data])
 
     @classmethod
-    def parse_bitstream(cls, bitstream):
-        header = bitstream.read_string(3)
+    def from_bitstream(cls, bitstream):
+        header = bitstream.read(ByteString[3])
         compressed = False
         if header == "CWS": # compressed
             compressed = True
         elif header != "FWS":
             raise ValueError("Unrecognizable header. Are you sure this is a SWF file?")
-        version = bitstream.read_int_value(8)
-        length = bitstream.read_int_value(32, endianness="<")
+        version = bitstream.read(UI8)
+        length = bitstream.read(UI32)
         if compressed:
             bitstream.decompress()
-        rect = Rect.parse(bitstream)
+        rect = Rect.from_bitstream(bitstream)
         bitstream.skip_flush()
-        fps = bitstream.read_fixed_value(16, endianness="<")
-        frame_count = bitstream.read_fixed_value(16, endianness="<")
+        fps = bitstream.read(FIXED8)
+        frame_count = bitstream.read(UI16)
         inst = cls(rect.XMax, rect.YMax, fps, compressed, version)
         inst.frame_count = frame_count
-        while bitstream.bits_available():
-            inst.add_tag(SwfTag.parse(bitstream))
+        while bitstream.bits_available:
+            inst.add_tag(SwfTag.from_bitstream(bitstream))
         return inst
 
     def _gen_header(self):
         return ["CWS" if self.compress else "FWS", struct.pack("<B", self.version), "\0\0\0\0"]
 
     def _gen_data_stub(self):
-        data = Rect(XMax=self.width, YMax=self.height).as_bits().serialize()
+        data = Rect(XMax=self.width, YMax=self.height).as_bitstream().serialize()
         return data + struct.pack("<BBH", int((self.fps - int(self.fps)) * 0x100),
                                   self.fps, self.frame_count)

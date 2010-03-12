@@ -1,5 +1,6 @@
 
 import struct
+from mech.fusion.bitstream.bitstream import BitStreamParseMixin
 from mech.fusion.avm2.util import (serialize_u32 as s_u32,
                                    ValuePool, U32_MAX, S32_MAX)
 
@@ -377,8 +378,8 @@ class QName(object):
 
     @classmethod
     def parse_inner(cls, bitstream, constants):
-        return cls(constants.namespace_pool.value_at(bitstream.read_u32()),
-                   constants.utf8_pool.value_at(bitstream.read_u32()))
+        return cls(ns=constants.namespace_pool.value_at(bitstream.read_u32()),
+                   name=constants.utf8_pool.value_at(bitstream.read_u32()))
         
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
@@ -509,7 +510,7 @@ MULTINAME_KINDS[TypeName.KIND]    = TypeName
 # Constant Pool
 # ======================================
 
-class AbcConstantPool(object):
+class AbcConstantPool(BitStreamParseMixin):
 
     write_to = "pool"
     
@@ -525,6 +526,15 @@ class AbcConstantPool(object):
     def write(self, value):
         if hasattr(value, "write_to_pool"):
             value.write_to_pool(self)
+
+    def debug_print(self):
+        print "int:   ", self.int_pool
+        print "uint:  ", self.uint_pool
+        print "double:", self.double_pool
+        print "utf8:  ", self.utf8_pool
+        print "ns:    ", self.namespace_pool
+        print "nsset: ", self.nsset_pool
+        print "mname: ", self.multiname_pool
 
     def serialize(self):
 
@@ -552,7 +562,7 @@ class AbcConstantPool(object):
         return buffer
 
     @classmethod
-    def parse(cls, bitstream):
+    def from_bitstream(cls, bitstream):
         pool = cls()
         
         def double():

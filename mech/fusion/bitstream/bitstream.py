@@ -185,7 +185,8 @@ class BitStreamMixin(object):
         return b
 
     def __iadd__(self, bits):
-        self.write(bits)
+        self.skip_to_end()
+        self.write(IBitStream(bits))
         return self
 
     @property
@@ -226,6 +227,7 @@ class BitStreamMixin(object):
             else:
                 copy += [False] * (8-leftover)
             numbytes += 1
+        copy.rewind()
         return copy.read(F.ByteString[numbytes])
 
 class BitStream(BitStreamMixin):
@@ -284,8 +286,19 @@ class BitStream(BitStreamMixin):
     def __iter__(self):
         return iter(self.bits)
 
-provideAdapter(BitStream, [list],  IBitStream)
-provideAdapter(BitStream, [tuple], IBitStream)
+def list_to_bitstream(bits):
+    bits = list(bits)
+    if all(bit in (0, 1, True, False) for bit in bits):
+        return BitStream(bits)
+    if all(bit in xrange(256) for bit in bits):
+        bits = BitStream()
+        bits.write(bits, Byte)
+        return bits
+    raise ValueError("Uncertain how to adapt this list into an"
+                     "IFormat. Please check your input.")
+
+provideAdapter(list_to_bitstream, [list],  IBitStream)
+provideAdapter(list_to_bitstream, [tuple], IBitStream)
 
 class BitStreamFormatAdaptor(object):
     implements(IFormat)
@@ -305,8 +318,11 @@ class BitStreamFormatAdaptor(object):
     # bs.write(bs2)
     def _write(self, bs, cursor, argument):
         argument = IBitStream(argument)
+        cursor = argument.cursor
+        argument.rewind()
         L = len(argument)
         bs.write(argument.read(F.UB[L]), F.UB[L])
+        argument.cursor = cursor
 
 # bs.read(BitStream)
 # bs.write(bs2, BitStream)
@@ -336,26 +352,26 @@ class BitStreamDataFormat(object):
         argument = IBitStream(argument)
         length = self.length
         if length is None:
-            length = len(argument)
+            length = argument.bits_available
         bs.write(argument.read(F.UB[length]),
                  F.UB[length:self.endianness])
 
 class BitStreamParseMixin(object):
     @classmethod
-    def parse_bitstream(cls, bitstream):
+    def from_bitstream(cls, bitstream):
         raise NotImplementedError
     
     @classmethod
-    def parse_bytestring(cls, bytes):
+    def from_bytestring(cls, bytes):
         bits = BitStream()
         bits.write(bytes, F.ByteString)
         bits.rewind()
-        return cls.parse_bitstream(bits)
+        return cls.from_bitstream(bits)
 
     @classmethod
-    def parse_file(cls, file):
-        return cls.parse_bytestring(file)
+    def from_file(cls, file):
+        return cls.from_bytestring(file.read())
 
     @classmethod
-    def parse_filename(cls, filename):
-        return cls.parse_file(open(filename))
+    def from_filename(cls, filename):
+        return cls.from_file(open(filename))

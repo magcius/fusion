@@ -8,7 +8,7 @@ from mech.fusion.bitstream.bitstream import BitStream, BitStreamParseMixin
 from mech.fusion.bitstream.formats import UB, FormatArray
 
 from mech.fusion.bitstream.interfaces import IBitStream, IFormat, IFormatLength
-from mech.fusion.bitstream.interfaces import IStruct, IStructClass
+from mech.fusion.bitstream.interfaces import IStruct, IAutoStruct, IStructClass
 from mech.fusion.bitstream.interfaces import IStructEvaluateable, IStructStatement
 
 from zope.interface import implements, classProvides
@@ -214,7 +214,10 @@ class FieldTempArray(Field):
     var_name = None
     default = []
     def __init__(self, fields, format):
-        self.fields = fields.split()
+        if isinstance(fields, str):
+            self.fields = fields.split()
+        else:
+            self.fields = fields
         repeat = len(self.fields)
         super(FieldTempArray, self).__init__(None, FormatArray(format, repeat))
 
@@ -331,64 +334,6 @@ def Map(field, read, write):
     field.filter_write.append(write)
     return field
 
-## class If(object):
-##     method = None
-##     def __init__(self, test, *statements):
-##         self.test = test
-##         self.statements  = statements
-##         setattr(self, self.method, self._internal)
-    
-##     def _internal(self, struct, bitstream):
-##         method = self.method
-##         if self.test._evaluate(struct):
-##             for stat in self.statements:
-##                 getattr(stat, method)(struct, bitstream)
-
-## class IfRead(If):
-##     method = "_struct_read"
-
-## class IfWrite(If):
-##     method = "_struct_write"
-
-## class Group(object):
-##     def __init__(self, *statements):
-##         self.statements = statements
-##         for stat in xrange(statements):
-##             stat.context = self
-
-##     def _struct_write(self, struct, bitstream):
-##         stat_new = []
-##         for stat in self.statements:
-##             if hasattr(stat, "_pre_write"):
-##                 stat._pre_write(struct)
-##         for stat in self.statements:
-##             if hasattr(stat, "_evaluate"):
-##                 stat_new.append(stat._evaluate(struct))
-##             elif hasattr(stat, "_evaluate_write"):
-##                 stat_new.append(stat._evaluate_write(struct))
-##             else:
-##                 stat_new.append(stat)
-##         for stat in stat_new:
-##             stat._struct_write(struct, bitstream)
-##         del self._TEMP
-
-##     def _struct_read(self, struct, bitstream):
-##         self._TEMP = {}
-##         stat_new = []
-##         for stat in self.statements:
-##             if hasattr(stat, "_pre_read"):
-##                 stat._pre_read(struct)
-##         for stat in self.statements:
-##             if hasattr(stat, "_evaluate"):
-##                 stat_new.append(stat._evaluate(struct))
-##             elif hasattr(stat, "_evaluate_read"):
-##                 stat_new.append(stat._evaluate_read(struct))
-##             else:
-##                 stat_new.append(stat)
-##         for stat in stat_new:
-##             stat._struct_read(struct, bitstream)
-##         del self._TEMP
-
 class StructMixin(BitStreamParseMixin):
     @adapter(IFormat)
     def as_format(self):
@@ -411,14 +356,14 @@ class Struct(StructMixin):
     A struct of bit fields.
     """
     
-    implements(IStruct)
+    implements(IAutoStruct)
     classProvides(IFormat, IStructClass)
     
     def __init__(self, kwargs=None):
-        if "self" in kwargs:
-            del kwargs["self"]
         self.reading, self.writing = False, False
         self._FIELDS = kwargs or {}
+        if "self" in self._FIELDS:
+            del self._FIELDS["self"]
         self.__setattr__ = self._setattr
 
     def create_fields(self):
@@ -433,10 +378,6 @@ class Struct(StructMixin):
 
     def _setattr(self, name, value):
         self._FIELDS[name] = value
-
-    @classmethod
-    def _read(cls, bs, cursor):
-        return cls.from_bitstream(bs)
 
     def set(self, field, value):
         field._struct_set(self, IStructEvaluateable(value)._evaluate(self))
@@ -456,28 +397,28 @@ class Struct(StructMixin):
 
     def set_local(self, name, value):
         self._TEMP_FIELDS[name] = IStructEvaluateable(value)._evaluate(self)
-    
+
+    @classmethod
+    def _read(cls, bs, cursor):
+        return cls.from_bitstream(bs)
+
     @classmethod
     def _write(cls, bs, cursor, argument):
         if isinstance(argument, dict):
             argument = cls(**argument)
         assert isinstance(argument, cls)
         bs += argument.as_bitstream()
-
-    @adapter(IBitStream)
+    
     def as_bitstream(self):
         bitstream = BitStream()
         self._TEMP_FIELDS = {}
         statements = {}
         for statement in self.create_fields():
-            print statement
             statement = IStructStatement(statement)
             statement._pre_write(self)
             statements[statement] = statement
-        print self._TEMP_FIELDS
         self.writing = True
         for statement in self.create_fields():
-            print statement
             statement = statements.get(statement, statement)
             statement._struct_write(self, bitstream)
         del self._TEMP_FIELDS
@@ -499,6 +440,10 @@ class Struct(StructMixin):
             statement = statements.get(statement, statement)
             statement._struct_read(instance, bitstream)
         del instance._TEMP_FIELDS
-        print
         instance.reading = False
         return instance
+
+def istruct_as_iformat(struct):
+    return IFormat(IBitStream(struct))
+
+provideAdapter(istruct_as_iformat, [IStruct], IFormat)

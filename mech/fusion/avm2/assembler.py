@@ -1,9 +1,7 @@
 
 from collections import namedtuple
-from mech.fusion.avm2.util import (Avm2Backpatch,
-                                   Avm2Label,
-                                   serialize_s24 as s24,
-                                   ValuePool)
+
+from mech.fusion.avm2.util import Avm2Label, serialize_s24 as s24, ValuePool
 
 from mech.fusion.avm2.instructions import parse_instruction
 
@@ -29,10 +27,9 @@ class Avm2CodeAssembler(object):
 
         self._stack_depth_max = 0
         self._scope_depth_max = 0
-
-        self.code = ""
-        self.backpatches = []
-        self.labels = {}
+        
+        self.offsets = []
+        self.labels  = {}
 
         self.flags = 0
         self.constants = constants
@@ -44,18 +41,15 @@ class Avm2CodeAssembler(object):
         finish  = bitstream.cursor*8 + codelen
         while bitstream.cursor*8 < finish:
             asm.add_instruction(parse_instruction(bitstream, abc, constants, asm))
-        
+
     def add_instruction(self, instruction):
         instruction.set_assembler_props(self)
-        self.code += instruction.serialize()
         self.instructions.append(instruction)
-        
+
     def add_instructions(self, instructions):
         for i in instructions:
             self.add_instruction(i)
-    
-    add = add_instructions
-    
+
     @property
     def stack_depth(self):
         return self._stack_depth
@@ -94,22 +88,26 @@ class Avm2CodeAssembler(object):
     def local_count(self):
         return len(self.temporaries)
     
-    def add_backpatch(self, bkptch):
-        self.backpatches.append(bkptch)
+    ## def add_backpatch(self, bkptch):
+    ##     self.backpatches.append(bkptch)
 
-    def seal_backpatches(self):
-        for b in self.backpatches:
-            if b.lbl.address == None:
-                raise BackpatchNotSealed(b)
-            v = b.lbl.address - b.base
-            l = b.location
-            self.code = self.code[:l] + s24(v) + self.code[l+3:]
-            
-        self.backpatches = []
+    ## def seal_backpatches(self):
+    ##     for b in self.offsets:
+    ##         if b.lbl.address == None:
+    ##             raise BackpatchNotSealed(b)
+    ##         v = b.lbl.address - b.base
+    ##         l = b.location
+    ##         self.code = self.code[:l] + s24(v) + self.code[l+3:]
+        
+    ##     self.backpatches = []
 
     def serialize(self):
-        self.seal_backpatches()
-        return self.code
-
-    def __len__(self):
-        return len(self.code)
+        code = ""
+        for inst in self.instructions:
+            inst.set_assembler_props_late(self, len(code))
+            code += inst.serialize()
+            print len(code), inst
+        for inst in self.offsets:
+            print inst.address, inst
+            code = code[:inst.address+1] + inst.lbl.relative_offset(inst.address+4) + code[inst.address+4:]
+        return code

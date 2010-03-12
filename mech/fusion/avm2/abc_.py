@@ -1,7 +1,9 @@
 
 import struct
 
-from mech.fusion.util import BitStream, BitStreamParseMixin
+from mech.fusion.bitstream import BitStream, BitStreamParseMixin
+
+from mech.fusion.avm2 import instructions
 
 from mech.fusion.avm2.constants import (AbcConstantPool,
                                         METHODFLAG_HasOptional,
@@ -37,11 +39,12 @@ class AbcFile(BitStreamParseMixin):
             value.write_to_pool(self.constants)
 
     @classmethod
-    def parse_bitstream(cls, bitstream):
+    def from_bitstream(cls, bitstream):
 
         assert bitstream.read_int_value(16, endianness="<") <= MINOR_VERSION
         assert bitstream.read_int_value(16, endianness="<") <= MAJOR_VERSION
-        constants = AbcConstantPool.parse(bitstream)
+        constants = AbcConstantPool.from_bitstream(bitstream)
+        constants.debug_print()
         abc = cls(constants)
         
         def read_pool(pool, info, length=None):
@@ -81,7 +84,7 @@ class AbcFile(BitStreamParseMixin):
         return code
 
 class AbcMethodInfo(object):
-
+    done = False
     def __init__(self, name, param_types, return_type, flags=0, options=None, param_names=None):
         self.name = name
         self._name_index = None
@@ -159,6 +162,9 @@ class AbcMethodInfo(object):
         self._param_names_indices = [pool.utf8_pool.index_for(i) for i in self.param_names]
         
         self._options_indices = [py_to_abc(value) for value in self.options]
+
+    def __repr__(self):
+        return "AbcMethod(%r)" % (self.name,)
         
 
 class AbcMetadataInfo(object):
@@ -221,6 +227,9 @@ class AbcInstanceInfo(object):
 
         self.protectedNs = protectedNs
         self._protectedNs_index = None
+
+    def __repr__(self):
+        return "AbcInstance(%r, %r)" % (self.name, self.super_name)
 
     @classmethod
     def parse(cls, bitstream, abc, constants):
@@ -382,14 +391,16 @@ class AbcMethodBodyInfo(object):
         traits     = [AbcTrait    .parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
     
     def serialize(self):
+        self.code.add_instruction(instructions.returnvoid())
         code = ""
         code += s_u32(self._method_info_index)
         code += s_u32(self.code._stack_depth_max+1) # just to be safe.
         code += s_u32(len(self.code.temporaries))
         code += s_u32(0) # FIXME: For now, init_scope_depth is always 0.
         code += s_u32(self.code._scope_depth_max)
-        code += s_u32(len(self.code))
-        code += self.code.serialize()
+        body = self.code.serialize()
+        code += s_u32(len(body))
+        code += body
 
         code += s_u32(len(self.exceptions))
         for exc in self.exceptions:
@@ -409,6 +420,8 @@ class AbcMethodBodyInfo(object):
     def write_to_pool(self, pool):
         for trait in self.traits:
             trait.write_to_pool(pool)
+        for exc in self.exceptions:
+            exc.write_to_pool(pool)
 
 class AbcException(object):
     def __init__(self, from_, to_, target, exc_type, var_name):

@@ -1,5 +1,6 @@
 
 from zope.interface import Interface, Attribute
+from zope.component import provideAdapter
 
 class IBitStream(Interface):
     
@@ -89,26 +90,32 @@ class IStruct(Interface):
         Return this struct represented as an instance of an IBitStream.
         """
 
+def istruct_as_ibitstream(struct):
+    return struct.as_bitstream()
+
+provideAdapter(istruct_as_ibitstream, [IStruct], IBitStream)
+
+class IStructClass(Interface):
+    def from_bitstream(bitstream):
+        """
+        Read and return an instance of this struct from an IBitStream.
+        """
+
+class IAutoStruct(IStruct):
     def create_fields():
         """
         This should be a generator that yields IStructStatements that make
         up this struct.
         """
 
-    def set_local(self, name, value):
+    def set_local(name, value):
         """
         Set the local (temporary) variable name to value.
         """
 
-    def get_local(self, name):
+    def get_local(name):
         """
         Get the local (temporary) variable name.
-        """
-
-class IStructClass(Interface):
-    def from_bitstream(bitstream):
-        """
-        Read and return an instance of this struct from an IBitStream.
         """
 
 class IStructEvaluateable(Interface):

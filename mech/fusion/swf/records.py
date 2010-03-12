@@ -1,6 +1,14 @@
 
-from mech.fusion.util import BitStream, nbits, nbits_signed, clamp
+from mech.fusion.bitstream.bitstream import BitStream
+from mech.fusion.bitstream.interfaces import IStruct
+from mech.fusion.bitstream.formats import UB, SB
+from mech.fusion.bitstream.flash_formats import SI32, UI16, UI32
+from mech.fusion.bitstream.structs import Struct, NBits, Field, Local, Fields
+from mech.fusion.util import nbits, nbits_signed, clamp
+
 from math import sqrt
+
+from zope.interface import implements
 
 def serialize_style_list(lst):
     bits = BitStream()
@@ -32,6 +40,9 @@ class RecordHeader(object):
     """
     RECORDHEADER struct, the header that signifies SWF tags.
     """
+
+    implements(IStruct)
+    
     def __init__(self, type, length):
         self.type = type
         self.length = length
@@ -48,27 +59,20 @@ class RecordHeader(object):
         ====== =========
         """
         bits = BitStream()
-        header = BitStream()
-        header.write_int_value(self.type, 10)
-        if self.length < 0x3F:
-            header.write_int_value(self.length, 6)
-        else:
-            header.write_int_value(0x3F, 6)
-        bits.write_bits(header, endianness="<")
+        bits.write((self.type << 6) | min(self.length, 0x3F), UI16)
         if self.length >= 0x3F:
-            bits.write_int_value(self.length, 32, endianness="<")
+            bits.write(self.length, SI32)
         return bits
 
     @classmethod
-    def parse(cls, bitstream):
-        bits = bitstream.read_bits(16, endianness="<")
-        type = bits.read_int_value(10)
-        length = bits.read_int_value(6)
-        if length >= 0x3F:
-            length = bitstream.read_int_value(32, endianness="<")
+    def from_bitstream(cls, bitstream):
+        bits = bitstream.read(UI16)
+        type, length = (bits >> 6), (bits & 0x3F)
+        if length == 0x3F:
+            length = bitstream.read(UI32)
         return cls(type, length)
 
-class _EndShapeRecord(object):
+class _EndShapeRecord(Struct):
     """
     Don't worry about me ;)
     """
@@ -87,135 +91,154 @@ class _EndShapeRecord(object):
         return bitstream
 
     @classmethod
-    def parse(cls, bits):
+    def from_bitstream(cls, bits):
         bits.cursor += 6
 
 EndShapeRecord = _EndShapeRecord()
 
-
-class Rect(object):
+class Rect(Struct):
     """
     Rect usually stores bounds or size in the SWF format.
     """
-    def __init__(self, XMin=0, XMax=0, YMin=0, YMax=0):
-        """
-        Constructor.
-
-        :param XMin: the minimum X of the bounds.
-        :param XMax: the maximum X of the bounds. should be equal to XMin + width
-        :param YMin: the minimum Y of the bounds.
-        :param YMax: the maximum Y of the bounds. should be equal to YMin + height
-        """
-        self.XMin = XMin
-        self.XMax = XMax
-        self.YMin = YMin
-        self.YMax = YMax
-        
-    def union(self, rect, *rects):
-        r = Rect(min(self.XMin, rect.XMin),
-                 max(self.XMax, rect.XMax),
-                 min(self.YMin, rect.YMin),
-                 max(self.YMax, rect.YMax))
-        if len(rects) > 0:
-            return r.union(*rects)
-        return r
+    def __init__(self, XMin=0, YMin=0, XMax=0, YMax=0):
+        super(Rect, self).__init__(locals())
     
-    def as_bitstream(self):
-        """
-        Serializes this record, according to the following format.
+    def create_fields(self):
+        yield NBits[5]
+        yield Fields("XMin XMax YMin YMax", SB[NBits]) * 20
 
-        ======== =========
-        Format   Parameter
-        ======== =========
-        U[5]     NBits
-        S[NBits] XMin
-        S[NBits] XMax
-        S[NBits] YMin
-        S[NBits] YMax
-        ======== =========
-        """
-        if self.XMin > self.XMax or self.YMin > self.YMax:
-            raise ValueError, "Maximum values in a RECT must be larger than the minimum values."
+## class Rect(Struct):
+##     """
+##     Rect usually stores bounds or size in the SWF format.
+##     """
+##     def __init__(self, XMin=0, XMax=0, YMin=0, YMax=0):
+##         """
+##         Constructor.
 
-        # Find our values in twips.
-        twpXMin = self.XMin * 20
-        twpXMax = self.XMax * 20
-        twpYMin = self.YMin * 20
-        twpYMax = self.YMax * 20
+##         :param XMin: the minimum X of the bounds.
+##         :param XMax: the maximum X of the bounds. should be equal to XMin + width
+##         :param YMin: the minimum Y of the bounds.
+##         :param YMax: the maximum Y of the bounds. should be equal to YMin + height
+##         """
+##         self.XMin = XMin
+##         self.XMax = XMax
+##         self.YMin = YMin
+##         self.YMax = YMax
         
-        # Find the number of bits required to store the longest value.
-        NBits = nbits_signed(twpXMin, twpXMax, twpYMin, twpYMax)
+##     def union(self, rect, *rects):
+##         r = Rect(min(self.XMin, rect.XMin),
+##                  max(self.XMax, rect.XMax),
+##                  min(self.YMin, rect.YMin),
+##                  max(self.YMax, rect.YMax))
+##         if len(rects) > 0:
+##             return r.union(*rects)
+##         return r
+    
+##     def as_bitstream(self):
+##         """
+##         Serializes this record, according to the following format.
 
-        if NBits > 31:
-            raise ValueError, "Number of bits per value field cannot exceede 31."
+##         ======== =========
+##         Format   Parameter
+##         ======== =========
+##         U[5]     NBits
+##         S[NBits] XMin
+##         S[NBits] XMax
+##         S[NBits] YMin
+##         S[NBits] YMax
+##         ======== =========
+##         """
+##         if self.XMin > self.XMax or self.YMin > self.YMax:
+##             raise ValueError, "Maximum values in a RECT must be larger than the minimum values."
 
-        # And write out our bits.
-        bits = BitStream()
-        bits.write_int_value(NBits, 5)
-        bits.write_int_value(twpXMin, NBits)
-        bits.write_int_value(twpXMax, NBits)
-        bits.write_int_value(twpYMin, NBits)
-        bits.write_int_value(twpYMax, NBits)
+##         # Find our values in twips.
+##         twpXMin = self.XMin * 20
+##         twpXMax = self.XMax * 20
+##         twpYMin = self.YMin * 20
+##         twpYMax = self.YMax * 20
+        
+##         # Find the number of bits required to store the longest value.
+##         NBits = nbits_signed(twpXMin, twpXMax, twpYMin, twpYMax)
 
-        return bits
+##         if NBits > 31:
+##             raise ValueError, "Number of bits per value field cannot exceede 31."
 
-    @classmethod
-    def parse(cls, bitstream):
-        NBits = bitstream.read_int_value(5)
-        XMin = bitstream.read_int_value(NBits) / 20
-        XMax = bitstream.read_int_value(NBits) / 20
-        YMin = bitstream.read_int_value(NBits) / 20
-        YMax = bitstream.read_int_value(NBits) / 20
-        return cls(XMin, XMax, YMin, YMax)
+##         # And write out our bits.
+##         bits = BitStream()
+##         bits.write_int_value(NBits, 5)
+##         bits.write_int_value(twpXMin, NBits)
+##         bits.write_int_value(twpXMax, NBits)
+##         bits.write_int_value(twpYMin, NBits)
+##         bits.write_int_value(twpYMax, NBits)
 
-class XY(object):
-    """
-    XY usually stores a position in the SWF format.
-    """
+##         return bits
+
+##     @classmethod
+##     def parse(cls, bitstream):
+##         NBits = bitstream.read_int_value(5)
+##         XMin = bitstream.read_int_value(NBits) / 20
+##         XMax = bitstream.read_int_value(NBits) / 20
+##         YMin = bitstream.read_int_value(NBits) / 20
+##         YMax = bitstream.read_int_value(NBits) / 20
+##         return cls(XMin, XMax, YMin, YMax)
+
+class XY(Struct):
     def __init__(self, X, Y):
-        """
-        Constructor.
+        super(XY, self).__init__(locals())
 
-        :param X: the x translation
-        :param Y: the y translation
-        """
-        self.X = X
-        self.Y = Y
+    def create_fields(self):
+        yield NBits[5]
+        yield Fields("X Y", SB[NBits])
 
-    def as_bitstream(self):
-        """
-        Serializes this record, according to the following format.
+## class XY(object):
+##     """
+##     XY usually stores a position in the SWF format.
+##     """
+##     def __init__(self, X, Y):
+##         """
+##         Constructor.
 
-        ======== =========
-        Format   Parameter
-        ======== =========
-        U[5]     NBits
-        S[NBits] X
-        S[NBits] Y
-        ======== =========
-        """
-        # Convert to twips plz.
-        twpX = self.X * 20
-        twpY = self.Y * 20
+##         :param X: the x translation
+##         :param Y: the y translation
+##         """
+##         self.X = X
+##         self.Y = Y
 
-        # Find the number of bits required to store the longest value.
-        NBits = nbits_signed(twpX, twpY)
+##     def as_bitstream(self):
+##         """
+##         Serializes this record, according to the following format.
 
-        bits = BitStream()
-        bits.write_int_value(NBits, 5)
-        bits.write_int_value(twpX, NBits)
-        bits.write_int_value(twpY, NBits)
+##         ======== =========
+##         Format   Parameter
+##         ======== =========
+##         U[5]     NBits
+##         S[NBits] X
+##         S[NBits] Y
+##         ======== =========
+##         """
+##         # Convert to twips plz.
+##         twpX = self.X * 20
+##         twpY = self.Y * 20
 
-        return bits
+##         # Find the number of bits required to store the longest value.
+##         NBits = nbits_signed(twpX, twpY)
 
-    @classmethod
-    def parse(cls, bitstream):
-        NBits = bitstream.read_int_value(5)
-        X = bitstream.read_int_value(NBits) / 20
-        Y = bitstream.read_int_value(NBits) / 20
-        return cls(X, Y)
+##         bits = BitStream()
+##         bits.write_int_value(NBits, 5)
+##         bits.write_int_value(twpX, NBits)
+##         bits.write_int_value(twpY, NBits)
+
+##         return bits
+
+##     @classmethod
+##     def parse(cls, bitstream):
+##         NBits = bitstream.read_int_value(5)
+##         X = bitstream.read_int_value(NBits) / 20
+##         Y = bitstream.read_int_value(NBits) / 20
+##         return cls(X, Y)
 
 class RGB(object):
+    implements(IStruct)
     """
     RGB stores a color in the SWF format.
     """
@@ -244,7 +267,7 @@ class RGB(object):
         return bits
 
     @classmethod
-    def parse(cls, bitstream):
+    def from_bitstream(cls, bitstream):
         return cls(bitstream.read_int_value(24))
 
 class RGBA(RGB):
@@ -284,9 +307,9 @@ class RGBA(RGB):
         return bits
 
     @classmethod
-    def parse(cls, bitstream):
+    def from_bitstream(cls, bitstream):
         from mech.fusion.swf.tags import DefineShape
-        rgb = RGB.parse(bitstream)
+        rgb = RGB.from_bitstream(bitstream)
         color = rgb.color
         alpha = 1.0
         if DefineShape._current_variant not in (1, 2):
@@ -297,6 +320,7 @@ class CXForm(object):
     """
     CXForm = ColorTransform
     """
+    implements(IStruct)
     has_alpha = False
     def __init__(self, rmul=1, gmul=1, bmul=1, radd=0, gadd=0, badd=0):
         """
@@ -378,7 +402,7 @@ class CXForm(object):
         return bits
 
     @classmethod
-    def parse(cls, bits):
+    def from_bitstream(cls, bits):
         has_add_terms = bits.read_bit()
         has_mul_terms = bits.read_bit()
         NBits = bits.read_int_value(4)
@@ -401,6 +425,7 @@ class CXForm(object):
         
 class CXFormWithAlpha(CXForm):
     has_alpha = True
+    implements(IStruct)
     def __init__(self, rmul=1, gmul=1, bmul=1, amul=1, radd=0, gadd=0, badd=0, aadd=0):
         super(CXFormWithAlpha, self).__init__(rmul, gmul, bmul, radd, gadd, badd)
         self.amul = amul
@@ -476,7 +501,7 @@ class Matrix(object):
         return bits
 
     @classmethod
-    def parse(cls, bits):
+    def from_bitstream(cls, bits):
         def read_prefixed_values():
             NBits = bits.read_int_value(5)
             return bits.read_int_value(NBits), bits.read_int_value(NBits)
@@ -566,7 +591,7 @@ class Shape(object):
 class ShapeWithStyle(Shape):
 
     def __init__(self, fills=None, strokes=None):
-        super(self, ShapeWithStyle).__init__(self)
+        super(ShapeWithStyle, self).__init__()
         self.fills = fills or []
         self.strokes = strokes or []
 
@@ -612,9 +637,9 @@ class LineStyle(object):
         bits += self.color
         return bits
 
-    def parse(self, bits):
+    def from_bitstream(self, bits):
         self.width = bits.read_int_value(16, endianness="<")
-        self.color.parse(bits)
+        self.color = RGBA.from_bitstream(bits)
 
 class LineStyle2(LineStyle):
 
@@ -676,7 +701,7 @@ class LineStyle2(LineStyle):
 
         return bits
 
-    ## def parse(self, bits):
+    ## def from_bitstream(self, bits):
     ##     self.width = bits.read_int_value(16, endianness="<")
 
     def cap_style_logic(self, style, last, delta):
@@ -774,9 +799,9 @@ class GradRecord(object):
         return bits
 
     @classmethod
-    def parse(cls, bits):
+    def from_bitstream(cls, bits):
         ratio = bits.read_int_value(8)
-        color = RGBA.parse(bits)
+        color = RGBA.from_bitstream(bits)
         color, alpha = color.color, color.alpha
         return cls(ratio, color, alpha)
 
@@ -808,7 +833,7 @@ class Gradient(object):
         return bits
 
     @classmethod
-    def parse(cls, bits):
+    def from_bitstream(cls, bits):
         spread = ["pad", "reflect", "repeat"][bits.read_int_value(2)]
         interpolation = ["rgb", "linear"][bits.read_int_value(2)]
         
@@ -816,8 +841,7 @@ class Gradient(object):
         
         lst_len = bits.read_int_value(4)
         for i in xrange(lst_len):
-            grad = GradRecord()
-            grad.parse(bits)
+            grad = GradRecord.from_bitstream(bits)
             grads.append(grad)
 
         if cls.has_focal:
@@ -1064,7 +1088,7 @@ class StyleChangeRecord(object):
 
         return bits
 
-    ## def parse(self, bits):
+    ## def from_bitstream(self, bits):
     ##     StateNewStyles  = bits.read_bit()
     ##     StateLineStyle  = bits.read_bit()
     ##     StateFillStyle1 = bits.read_bit()
@@ -1073,7 +1097,7 @@ class StyleChangeRecord(object):
 
     ##     if StateMoveTo:
     ##         xy = XY()
-    ##         xy.parse(bits)
+    ##         xy.from_bitstream(bits)
     ##         self.delta_x, self.delta_y = xy.X, xy.Y
 
     ##     if StateFillStyle0:
