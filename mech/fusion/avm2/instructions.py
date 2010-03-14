@@ -7,15 +7,46 @@ from mech.fusion.avm2.constants import METHODFLAG_Activation, \
 INSTRUCTIONS = {}
 
 def parse_instruction(bitstream, abc, constants, asm):
+    label_name = make_offset_label_name(bitstream.cursor//8)
     cls = INSTRUCTIONS[bitstream.read(UI8)]
-    return cls.parse_inner(bitstream, abc, constants, asm)
+    inst = cls.parse_inner(bitstream, abc, constants, asm)
+    if label_name in asm.labels:
+        asm.labels[label_name].instruction = inst
+    return inst
+
+def make_offset_label_name(offset):
+    return "_loc_%d" % (offset,)
+
+def make_offset_label(offset, asm):
+    name = make_offset_label_name(offset)
+    if name in asm.labels:
+        return asm.labels[name]
+    else:
+        lbl = Avm2Label(asm, offset)
+        lbl.name = name
+        asm.labels[name] = lbl
+        return lbl
+
+def fake_offset(lbl, offset):
+    lbl.lbl = lbl
+    lbl.address = offset
+
+def get_label(name, asm):
+    if name in asm.labels:
+        lbl = asm.labels[name]
+        lbl.backref = True
+    else:
+        lbl = asm.labels[name] = Avm2Label(asm)
+        lbl.name = name
+    return lbl
 
 class _Avm2ShortInstruction(object):
     flags = 0
     stack = 0
     scope = 0
     opcode = None
-    name = None
+    name  = None
+    label = None
     
     def __repr__(self):
         if self.opcode is None:
@@ -39,6 +70,35 @@ class _Avm2ShortInstruction(object):
     
     def serialize(self):
         return chr(self.opcode)
+
+class _Avm2BogusInstruction(_Avm2ShortInstruction):
+    opcode = -1
+    def serialize(self):
+        return ""
+
+class _Avm2TryInstruction(_Avm2BogusInstruction):
+    def set_assembler_props_late(self, asm, address):
+        setattr(self.context, self.attrname, address)
+
+    def __init__(self, context):
+        self.context = context
+
+class begintry(_Avm2TryInstruction): attrname = "try_begin"
+class endtry  (_Avm2TryInstruction): attrname = "try_end"
+
+class addexcinfo(_Avm2BogusInstruction):
+    scope = 1
+    def set_assembler_props_late(self, asm, address):
+        self.exc.from_  = self.context.try_begin
+        self.exc.to_    = self.context.try_end
+        self.exc.target = address
+
+    def __init__(self, context, exc):
+        self.context = context
+        self.exc = exc
+
+class _Avm2BeginCatchInstruction(_Avm2BogusInstruction):
+    scope = 1
 
 class _Avm2DebugInstruction(_Avm2ShortInstruction):    
     def serialize(self):
@@ -119,16 +179,11 @@ class _Avm2MultinameInstruction(_Avm2U30Instruction):
 
 class _Avm2OffsetInstruction(_Avm2ShortInstruction):
     def __repr_inner__(self):
-        return" lbl=%r" % self.lbl
+        return" lbl=%r" % self.lblname
     
     def set_assembler_props(self, asm):
         super(_Avm2OffsetInstruction, self).set_assembler_props(asm)
-        if self.lblname in asm.labels:
-            asm.labels[self.lblname].backref = True
-        else:
-            lbl = asm.labels[self.lblname] = Avm2Label(asm)
-        self.asm = asm
-        self.lbl = asm.labels[self.lblname]
+        self.lbl = get_label(self.lblname, asm)
 
     def set_assembler_props_late(self, asm, address):
         asm.offsets.append(self)
@@ -136,11 +191,10 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
     
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
-        relative_offset = bitstream.read(UI24)
-        offset = len(asm)+4+relative_offset
-        inst = cls("_lbl_%d" % (offset,))
-        if relative_offset not in asm.labels: # Forward reference.
-            asm.labels[offset] = self
+        offset =  bitstream.read(UI24)
+        offset += bitstream.cursor/8
+        lbl = make_offset_label(offset, asm)
+        inst = cls(lbl.name)
     
     def serialize(self):
         return chr(self.opcode) + "\0\0\0"
@@ -151,25 +205,42 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
 class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
     def set_assembler_props(self, asm):
         super(_Avm2LookupSwitchInstruction, self).set_assembler_props(asm)
-        self.asm = asm
-        if self.default_label is None:
-            self.default_label = Avm2Label(asm)
-        if isinstance(self.case_labels, int):
-            self.case_labels = [Avm2Label(asm) for i in xrange(self.case_labels)]
-    
-    def serialize(self):
-        code = chr(self.opcode)
-        base = len(self.asm)
-        code += self.default_label.write_relative_offset(base, base+1)
-        code += u32(len(self.case_labels) - 1)
-        
+        self.default_label =  get_label(self.default_label_name, asm)
+        self.case_labels   = [get_label(name, asm) for name in self.case_label_names]
+
+    def set_assembler_props_late(self, asm, address):
+        address += 1 # opcode
+        fake_offset(self.default_label, address)
+        asm.offsets.append(self.default_label)
+        address += len(u32(len(self.case_labels) - 1))
         for lbl in self.case_labels:
-            location = base + len(code)
-            code += lbl.write_relative_offset(base, location)
-        return code
+            fake_offset(lbl, address)
+            address += 3 # s24
+        asm.offsets += self.case_labels
+
+    def serialize(self):
+        return chr(self.opcode) + "\0\0\0" + u32(len(self.case_labels) - 1) + "\0\0\0"*len(self.case_labels)
+
+    @classmethod
+    def parse_inner(cls, bitstream, abc, constants, asm):
+        # default label
+        offset  = bitstream.read(UI24)
+        offset += bitstream.cursor/8
+        lbl = make_offset_label(offset, asm)
+
+        # case label count
+        cases, count = [], bitstream.read(U32) + 1
         
-    def __init__(self, default_label=None, case_labels=None):
-        self.default_label = default_label, self.case_labels = case_labels
+        for i in xrange(count):
+            offset  = bitstream.read(UI24)
+            offset += bitstream.cursor/8
+            lbl = make_offset_label(offset, asm)
+            cases.append(lbl.name)
+
+        return cls(lbl.name, cases)
+
+    def __init__(self, default_label_name=None, case_label_names=None):
+        self.default_label_name = default_label_name, self.case_label_names = case_label_names
 
 class _Avm2LabelInstruction(_Avm2ShortInstruction):
     def set_assembler_props(self, asm):
@@ -185,6 +256,15 @@ class _Avm2LabelInstruction(_Avm2ShortInstruction):
 
     def set_assembler_props_late(self, asm, address):
         self.lbl.address = address
+
+    @property
+    def next(self):
+        return self._next
+
+    @next.setter
+    def next(self, value):
+        self._next = value
+        value.label = self.lbl
     
     def serialize(self):
         if self.lbl.backref:

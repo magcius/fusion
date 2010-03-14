@@ -198,13 +198,11 @@ class MethodContext(object):
         self.acv_traits.append(trait)
         return len(self.acv_traits)
 
-    def add_exception(self, param_type, param_name):
-        self.exceptions.append(abc.AbcException(self.code_start,
-                self.code_end, len(self.asm), param_type, param_name))
+    def add_exception(self, param_type):
+        exc = abc.AbcException(-1, -1, -1, param_type, "")
+        self.asm.add_instruction(instructions.addexcinfo(self, exc))
+        self.exceptions.append(exc)
         return len(self.exceptions)-1
-
-    def start_catch(self):
-        self.asm.scope_depth += 1
     
     def add_instructions(self, *i):
         self.asm.add_instructions(*i)
@@ -238,7 +236,7 @@ class CatchContext(object):
 
     def __getattr__(self, name):
         return getattr(self.parent, name)
-    
+
     def restore_scopes(self):
         self.parent.restore_scores()
         self.gen.GL(self.local)
@@ -257,18 +255,33 @@ class Avm2ilasm(object):
             self.script0 = self.context.new_script()
 
     def _get_type(self, TYPE):
+        """
+        An internal function designed to get a QName for
+        a special construct of a "TYPE"
+        """
         return TYPE
 
     def get_class_context(self, name, DICT):
+        """
+        An internal function designed to get a certain
+        class context for a name and a fallback dict.
+
+        This is going used with some pending playerglobal
+        parsing code that will automatically resolve base
+        classes and push them onto the scope stack.
+        """
         return DICT.get(name, [None])[0]
     
     def I(self, *i):
+        """
+        Add the instructions to the current method.
+        """
         self.context.add_instructions(i)
 
-    def M(self, multiname):
-        return self.constants.multiname_pool.index_for(multiname)
-
     def SL(self, name):
+        """
+        Get the local by the name.
+        """
         index = self.context.set_local(name)
         self.I(instructions.setlocal(index))
         return index
@@ -311,6 +324,14 @@ class Avm2ilasm(object):
         ctx = self.context
         self.context = ctx.exit()
         return ctx
+
+    def exit_until_type(self, type):
+        while self.context.CONTEXT_TYPE != type or isinstance(self.context, type):
+            self.exit_context()
+
+    def exit_until(self, context):
+        while self.context is not context:
+            self.exit_context()
 
     def current_class(self):
         context = self.context
@@ -479,19 +500,16 @@ class Avm2ilasm(object):
         self.get_field("constructor")
 
     def begin_try(self):
-        assert self.context.CONTEXT_TYPE == "method"
-        self.context.code_start = len(self.context.asm)
+        self.I(instructions.begintry(self.context))
 
     def end_try(self):
-        assert self.context.CONTEXT_TYPE == "method"
-        self.context.code_end = len(self.context.asm)
+        self.I(instructions.endtry(self.context))
 
     def begin_catch(self, TYPE):
         assert self.context.CONTEXT_TYPE == "method"
         name = TYPE.multiname()
         ctx = CatchContext(self, self.context)
-        idx = self.context.add_exception(name, "")
-        self.context.start_catch()
+        idx = self.context.add_exception(name)
         self.context.restore_scopes()
         self.enter_context(ctx)
         self.emit('newcatch', idx)

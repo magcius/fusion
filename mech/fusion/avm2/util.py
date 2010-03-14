@@ -112,11 +112,14 @@ class ValuePool(object):
     def value_at(self, index):
         if self.has_default and index == 0:
             return self.default
+
+        if self.has_default:
+            index -= 1
         
-        if index <= len(self.pool):
-            return self.pool[index-1]
-        
-        return None
+        value = self.pool[index]
+
+        if value is empty:
+            raise ValueError
 
     def next_free(self):
         if empty in self.pool:
