@@ -2,8 +2,8 @@
 from zope.interface import implements, classProvides
 
 from mech.fusion.bitstream.interfaces import IStruct, IStructClass
-from mech.fusion.bitstream.formats import CString, Bit
-from mech.fusion.bitstream.flash_formats import SI16, UI16
+from mech.fusion.bitstream.formats import CString, Bit, Zero
+from mech.fusion.bitstream.flash_formats import SI16, UI16, UI32
 from mech.fusion.swf.records import (RecordHeader, ShapeWithStyle,
                                      Matrix, CXForm, RGB, Rect)
 from mech.fusion.avm1.actions import Block
@@ -114,7 +114,7 @@ class UnknownSwfTag(object):
         self.name = self.TAG_REFERENCE[tag]
 
     def __repr__(self):
-        return "<%s (%#X)>" % (self.name, self.tag)
+        return "<%s (%#X) (Unknown Tag)>" % (self.name, self.tag)
     
     def parse_inner(self, bitstream):
         self.data = bitstream.read_string()
@@ -153,7 +153,13 @@ class SwfTag(object):
         return ""
 
     def __repr__(self):
-        return "<%s (%#X)>" % (type(self).__name__, self.TAG_TYPE)
+        repr_inner = self.__repr_inner__()
+        if repr_inner:
+            repr_inner = " (%s)" % (repr_inner)
+        return "<%s (%#X)%s>" % (type(self).__name__, self.TAG_TYPE, repr_inner)
+
+    def __repr_inner__(self):
+        return ""
     
     def as_bitstream(self):
         """
@@ -164,11 +170,15 @@ class SwfTag(object):
 
     @classmethod
     def from_bitstream(cls, bitstream):
+        offset = bitstream.cursor//8
         recordheader = RecordHeader.from_bitstream(bitstream)
         cls = REVERSE_INDEX[recordheader.type]
         if not hasattr(cls, "parse_inner"):
             cls = UnknownSwfTag(recordheader.type)
-        return cls.parse_inner(bitstream.read_bits(recordheader.length*8))
+        inst = cls.parse_inner(bitstream.read_bits(recordheader.length*8))
+        inst.length = recordheader.length
+        inst.offset = offset
+        return inst
 
 class SetBackgroundColor(SwfTag):
     TAG_TYPE = 9
@@ -194,6 +204,9 @@ class SetBackgroundColor(SwfTag):
         =======  =========
         """
         return self.color.as_bitstream().serialize()
+
+    def __repr_inner__(self):
+        return "color=%s" % (self.color,)
 
     @classmethod
     def parse_inner(cls, bits):
@@ -243,10 +256,15 @@ class DoABC(SwfTag, AbcFile):
 
     @classmethod
     def parse_inner(cls, bitstream):
-        flags = bitstream.read_int_value(32, endianness="<")
-        name  = bitstream.read_cstring()
-        AbcFile.from_bitstream(bitstream)
-        return cls(flags, name)
+        flags = bitstream.read(UI32)
+        name  = bitstream.read(CString)
+        abc   = AbcFile.from_bitstream(bitstream)
+        # XXX
+        instance = cls(name, flags)
+        for name in dir(abc):
+            if not name.startswith("__"):
+                setattr(instance, name, getattr(abc, name))
+        return instance
     
     def serialize_data(self):
         """
@@ -261,14 +279,19 @@ class DoABC(SwfTag, AbcFile):
         =======  =========
         """
         bits = BitStream()
-        bits.write_int_value(self.flags, 32, endianness="<")
-        bits.write_cstring(self.name)
+        bits.write(self.flags, UI32)
+        bits.write(self.name, CString)
         return bits.serialize() + AbcFile.serialize(self)
+
+    def __repr_inner__(self):
+        return "name=%s, flags=%s" % (self.name, bin(self.flags)[2:])
 
 class DoABCDefine(SwfTag, AbcFile):
     TAG_TYPE = 72
     TAG_MIN_VERSION = 9
 
+    name = "DoABCDefine"
+    
     def __init__(self):
         """
         Constructor.
@@ -416,14 +439,17 @@ class FileAttributes(SwfTag):
         self.useAS3      = useAS3
         self.useNetwork  = useNetwork
 
+    def __repr_inner__(self):
+        return "hasMetadata=%s, useAS3=%s, useNetwork=%s" % (self.hasMetadata, self.useAS3, self.useNetwork)
+    
     def serialize_data(self):
         bits = BitStream()
-        bits.zero_fill(3)
-        bits.write_bit(self.hasMetadata)
-        bits.write_bit(self.useAS3)
-        bits.zero_fill(2)
-        bits.write_bit(self.useNetwork)
-        bits.zero_fill(24)
+        bits.write(Zero[3])
+        bits.write(self.hasMetadata)
+        bits.write(self.useAS3)
+        bits.write(Zero[2])
+        bits.write(self.useNetwork)
+        bits.write(Zero[24])
         
         return bits.serialize()
 
@@ -431,10 +457,10 @@ class FileAttributes(SwfTag):
     def parse_inner(cls, bits):
         fa = cls()
         bits.cursor += 3
-        fa.hasMetadata = bits.read_bit()
-        fa.useAS3      = bits.read_bit()
+        fa.hasMetadata = bits.read(Bit)
+        fa.useAS3      = bits.read(Bit)
         bits.cursor += 2
-        fa.useNetwork  = bits.read_bit()
+        fa.useNetwork  = bits.read(Bit)
         bits.cursor += 24
         return fa
     

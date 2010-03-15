@@ -15,7 +15,7 @@ def parse_instruction(bitstream, abc, constants, asm):
     return inst
 
 def make_offset_label_name(offset):
-    return "_loc_%d" % (offset,)
+    return "lbl%d" % (offset,)
 
 def make_offset_label(offset, asm):
     name = make_offset_label_name(offset)
@@ -52,7 +52,7 @@ class _Avm2ShortInstruction(object):
     def __repr__(self):
         if self.opcode is None:
             return self.name
-        return "%s (%#X%s)" % (self.name, self.opcode, self.__repr_inner__())
+        return "%s (0x%02X%s)" % (self.name, self.opcode, self.__repr_inner__())
 
     def __repr_inner__(self):
         return ""
@@ -140,7 +140,7 @@ class _Avm2U8Instruction(_Avm2ShortInstruction):
 class _Avm2U30Instruction(_Avm2ShortInstruction):
     arg_count = 1
     def __repr_inner__(self):
-        return " arg=" + ' '.join("%#X" % (a,) for a in self.arguments)
+        return " arg=" + ' '.join("0x%02X" % (a,) for a in self.arguments)
     
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -173,7 +173,7 @@ class _Avm2MultinameInstruction(_Avm2U30Instruction):
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
-        return cls(abc.multinames.value_at(bitstream.read(U32)))
+        return cls(constants.multiname_pool.value_at(bitstream.read(U32)))
     
     def __init__(self, multiname):
         self.multiname = multiname.multiname()
@@ -200,7 +200,7 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
         offset =  bitstream.read(UI24)
         offset += bitstream.cursor/8
         lbl = make_offset_label(offset, asm)
-        inst = cls(lbl.name)
+        return cls(lbl.name)
     
     def serialize(self):
         if self.void:
@@ -241,7 +241,7 @@ class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
         
         for i in xrange(count):
             offset  = bitstream.read(UI24)
-            offset += bitstream.cursor/8
+            offset += bitstream.cursor//8
             lbl = make_offset_label(offset, asm)
             cases.append(lbl.name)
 
@@ -255,29 +255,31 @@ class _Avm2LabelInstruction(_Avm2ShortInstruction):
         super(_Avm2LabelInstruction, self).set_assembler_props(asm)
         if self.lblname in asm.labels:
             lbl = asm.labels[self.lblname]
-            assert lbl.address == -1
             asm.stack_depth = lbl.stack_depth
             asm.scope_depth = lbl.scope_depth
         else:
             lbl = asm.labels[self.lblname] = Avm2Label(asm)
+            lbl.name = self.lblname
         self.lbl = lbl
 
     def set_assembler_props_late(self, asm, address):
         self.lbl.address = address
+        if self.lbl.backref:
+            self.label = self.lbl
+        else:
+            self.next.label = self.lbl
 
-    @property
-    def next(self):
-        return self._next
-
-    @next.setter
-    def next(self, value):
-        self._next = value
-        value.label = self.lbl
-    
     def serialize(self):
         if self.lbl.backref:
             return label_internal.serialize()
         return ""
+
+    @classmethod
+    def parse_inner(cls, bitstream, abc, constants, asm):
+        lbl = make_offset_label(bitstream.cursor//8, asm)
+        inst = cls(lbl.name)
+        inst.label = lbl
+        return inst
     
     def __init__(self, name):
         self.lblname = name
@@ -302,6 +304,10 @@ class _Avm2CallIDX(_Avm2U30Instruction):
         
     def __init__(self, multiname, num_args):
         self.multiname, self.num_args = multiname.multiname(), num_args
+
+    @classmethod
+    def parse_inner(cls, bitstream, abc, constants, asm):
+        return cls(constants.multiname_pool.value_at(bitstream.read(U32)), bitstream.read(U32))
 
 class _Avm2CallMN(_Avm2CallIDX):
     is_void = False
@@ -338,7 +344,8 @@ def _make_avm2(class_, opcode, name, stack=0, scope=0, flags=0, no_rt=False, num
         no_rt = nr
         arg_count = na
     inner.__name__ = name
-    INSTRUCTIONS[name] = inner
+    INSTRUCTIONS[name]   = inner
+    INSTRUCTIONS[opcode] = inner
     return inner
 
 m = _make_avm2
@@ -501,8 +508,8 @@ jump = m(_Avm2OffsetInstruction, 0x10, 'jump')
 
 # Special Instructions
 debug = m(_Avm2DebugInstruction, 0xEF, 'debug')
-label_internal = m(_Avm2ShortInstruction, 0x09, 'label_interal')()
-label = m(_Avm2LabelInstruction, None, 'label')
+label_internal = m(_Avm2ShortInstruction, 0x09, 'label')()
+label = m(_Avm2LabelInstruction, 0x09, 'label')
 lookupswitch = m(_Avm2LookupSwitchInstruction, 0x1B, 'lookupswitch')
 coerce = m(_Avm2MultinameInstruction, 0x80, 'coerce', 0, no_rt=True)
 getlex = m(_Avm2MultinameInstruction, 0x60, 'getlex', 1, no_rt=True)

@@ -2,19 +2,31 @@
 import struct
 
 from mech.fusion.bitstream import BitStream, BitStreamParseMixin
+from mech.fusion.bitstream.flash_formats import UI8, UI16, U32
 
 from mech.fusion.avm2.constants import (AbcConstantPool,
                                         METHODFLAG_HasOptional,
                                         METHODFLAG_HasParamNames,
                                         py_to_abc, abc_to_py)
 
-from mech.fusion.avm2 import instructions
+from mech.fusion.avm2 import instructions, traits as TRAITS
 from mech.fusion.avm2.util import serialize_u32 as s_u32, ValuePool
 from mech.fusion.avm2.assembler import Avm2CodeAssembler
-from mech.fusion.avm2.traits import AbcTrait
 
 MAJOR_VERSION = 46
 MINOR_VERSION = 16
+
+def eval_traits(self):
+    for trait in self.traits:
+        trait.owner = self
+        if isinstance(trait, TRAITS.AbcMethodTrait):
+            trait.method.name  = trait.name
+            trait.method.owner = self
+        if isinstance(trait, TRAITS.AbcClassTrait):
+            trait.cls.name           = trait.name
+            trait.cls.owner          = self
+            trait.cls.instance.name  = trait.name
+            trait.cls.instance.owner = self
 
 class AbcFile(BitStreamParseMixin):
 
@@ -38,10 +50,9 @@ class AbcFile(BitStreamParseMixin):
     @classmethod
     def from_bitstream(cls, bitstream):
 
-        assert bitstream.read_int_value(16, endianness="<") <= MINOR_VERSION
-        assert bitstream.read_int_value(16, endianness="<") <= MAJOR_VERSION
+        assert bitstream.read(UI16) <= MINOR_VERSION
+        assert bitstream.read(UI16) <= MAJOR_VERSION
         constants = AbcConstantPool.from_bitstream(bitstream)
-        constants.debug_print()
         abc = cls(constants)
         
         def read_pool(pool, info, length=None):
@@ -57,6 +68,21 @@ class AbcFile(BitStreamParseMixin):
         L = read_pool(abc.classes,   AbcClassInfo, L)
         L = read_pool(abc.scripts,   AbcScriptInfo)
         L = read_pool(abc.bodies,    AbcMethodBodyInfo)
+
+        for cls, instance in zip(abc.classes, abc.instances):
+            cls.instance = instance
+            instance.cls = cls
+            eval_traits(cls)
+            eval_traits(instance)
+
+        for meth in abc.bodies:
+            eval_traits(meth)
+
+        for script in abc.scripts:
+            eval_traits(script)
+
+        return abc
+
 
     def serialize(self):
         def write_pool(pool, prefix_count=True):
@@ -246,7 +272,7 @@ class AbcInstanceInfo(object):
         interfaces = [constants.multiname_pool.index_for(bitstream.read_u32()) for i in xrange(bitstream.read_u32())]
         iinit = abc.methods.value_at(bitstream.read_u32())
 
-        traits = [AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
         return cls(name, iinit, interfaces, FlagIsInterface, FlagIsFinal, FlagIsSealed, super_name, traits, protectedNs)
     
     def serialize(self):
@@ -306,7 +332,7 @@ class AbcClassInfo(object):
     @classmethod
     def parse(cls, bitstream, abc, constants):
         cinit = abc.methods.value_at(bitstream.read_u32())
-        traits = [AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
         return cls(cinit, traits)
 
     def serialize(self):
@@ -334,11 +360,10 @@ class AbcScriptInfo(object):
         
         self.init = init
 
-
     @classmethod
     def parse(cls, bitstream, abc, constants):
         init = abc.methods.value_at(bitstream.read_u32())
-        traits = [AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
         return cls(init, traits)
 
     def serialize(self):
@@ -374,17 +399,19 @@ class AbcMethodBodyInfo(object):
 
     @classmethod
     def parse(cls, bitstream, abc, constants):
-        minfo = abc.methods.value_at(bitstream.read_u32())
-        stack_depth_max  = bitstream.read_u32()
-        local_count      = bitstream.read_u32()
-        init_scope_depth = bitstream.read_u32()
-        scope_depth_max  = bitstream.read_u32()
+        minfo = abc.methods.value_at(bitstream.read(U32))
+        stack_depth_max  = bitstream.read(U32)
+        local_count      = bitstream.read(U32)
+        init_scope_depth = bitstream.read(U32)
+        scope_depth_max  = bitstream.read(U32)
         code = Avm2CodeAssembler.parse(bitstream, abc, constants, local_count)
         code._stack_depth_max = stack_depth_max
         code._scope_depth_max = scope_depth_max
 
-        exceptions = [AbcException.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
-        traits     = [AbcTrait    .parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        exceptions = [AbcException.parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
+        traits     = [AbcTrait    .parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
+
+        return cls(minfo, code, traits, exceptions)
     
     def serialize(self):
         if not isinstance(self.code.instructions[-1],(instructions.returnvalue, instructions.returnvoid)):

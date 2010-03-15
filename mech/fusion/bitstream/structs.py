@@ -370,7 +370,7 @@ class Struct(StructMixin):
         pass
 
     def __str__(self):
-        return "<Struct(%r): %s>" % (type(self).__name__,
+        return "<%s: %s>" % (type(self).__name__,
             ', '.join("%r=%s" % (k, v) for k, v in self._FIELDS.iteritems()))
 
     def __getattr__(self, name):

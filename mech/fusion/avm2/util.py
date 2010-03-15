@@ -32,14 +32,11 @@ def serialize_s24(value):
     return m[:3]
 
 class Avm2Label(object):
-    _next_label = 1000
     
     backref = False
     
     def __init__(self, asm, address=-1):
         self.asm = asm
-        self.name = Avm2Label._next_label
-        Avm2Label._next_label += 1
         self._address = address
         self.stack_depth = asm._stack_depth_max
         self.scope_depth = asm._scope_depth_max

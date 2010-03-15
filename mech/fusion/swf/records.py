@@ -1,8 +1,8 @@
 
 from mech.fusion.bitstream.bitstream import BitStream
 from mech.fusion.bitstream.interfaces import IStruct
-from mech.fusion.bitstream.formats import UB, SB
-from mech.fusion.bitstream.flash_formats import SI32, UI16, UI32
+from mech.fusion.bitstream.formats import UB, SB, FB, Bit
+from mech.fusion.bitstream.flash_formats import SI32, UI8, UI16, UI24, UI32
 from mech.fusion.bitstream.structs import Struct, NBits, Field, Local, Fields
 from mech.fusion.util import nbits, nbits_signed, clamp
 
@@ -77,8 +77,7 @@ class _EndShapeRecord(Struct):
     Don't worry about me ;)
     """
     def as_bitstream(self):
-        """
-        Serializes this record, according to the following format.
+        """        Serializes this record, according to the following format.
 
         ====== =========
         Format Parameter
@@ -107,174 +106,32 @@ class Rect(Struct):
         yield NBits[5]
         yield Fields("XMin XMax YMin YMax", SB[NBits]) * 20
 
-## class Rect(Struct):
-##     """
-##     Rect usually stores bounds or size in the SWF format.
-##     """
-##     def __init__(self, XMin=0, XMax=0, YMin=0, YMax=0):
-##         """
-##         Constructor.
-
-##         :param XMin: the minimum X of the bounds.
-##         :param XMax: the maximum X of the bounds. should be equal to XMin + width
-##         :param YMin: the minimum Y of the bounds.
-##         :param YMax: the maximum Y of the bounds. should be equal to YMin + height
-##         """
-##         self.XMin = XMin
-##         self.XMax = XMax
-##         self.YMin = YMin
-##         self.YMax = YMax
-        
-##     def union(self, rect, *rects):
-##         r = Rect(min(self.XMin, rect.XMin),
-##                  max(self.XMax, rect.XMax),
-##                  min(self.YMin, rect.YMin),
-##                  max(self.YMax, rect.YMax))
-##         if len(rects) > 0:
-##             return r.union(*rects)
-##         return r
-    
-##     def as_bitstream(self):
-##         """
-##         Serializes this record, according to the following format.
-
-##         ======== =========
-##         Format   Parameter
-##         ======== =========
-##         U[5]     NBits
-##         S[NBits] XMin
-##         S[NBits] XMax
-##         S[NBits] YMin
-##         S[NBits] YMax
-##         ======== =========
-##         """
-##         if self.XMin > self.XMax or self.YMin > self.YMax:
-##             raise ValueError, "Maximum values in a RECT must be larger than the minimum values."
-
-##         # Find our values in twips.
-##         twpXMin = self.XMin * 20
-##         twpXMax = self.XMax * 20
-##         twpYMin = self.YMin * 20
-##         twpYMax = self.YMax * 20
-        
-##         # Find the number of bits required to store the longest value.
-##         NBits = nbits_signed(twpXMin, twpXMax, twpYMin, twpYMax)
-
-##         if NBits > 31:
-##             raise ValueError, "Number of bits per value field cannot exceede 31."
-
-##         # And write out our bits.
-##         bits = BitStream()
-##         bits.write_int_value(NBits, 5)
-##         bits.write_int_value(twpXMin, NBits)
-##         bits.write_int_value(twpXMax, NBits)
-##         bits.write_int_value(twpYMin, NBits)
-##         bits.write_int_value(twpYMax, NBits)
-
-##         return bits
-
-##     @classmethod
-##     def parse(cls, bitstream):
-##         NBits = bitstream.read_int_value(5)
-##         XMin = bitstream.read_int_value(NBits) / 20
-##         XMax = bitstream.read_int_value(NBits) / 20
-##         YMin = bitstream.read_int_value(NBits) / 20
-##         YMax = bitstream.read_int_value(NBits) / 20
-##         return cls(XMin, XMax, YMin, YMax)
-
 class XY(Struct):
-    def __init__(self, X, Y):
+    """
+    XY usually stores a position in the SWF format.
+    """
+    def __init__(self, X=0, Y=0):
         super(XY, self).__init__(locals())
 
     def create_fields(self):
         yield NBits[5]
         yield Fields("X Y", SB[NBits])
 
-## class XY(object):
-##     """
-##     XY usually stores a position in the SWF format.
-##     """
-##     def __init__(self, X, Y):
-##         """
-##         Constructor.
-
-##         :param X: the x translation
-##         :param Y: the y translation
-##         """
-##         self.X = X
-##         self.Y = Y
-
-##     def as_bitstream(self):
-##         """
-##         Serializes this record, according to the following format.
-
-##         ======== =========
-##         Format   Parameter
-##         ======== =========
-##         U[5]     NBits
-##         S[NBits] X
-##         S[NBits] Y
-##         ======== =========
-##         """
-##         # Convert to twips plz.
-##         twpX = self.X * 20
-##         twpY = self.Y * 20
-
-##         # Find the number of bits required to store the longest value.
-##         NBits = nbits_signed(twpX, twpY)
-
-##         bits = BitStream()
-##         bits.write_int_value(NBits, 5)
-##         bits.write_int_value(twpX, NBits)
-##         bits.write_int_value(twpY, NBits)
-
-##         return bits
-
-##     @classmethod
-##     def parse(cls, bitstream):
-##         NBits = bitstream.read_int_value(5)
-##         X = bitstream.read_int_value(NBits) / 20
-##         Y = bitstream.read_int_value(NBits) / 20
-##         return cls(X, Y)
-
-class RGB(object):
-    implements(IStruct)
+class RGB(Struct):
     """
     RGB stores a color in the SWF format.
     """
-    def __init__(self, color):
-        """
-        Constructor.
+    def __init__(self, color=0):
+        super(RGB, self).__init__(dict(color=color & 0xFFFFFF))
 
-        :param color: something like 0xFFFFFF or 0xADCAFE
-        """
-        self.color = color & 0xFFFFFF
-
-    def as_bitstream(self):
-        """
-        Serializes this record, according to the following format.
-
-        ====== ===========
-        Format Parameter
-        ====== ===========
-        U[8]   red value
-        U[8]   green value
-        U[8]   blue value
-        ====== ===========
-        """
-        bits = BitStream()
-        bits.write_int_value(self.color, 24)
-        return bits
-
-    @classmethod
-    def from_bitstream(cls, bitstream):
-        return cls(bitstream.read_int_value(24))
+    def create_fields(self):
+        yield Field("color", UI24)
 
 class RGBA(RGB):
     """
     RGBA is an RGB object plus alpha.
     """
-    def __init__(self, color, alpha=1.0):
+    def __init__(self, color=0, alpha=1.0):
         """
         Constructor.
 
@@ -302,7 +159,7 @@ class RGBA(RGB):
         # If we are in a DefineShape and the version does not support
         # alpha (DefineShape1 or DefineShape2), don't use alpha!
         if DefineShape._current_variant not in (1, 2):
-            bits.write_int_value(int(self.alpha * 0xFF), 8)
+            bits.write(int(self.alpha * 0xFF), UI8)
         
         return bits
 
@@ -313,209 +170,68 @@ class RGBA(RGB):
         color = rgb.color
         alpha = 1.0
         if DefineShape._current_variant not in (1, 2):
-            alpha = bitstream.read_int_value(8) / 255.
+            alpha = bitstream.read(UI8) / 255.
         return RGBA(color, alpha)
 
-class CXForm(object):
+class CXForm(Struct):
     """
     CXForm = ColorTransform
     """
-    implements(IStruct)
     has_alpha = False
     def __init__(self, rmul=1, gmul=1, bmul=1, radd=0, gadd=0, badd=0):
-        """
-        Constructor.
+        super(RGB, self).__init__(dict(amul=1, aadd=0, **locals()))
 
-        The multiplies are between 0.0 and 1.0
+    def create_fields(self):
+        if self.writing:
+            has_add_terms = Field("radd") != 0 | Field("gadd") != 0 | Field("badd") != 0 | Field("aadd") != 0
+            self.set_local("HasAddTerms", has_add_terms)
 
-        :param rmul: Red Multiply.
-        :param gmul: Green Multiply.
-        :param bmul: Blue Multiply.
+            has_mul_terms = Field("rmul") != 0 | Field("gmul") != 0 | Field("bmul") != 0 | Field("amul") != 0
+            self.set_local("HasMulTerms", has_mul_terms)
 
-        The offsets are between -255 and 255.
+        yield Local("HasAddTerms", Bit)
+        yield Local("HasMulTerms", Bit)
+        yield NBits[4]
         
-        :param radd: Red Offset.
-        :param gadd: Green Offset.
-        :param badd: Blue Offset.
-        """
-        self.rmul = rmul
-        self.gmul = gmul
-        self.bmul = bmul
-        self.amul = 1
-        self.radd = radd
-        self.gadd = gadd
-        self.badd = badd
-        self.aadd = 0
+        if self.get_local("HasMulTerms", True):
+            yield Fields("rmul gmul bmul", UB[NBits]) * 256
+            if self.has_alpha:
+                yield Field("amul", UB[NBits]) * 256
 
-    def as_bitstream(self):
-        """
-        Serializes this record, according to the following format.
-        
-        ========================= =============
-        Format                    Parameter
-        ========================= =============
-        U[1]                      HasAddTerms
-        U[1]                      HasMulTerms
-        U[4]                      NBits
-        if HasMulTerms, U[NBits]  RedMultiply
-        if HasMulTerms, U[NBits]  GreenMultiply
-        if HasMulTerms, U[NBits]  BlueMultiply
-        if HasAddTerms, U[NBits]  RedOffset
-        if HasAddTerms, U[NBits]  GreenOffset
-        if HasAddTerms, U[NBits]  BlueOffset
-        ========================= =============
-        """
-        has_add_terms = self.radd != 0 or self.gadd != 0 or self.badd != 0 or self.aadd != 0
-        has_mul_terms = self.rmul != 1 or self.gmul != 1 or self.bmul != 1 or self.amul != 1
-        
-        rm = abs(self.rmul * 256)
-        gm = abs(self.gmul * 256)
-        bm = abs(self.bmul * 256)
-        am = abs(self.amul * 256)
-        
-        ro = clamp(self.radd, -255, 255)
-        go = clamp(self.gadd, -255, 255)
-        bo = clamp(self.badd, -255, 255)
-        ao = clamp(self.aadd, -225, 255)
-        
-        NBits = 0
-        if has_mul_terms: NBits = nbits(rm, gm, bm, am)
-        if has_add_terms: NBits = max(NBits, nbits_signed(ro, go, bo, ao))
-        
-        bits = BitStream()
-        bits.write_bit(has_add_terms)
-        bits.write_bit(has_mul_terms)
-        bits.write_int_value(NBits, 4)
+        if self.get_local("HasAddTerms", True):
+            yield Fields("radd gadd badd", SB[NBits])
+            if self.has_alpha:
+                yield Field("aadd", SB[NBits])
 
-        if has_mul_terms:
-            bits.write_int_value(rm, NBits)
-            bits.write_int_value(gm, NBits)
-            bits.write_int_value(bm, NBits)
-            if self.has_alpha: bits.write_int_value(am, NBits)
-
-        if has_add_terms:
-            bits.write_int_value(ro, NBits)
-            bits.write_int_value(go, NBits)
-            bits.write_int_value(bo, NBits)
-            if self.has_alpha: bits.write_int_value(ao, NBits)
-
-        return bits
-
-    @classmethod
-    def from_bitstream(cls, bits):
-        has_add_terms = bits.read_bit()
-        has_mul_terms = bits.read_bit()
-        NBits = bits.read_int_value(4)
-
-        if has_mul_terms:
-            rmul = bits.read_int_value(NBits) / 256.
-            gmul = bits.read_int_value(NBits) / 256.
-            bmul = bits.read_int_value(NBits) / 256.
-            if cls is CXFormWithAlpha: amul = bits.read_int_value(NBits) / 256.
-
-        if has_add_terms:
-            radd = bits.read_int_value(NBits)
-            gadd = bits.read_int_value(NBits)
-            badd = bits.read_int_value(NBits)
-            if cls is CXFormWithAlpha: aadd = bits.read_int_value(NBits)
-
-        if cls is CXFormWithAlpha:
-            return cls(rmul, gmul, bmul, amul, radd, gadd, badd, aadd)
-        return cls(rmul, gmul, bmul, radd, gadd, badd, aadd)
-        
 class CXFormWithAlpha(CXForm):
     has_alpha = True
     implements(IStruct)
     def __init__(self, rmul=1, gmul=1, bmul=1, amul=1, radd=0, gadd=0, badd=0, aadd=0):
-        super(CXFormWithAlpha, self).__init__(rmul, gmul, bmul, radd, gadd, badd)
-        self.amul = amul
-        self.aadd = aadd
+        Struct.__init__(self, locals())
 
-    def as_bitstream(self):
-        """
-        Serializes this record, according to the following format.
-        
-        ========================= =============
-        Format                    Parameter
-        ========================= =============
-        U[1]                      HasAddTerms
-        U[1]                      HasMulTerms
-        U[4]                      NBits
-        if HasMulTerms, U[NBits]  RedMultiply
-        if HasMulTerms, U[NBits]  GreenMultiply
-        if HasMulTerms, U[NBits]  BlueMultiply
-        if HasMulTerms, U[NBits]  AlphaMultiply
-        if HasAddTerms, U[NBits]  RedOffset
-        if HasAddTerms, U[NBits]  GreenOffset
-        if HasAddTerms, U[NBits]  BlueOffset
-        if HasADdTerms, U[NBits]  AlphaOffset
-        ========================= =============
-        """
-        return super(CXFormWithAlpha, self).as_bitstream()
-
-class Matrix(object):
-    
+class Matrix(Struct):
     def __init__(self, a=1, b=0, c=0, d=1, tx=0, ty=0):
-        self.a, self.b, self.c, self.d, self.tx, self.ty = a, b, c, d, tx, ty
+        super(Matrix, self).__init__(locals())
 
-    def as_bitstream(self):
-        """
-        Serializes this record, according to the following format.
+    def create_fields(self):
+        if self.writing:
+            self.set_local("HasScale", (Field("a") != 1) & (Field("d") != 1))
         
-        =================================== =============
-        Format                              Parameter
-        =================================== =============
-        U[1]                                HasScale
-        U[5]                                NScaleBits
-        if HasScale, U[NScaleBits]          ScaleX
-        if HasScale, U[NScaleBits]          ScaleY
-        U[1]                                HasRotate
-        U[5]                                NRotateBits
-        if HasScale, U[NRotateBits]         RotateSkew0
-        if HasScale, U[NRotateBits]         RotateSkew1
-        U[5]                                NTransxlateBits
-        if HasScale, U[NTranslateBits]      TranslateX
-        if HasScale, U[NTranslateBits]      TranslateY
-        =================================== =============
-        """
-        def write_prefixed_values(a, b):
-            NBits = nbits(a, b)
-            bits.write_int_value(NBits, 5)
-            bits.write_int_value(a, NBits)
-            bits.write_int_value(b, NBits)
-        
-        bits = BitStream()
-        if self.a != 1 or self.d != 1: # HasScale
-            bits.write_bit(True)
-            write_prefixed_values(self.a, self.d)
-        else:
-            bits.write_bit(False)
+        yield Local("HasScale", Bit)
+        if self.get_local("HasScale", True):
+            yield NBits[5]
+            yield Fields("a d", FB[NBits])
 
-        if self.b != 0 or self.c != 0: # HasRotate
-            bits.write_bit(True)
-            write_prefixed_values(self.b, self.c)
-        else:
-            bits.write_bit(False)
+        if self.writing:
+            self.set_local("HasRotate", (Field("b") != 0) & (Field("c") != 0))
 
-        write_prefixed_values(self.tx * 20, self.ty * 20)
-        return bits
+        yield Local("HasRotate", Bit)
+        if self.get_local("HasRotate", True):
+            yield NBits[5]
+            yield Fields("b c", FB[NBits])
 
-    @classmethod
-    def from_bitstream(cls, bits):
-        def read_prefixed_values():
-            NBits = bits.read_int_value(5)
-            return bits.read_int_value(NBits), bits.read_int_value(NBits)
-
-        a, b, c, d = 1, 0, 0, 1
-        
-        if bits.read_bit(): # HasScale
-            a, d = read_prefixed_values()
-
-        if bits.read_bit(): # HasRotate
-            b, c = read_prefixed_values()
-
-        tx, ty = read_prefixed_values()
-        return cls(a, b, c, d, tx, ty)
+        yield NBits[5]
+        yield Fields("tx ty", SB[NBits]) * 20
 
 class Shape(object):
 

@@ -1,8 +1,9 @@
 
 from collections import namedtuple
 
-from mech.fusion.avm2.util import ValuePool
+from mech.fusion.bitstream.flash_formats import UI8, U32
 
+from mech.fusion.avm2.util import ValuePool
 from mech.fusion.avm2.instructions import parse_instruction
 
 class Avm2CodeAssembler(object):
@@ -80,12 +81,12 @@ class Avm2CodeAssembler(object):
     def local_count(self):
         return len(self.temporaries)
 
-    def dump_instructions(self):
+    def dump_instructions(self, indent="\t"):
         dump, offset = "", 0
         for inst in self.instructions:
             if inst.label:
-                dump += "\n%s:\n" % (inst.label.name,)
-            dump += "\t%d\t%s\n" % (offset, inst)
+                dump += "\n%s%s:\n" % (indent, inst.label.name,)
+            dump += "%s%d%s%s\n" % (indent*2, offset, indent, inst)
             offset += len(inst.serialize())
         return dump
     
@@ -107,7 +108,8 @@ class Avm2CodeAssembler(object):
     @classmethod
     def parse(cls, bitstream, abc, constants, local_count):
         asm = cls(constants, ("_loc%d" % (i,) for i in xrange(local_count)))
-        codelen = bitstream.read_u32()
-        finish  = bitstream.cursor*8 + codelen
-        while bitstream.cursor*8 < finish:
+        codelen = bitstream.read(U32)
+        finish  = bitstream.cursor + codelen*8
+        while bitstream.cursor < finish:
             asm.add_instruction(parse_instruction(bitstream, abc, constants, asm))
+        return asm

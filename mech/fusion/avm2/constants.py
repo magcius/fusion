@@ -52,7 +52,6 @@ METHODFLAG_Native        = 0x20
 """
 Must be set if this method uses the dxns or dxnslate opcodes.
 """
-
 METHODFLAG_SetsDxns      = 0x40
 
 """
@@ -223,7 +222,8 @@ class Namespace(object):
         return inst
     
     def __repr__(self):
-        return self.name or 'global'
+        kind = {0x16: "package", 0x08: "normal", 0x05: "private"}
+        return "Namespace(name=%r, kind=%r)" % (self.name, kind.get(self.kind, self.kind))
 
 class NamespaceSet(object):
 
@@ -246,9 +246,12 @@ class NamespaceSet(object):
     def write_to_pool(self, pool):
         self._namespace_indices = [pool.namespace_pool.index_for(ns) for ns in self.namespaces]
 
+    def __repr__(self):
+        return 'NamespaceSet(%r)' % (list(self.namespaces,))
+
     @classmethod
     def parse(cls, bitstream, constants):
-        return cls(*(Namespace.parse(bitstream, constants) for i in bitstream.read(U32)))
+        return cls(*(constants.namespace_pool.value_at(bitstream.read(U32)) for i in xrange(bitstream.read(U32))))
     
     def serialize(self):
         assert self._namespace_indices is not None, "Please call write_to_pool before serializing"
@@ -335,11 +338,11 @@ class Multiname(MultinameL):
 
     @classmethod
     def parse_inner(cls, bitstream, constants):
-        return cls(constants.utf8_pool.value_at(bitstream.read_u32()), constants.nsset_pool.value_at(bitstream.read_u32()))
+        return cls(constants.utf8_pool.value_at(bitstream.read(U32)), constants.nsset_pool.value_at(bitstream.read(U32)))
     
     @classmethod
     def parse(cls, bitstream, constants):
-        kind = bitstream.read_int_value(8)
+        kind = bitstream.read(UI8)
         cls = MULTINAME_KINDS[kind]
         return cls.parse_inner(bitstream, constants)
 
@@ -393,7 +396,9 @@ class QName(object):
         return self
 
     def __repr__(self):
-        return "QName: %s::%s" % (self.ns, self.name)
+        if self.ns.name:
+            return "%s::%s" % (self.ns.name, self.name)
+        return "%s" % (self.name,)
 
 class QNameA(QName):
     KIND = TYPE_MULTINAME_QNameA
@@ -593,3 +598,13 @@ class AbcConstantPool(BitStreamParseMixin):
         read_pool(pool.multiname_pool, serializable(Multiname))
 
         return pool
+
+
+
+
+
+
+
+
+
+

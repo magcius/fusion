@@ -1,9 +1,11 @@
 
 import struct
 
+from mech.fusion.bitstream.bitstream import BitStream
+from mech.fusion.bitstream.formats import U32, Bit, UB
+
 from mech.fusion.avm2.constants import py_to_abc, abc_to_py
 from mech.fusion.avm2.util import serialize_u32 as s_u32
-from mech.fusion.util import BitStream
 
 TRAIT_Slot     = 0
 TRAIT_Method   = 1
@@ -33,19 +35,19 @@ class AbcTrait(object):
 
     @classmethod
     def parse(cls, bitstream, abc, constants):
-        name = constants.multiname_pool.value_at(bitstream.read_u32())
+        name = constants.multiname_pool.value_at(bitstream.read(U32))
         bitstream.cursor += 1
         has_metadata = bitstream.read_bit()
-        override = bitstream.read_bit()
-        final    = bitstream.read_bit()
-        cls = TRAIT_KINDS[bitstream.read_int_value(4)]
+        override = bitstream.read(Bit)
+        final    = bitstream.read(Bit)
+        cls = TRAIT_KINDS[bitstream.read(UB[4])]
         inst = cls.parse_inner(bitstream, abc, constants)
         inst.name     = name
         inst.final    = final
         inst.override = override
         if has_metadata:
             L = xrange(bitstream.read_u32())
-            inst.metadata = [abc.metadatas.value_at(bitstream.read_u32()) for i in L]
+            inst.metadata = [abc.metadatas.value_at(bitstream.read(U32)) for i in L]
         return inst
     
     def serialize_inner(self):
@@ -91,8 +93,8 @@ class AbcClassTrait(AbcTrait):
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants):
-        slot_id = bitstream.read_u32()
-        clazz   = abc.classes.value_at(bitstream.read_u32())
+        slot_id = bitstream.read(U32)
+        clazz   = abc.classes.value_at(bitstream.read(U32))
         return cls(None, clazz, slot_id)
     
     def serialize_inner(self):
@@ -125,12 +127,12 @@ class AbcSlotTrait(AbcTrait):
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants):
-        slot_id   = bitstream.read_u32()
-        type_name = constants.multiname_pool.value_at(bitstream.read_u32())
-        vindex    = bitstream.read_u32()
+        slot_id   = bitstream.read(U32)
+        type_name = constants.multiname_pool.value_at(bitstream.read(U32))
+        vindex    = bitstream.read(U32)
         value     = None
         if vindex:
-            vkind = bitstream.read_u32()
+            vkind = bitstream.read(U32)
             value = abc_to_py((vkind, vindex))
         
         return cls(None, type_name, value, slot_id)
@@ -164,8 +166,8 @@ class AbcFunctionTrait(AbcTrait):
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants):
-        slot_id  = bitstream.read_u32()
-        function = abc.methods.value_at(bitstream.read_u32())
+        slot_id  = bitstream.read(U32)
+        function = abc.methods.value_at(bitstream.read(U32))
         return cls(None, function, slot_id)
     
     def serialize_inner(self):
@@ -184,8 +186,11 @@ class AbcMethodTrait(AbcTrait):
         super(AbcMethodTrait, self).write_to_abc(abc)
         self._method_index = abc.methods.index_for(self.method)
 
+    @classmethod
     def parse_inner(cls, bitstream, abc, constants):
-        pass
+        disp_id = bitstream.read(U32)
+        method = abc.methods.value_at(bitstream.read(U32))
+        return cls(None, method, disp_id)
     
     def serialize_inner(self):
         return s_u32(self.disp_id) + s_u32(self._method_index)
