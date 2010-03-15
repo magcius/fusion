@@ -175,7 +175,7 @@ class SwfTag(object):
         cls = REVERSE_INDEX[recordheader.type]
         if not hasattr(cls, "parse_inner"):
             cls = UnknownSwfTag(recordheader.type)
-        inst = cls.parse_inner(bitstream.read_bits(recordheader.length*8))
+        inst = cls.parse_inner(bitstream.read(BitStream[recordheader.length*8]))
         inst.length = recordheader.length
         inst.offset = offset
         return inst

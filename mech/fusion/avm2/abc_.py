@@ -2,6 +2,7 @@
 import struct
 
 from mech.fusion.bitstream import BitStream, BitStreamParseMixin
+from mech.fusion.bitstream.formats import Bit, Zero
 from mech.fusion.bitstream.flash_formats import UI8, UI16, U32
 
 from mech.fusion.avm2.constants import (AbcConstantPool,
@@ -29,9 +30,7 @@ def eval_traits(self):
             trait.cls.instance.owner = self
 
 class AbcFile(BitStreamParseMixin):
-
     write_to = "abc"
-    
     def __init__(self, constants=None):
         self.constants = constants or AbcConstantPool()
         self.methods   = ValuePool(parent=self, debug=True)
@@ -49,7 +48,6 @@ class AbcFile(BitStreamParseMixin):
 
     @classmethod
     def from_bitstream(cls, bitstream):
-
         assert bitstream.read(UI16) <= MINOR_VERSION
         assert bitstream.read(UI16) <= MAJOR_VERSION
         constants = AbcConstantPool.from_bitstream(bitstream)
@@ -82,7 +80,6 @@ class AbcFile(BitStreamParseMixin):
             eval_traits(script)
 
         return abc
-
 
     def serialize(self):
         def write_pool(pool, prefix_count=True):
@@ -128,24 +125,24 @@ class AbcMethodInfo(object):
     
     @classmethod
     def parse(cls, bitstream, abc, constants):
-        PTL = bitstream.read_u32()
-        return_type = constants.multiname_pool.value_at(bitstream.read_u32())
+        PTL = bitstream.read(U32)
+        return_type = constants.multiname_pool.value_at(bitstream.read(U32))
 
-        param_types = [constants.multiname_pool.value_at(bitstream.read_u32()) for i in xrange(PTL)]
-        name = constants.utf8_pool.value_at(bitstream.read_u32())
+        param_types = [constants.multiname_pool.value_at(bitstream.read(U32)) for i in xrange(PTL)]
+        name = constants.utf8_pool.value_at(bitstream.read(U32))
         
-        flags = bitstream.read_int_value(8)
+        flags = bitstream.read(UI8)
 
         options = None
         if flags & METHODFLAG_HasOptional:
-            L = bitstream.read_u32()
-            options = [abc_to_py((bitstream.read_u32(),
-                                  bitstream.read_int_value(8)),
+            L = bitstream.read(U32)
+            options = [abc_to_py((bitstream.read(U32),
+                                  bitstream.read(UI8)),
                                  constants) for i in xrange(L)]
 
         param_names = None
         if flags & METHODFLAG_HasParamNames:
-            param_names = [constants.utf8_pool(bitstream.read_u32()) for i in xrange(PTL)]
+            param_names = [constants.utf8_pool.value_at(bitstream.read(U32)) for i in xrange(PTL)]
 
         return cls(name, param_types, return_type, flags, options, param_names)
         
@@ -184,14 +181,12 @@ class AbcMethodInfo(object):
         self._param_types_indices = [pool.multiname_pool.index_for(i) for i in self.param_types]
         self._param_names_indices = [pool.utf8_pool.index_for(i) for i in self.param_names]
         
-        self._options_indices = [py_to_abc(value) for value in self.options]
+        self._options_indices = [py_to_abc(value, pool) for value in self.options]
 
     def __repr__(self):
         return "AbcMethod(%r)" % (self.name,)
-        
 
 class AbcMetadataInfo(object):
-
     def __init__(self, name, items):
         self.name = name
         self._name_index = None
@@ -202,10 +197,10 @@ class AbcMetadataInfo(object):
     @classmethod
     def parse(cls, bitstream, abc, constants):
         def uv():
-            return constants.utf8_pool.value_at(bitstream.read_u32())
+            return constants.utf8_pool.value_at(bitstream.read(U32))
         
         name = uv()
-        items = [(uv(), uv()) for i in xrange(bitstream.read_u32())]
+        items = [(uv(), uv()) for i in xrange(bitstream.read(U32))]
         
         return cls(name, items)
         
@@ -256,23 +251,23 @@ class AbcInstanceInfo(object):
 
     @classmethod
     def parse(cls, bitstream, abc, constants):
-        name = constants.multiname_pool.value_at(bitstream.read_u32())
-        super_name = constants.multiname_pool.value_at(bitstream.read_u32())
+        name = constants.multiname_pool.value_at(bitstream.read(U32))
+        super_name = constants.multiname_pool.value_at(bitstream.read(U32))
 
         bitstream.cursor += 4
-        FlagProtectedNS = bitstream.read_bit()
-        FlagIsInterface = bitstream.read_bit()
-        FlagIsFinal     = bitstream.read_bit()
-        FlagIsSealed    = bitstream.read_bit()
+        FlagProtectedNS = bitstream.read(Bit)
+        FlagIsInterface = bitstream.read(Bit)
+        FlagIsFinal     = bitstream.read(Bit)
+        FlagIsSealed    = bitstream.read(Bit)
 
         protectedNs = None
         if FlagProtectedNS:
-            protectedNs = constants.namespace_pool.value_at(bitstream.read_u32())
+            protectedNs = constants.namespace_pool.value_at(bitstream.read(U32))
 
-        interfaces = [constants.multiname_pool.index_for(bitstream.read_u32()) for i in xrange(bitstream.read_u32())]
-        iinit = abc.methods.value_at(bitstream.read_u32())
+        interfaces = [constants.multiname_pool.index_for(bitstream.read(U32)) for i in xrange(bitstream.read(U32))]
+        iinit = abc.methods.value_at(bitstream.read(U32))
 
-        traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
         return cls(name, iinit, interfaces, FlagIsInterface, FlagIsFinal, FlagIsSealed, super_name, traits, protectedNs)
     
     def serialize(self):
@@ -282,11 +277,11 @@ class AbcInstanceInfo(object):
 
         # Flags
         flags = BitStream()
-        flags.zero_fill(4)                        # first four bits = not defined
-        flags.write_bit(self.protectedNs != None) # 1000 = 0x08 = CLASSFLAG_ClassProtectedNs
-        flags.write_bit(self.is_interface)        # 0100 = 0x04 = CLASSFLAG_ClassInterface
-        flags.write_bit(self.is_final)            # 0010 = 0x02 = CLASSFLAG_ClassFinal
-        flags.write_bit(self.is_sealed)           # 0001 = 0x01 = CLASSFLAG_ClassSealed
+        flags.write(Zero[4])                  # first four bits = not defined
+        flags.write(self.protectedNs != None) # 1000 = 0x08 = CLASSFLAG_ClassProtectedNs
+        flags.write(self.is_interface)        # 0100 = 0x04 = CLASSFLAG_ClassInterface
+        flags.write(self.is_final)            # 0010 = 0x02 = CLASSFLAG_ClassFinal
+        flags.write(self.is_sealed)           # 0001 = 0x01 = CLASSFLAG_ClassSealed
 
         code += flags.serialize()
 
@@ -331,13 +326,12 @@ class AbcClassInfo(object):
 
     @classmethod
     def parse(cls, bitstream, abc, constants):
-        cinit = abc.methods.value_at(bitstream.read_u32())
-        traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        cinit = abc.methods.value_at(bitstream.read(U32))
+        traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
         return cls(cinit, traits)
 
     def serialize(self):
         code = ""
-        
         code += s_u32(self._cinit_index)
         code += s_u32(len(self.traits))
         for trait in self.traits:
@@ -362,8 +356,8 @@ class AbcScriptInfo(object):
 
     @classmethod
     def parse(cls, bitstream, abc, constants):
-        init = abc.methods.value_at(bitstream.read_u32())
-        traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
+        init = abc.methods.value_at(bitstream.read(U32))
+        traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
         return cls(init, traits)
 
     def serialize(self):
@@ -386,7 +380,6 @@ class AbcScriptInfo(object):
             trait.write_to_pool(pool)
 
 class AbcMethodBodyInfo(object):
-
     def __init__(self, method_info, code, traits=None, exceptions=None):
         self.method_info = method_info
         self.method_info.body = self
@@ -461,7 +454,7 @@ class AbcException(object):
 
     @classmethod
     def parse(cls, bitstream, abc, constants):
-        u = bitstream.read_u32
+        u = lambda : bitstream.read(U32)
         return cls(u(), u(), u(),
                    constants.multiname_pool.value_at(u()),
                    constants.utf8_pool.value_at(u()))

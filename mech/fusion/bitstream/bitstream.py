@@ -7,7 +7,7 @@ ALIGN_RIGHT = "right"
 
 
 from mech.fusion.bitstream import formats as F, flash_formats as FF
-from mech.fusion.bitstream.interfaces import IBitStream, IFormat
+from mech.fusion.bitstream.interfaces import IBitStream, IFormat, IFormatData
 
 from zope.interface import implements
 from zope.component import provideAdapter, adapter
@@ -208,7 +208,7 @@ class BitStreamMixin(object):
         """
         cursor = self.cursor
         bytes = zlib.decompress(self.read(F.ByteString))
-        new_cursor = F.ByteString._write(bytes, cursor)
+        new_cursor = IFormat(F.ByteString)._write(self, cursor, bytes)
         self[new_cursor:] = []
         self.cursor = cursor
     
@@ -310,7 +310,7 @@ class BitStreamFormatAdaptor(object):
     def _read(self, bs, cursor):
         inst = self.bitstream()
         L = len(bs)
-        inst.write(bs.read(F.UB[L]), F.UB[L])
+        BitStreamDataFormat(type(self), L)._write(bs, cursor, argument)
         inst.rewind()
         return inst
     
@@ -321,7 +321,7 @@ class BitStreamFormatAdaptor(object):
         cursor = argument.cursor
         argument.rewind()
         L = len(argument)
-        bs.write(argument.read(F.UB[L]), F.UB[L])
+        BitStreamDataFormat(type(self), L)._write(bs, cursor, argument)
         argument.cursor = cursor
 
 # bs.read(BitStream)
@@ -336,14 +336,22 @@ class BitStreamDataFormat(object):
 
     def __init__(self, cls, data):
         self.cls = cls
+        data = IFormatData(data)
         self.length = data.length
         self.endianness = data.endianness
     
     # bs.read(BitStream[8])
     def _read(self, bs, cursor):
         inst = self.cls()
-        inst.write(bs.read(F.UB[self.length]),
-                   F.UB[self.length:self.endianness])
+        bytes, bits = divmod(self.length, 8)
+        if self.endianness == "<" and bits:
+            inst.write(F.Zero[bits])
+        inst.write(bs.read(F.ByteString[bytes]),
+                   F.ByteString[bytes:self.endianness])
+        if bits:
+            if self.endianness == "<":
+                inst.rewind()
+            inst.write(bs.read(F.UB[bits]), F.UB[bits])
         inst.rewind()
         return inst
 
@@ -353,8 +361,15 @@ class BitStreamDataFormat(object):
         length = self.length
         if length is None:
             length = argument.bits_available
-        bs.write(argument.read(F.UB[length]),
-                 F.UB[length:self.endianness])
+        bytes, bits = divmod(length, 8)
+        if self.endianness == "<" and bits:
+            bs.write(F.Zero[bits])
+        bs.write(argument.read(F.ByteString[bytes]),
+                 F.ByteString[bytes:self.endianness])
+        if bits:
+            bs.cursor = cursor
+            bs.write(argument.read(F.UB[bits]), F.UB[bits])
+        return bytes*8
 
 class BitStreamParseMixin(object):
     @classmethod

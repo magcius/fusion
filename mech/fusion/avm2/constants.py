@@ -143,7 +143,7 @@ def py_to_abc(value, pool):
     if value is None or value is null:
         return TYPE_OBJECT_Null, 0
     if value is undefined:
-        return TYPE_OBJECT_UNDEFINED, 0
+        return TYPE_OBJECT_Undefined, 0
     if isinstance(value, basestring):
         return TYPE_STRING_Utf8, pool.utf8_pool.index_for(value)
     if isinstance(value, (long, int)):
@@ -164,7 +164,7 @@ def py_to_abc(value, pool):
     raise ValueError("This is not an ABC-compatible type.")
 
 def abc_to_py(tup, pool):
-    TYPE, index = tup
+    index, TYPE = tup
     if TYPE == TYPE_BOOLEAN_True:
         return True
     if TYPE == TYPE_BOOLEAN_False:

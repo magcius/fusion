@@ -34,7 +34,6 @@ def header(filename):
 def dump_swf(swfdata):
     print
     print "  tags:"
-    print
     abcs = []
     for tag in swfdata.tags:
         print "    %04x %s" % (tag.offset, tag,)

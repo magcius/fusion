@@ -132,8 +132,8 @@ class AbcSlotTrait(AbcTrait):
         vindex    = bitstream.read(U32)
         value     = None
         if vindex:
-            vkind = bitstream.read(U32)
-            value = abc_to_py((vkind, vindex))
+            vkind = bitstream.read(UI8)
+            value = abc_to_py((vindex, vkind))
         
         return cls(None, type_name, value, slot_id)
     

@@ -1,6 +1,6 @@
 
 from collections import namedtuple
-
+from itertools import izip
 from math import log, floor, ceil, isnan
 
 from mech.fusion.bitstream.interfaces import IBitStream
@@ -302,7 +302,9 @@ class Byte(Format):
                                  "available bits is not divisible by 8.")
             length = bs.bits_available // 8
 
-        R = [tuple(bs.read(BitsList[8])) for i in xrange(length)]
+        R = bs[cursor:cursor+length*8]
+        
+        R = izip(*[iter(R)]*8)
         
         try:
             if self.string:
@@ -316,12 +318,12 @@ class Byte(Format):
             bytes = bytes[::-1]
 
         if self.string or self.list:
-            return bytes
+            return bytes, length*8
         else:
             n = 0
-            for i, b in zip(reversed(xrange(0, len(bytes)*8, 8)), bytes):
+            for i, b in izip(reversed(xrange(0, len(bytes)*8, 8)), bytes):
                 n |= b << i
-            return n
+            return n, length*8
 
     def _write(self, bs, cursor, bytes):
         if isinstance(bytes, (int, long)):
@@ -357,15 +359,21 @@ class Byte(Format):
                 elif L < 0:
                     raise ValueError("%r does not fit in %d bytes"
                                      "" % (bytes, self.length))
-            
+            else:
+                L = 0
             if self.endianness == "<":
                 bytes = reversed(bytes)
+
+            R = []
             for i in bytes:
                 if isinstance(i, str):
                     i = ord(i)
-                bs.write(BYTE_TO_BITS[i], BitsList)
+                R += BYTE_TO_BITS[i]
             if self.endianness == "<":
-                bs.write(Zero[8*L])
+                R += [False]*L*8
+            S = len(R)
+            bs[cursor:cursor+S] = R
+            return S
         else:
             raise TypeError("Invalid type for Byte/ByteString")
 

@@ -33,4 +33,4 @@ if __name__ == '__main__':
     swcf = zipfile.ZipFile(StringIO(zipf.open(files[0], 'r').read()))
     library_swf = swcf.open("library.swf", 'r')
     print "Parsing library.swf"
-    swf = SwfData.parse_file(library_swf)
+    swf = SwfData.from_file(library_swf)
