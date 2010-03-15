@@ -1,10 +1,39 @@
 
-from collections import namedtuple
-
-from mech.fusion.bitstream.flash_formats import UI8, U32
+from mech.fusion.bitstream.flash_formats import U32
 
 from mech.fusion.avm2.util import ValuePool
-from mech.fusion.avm2.instructions import parse_instruction
+from mech.fusion.avm2.instructions import parse_instruction, INSTRUCTIONS, getlocal, setlocal
+
+BRANCH_OPTIMIZE = {
+    ("equals", "not",  "iftrue"):  "ifne",
+    ("equals", "not",  "iffalse"): "ifeq",
+    ("equals",         "iftrue"):  "ifeq",
+    ("equals",         "iffalse"): "ifne",
+    ("lessthan",       "iftrue"):  "iflt",
+    ("lessthan",       "iffalse"): "ifnlt",
+    ("lessequals",     "iftrue"):  "ifle",
+    ("lessequals",     "iffalse"): "ifnle",
+    ("greaterthan",    "iftrue"):  "ifgt",
+    ("greaterthan",    "iffalse"): "ifngt",
+    ("greaterequals",  "iftrue"):  "ifge",
+    ("greaterequals",  "iffalse"): "ifnge",
+    ("strictequals",   "iftrue"):  "ifstricteq",
+    ("strictequals",   "iffalse"): "ifstrict",
+}
+
+NO_OP = set((
+    ("setlocal0", "getlocal0"),
+    ("setlocal1", "getlocal1"),
+    ("setlocal2", "getlocal2"),
+    ("setlocal3", "getlocal3"),
+    
+    ("getlocal0", "setlocal0"),
+    ("getlocal1", "setlocal1"),
+    ("getlocal2", "setlocal2"),
+    ("getlocal3", "setlocal3"),
+))
+
+NO_OP_GLSL = "getlocal", "setlocal"
 
 class Avm2CodeAssembler(object):
     
@@ -27,14 +56,41 @@ class Avm2CodeAssembler(object):
         self.flags = 0
         self.constants = constants
 
+        self.registers_used = dict((i, i) for i, a in enumerate(local_names))
+        print self.registers_used
+
     def add_instruction(self, instruction):
         """
         Add an instruction to this block.
         """
-        instruction.set_assembler_props(self)
         if self.instructions:
-            self.instructions[-1].next = instruction
-        self.instructions.append(instruction)
+            prev = self.instructions[-1]
+            instruction = self.optimize(prev, instruction)
+            prev = self.instructions[-1] # may have popped instruction
+            if instruction:
+                prev.next = instruction
+        if instruction:
+            instruction.set_assembler_props(self)
+            self.instructions.append(instruction)
+
+    def optimize(self, prev, instruction):
+        """
+        Optimize when adding an instruction.
+        """
+        test = prev.name, instruction.name
+        print test
+        if instruction.name.startswith("setlocal"):
+            self.registers_used.setdefault(instruction.argument, len(self.registers_used))
+            instruction = setlocal(self.registers_used[instruction.argument])
+        elif instruction.name.startswith("getlocal"):
+            instruction = getlocal(self.registers_used[instruction.argument])
+        if test in BRANCH_OPTIMIZE:
+            self.instructions.pop()
+            instruction = INSTRUCTIONS[BRANCH_OPTIMIZE[test]](instruction.lblname)
+        elif test in NO_OP or (test == NO_OP_GLSL and prev.argument == instruction.argument):
+            self.instructions.pop()
+            return
+        return instruction
 
     def add_instructions(self, instructions):
         """

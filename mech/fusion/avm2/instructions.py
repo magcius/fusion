@@ -360,10 +360,10 @@ del _make_avm2
 # Instructions that push one value to the stack and take no arguments.
 dup = m(_Avm2ShortInstruction, 0x2A, "dup", 1)
 getglobalscope = m(_Avm2ShortInstruction, 0x64, "getglobalscope", 1)
-getlocal_0 = m(_Avm2ShortInstruction, 0xD0, "getlocal_0", 1)
-getlocal_1 = m(_Avm2ShortInstruction, 0xD1, 'getlocal_1', 1)
-getlocal_2 = m(_Avm2ShortInstruction, 0xD2, 'getlocal_2', 1)
-getlocal_3 = m(_Avm2ShortInstruction, 0xD3, 'getlocal_3', 1)
+getlocal0 = m(_Avm2ShortInstruction, 0xD0, "getlocal0", 1)
+getlocal1 = m(_Avm2ShortInstruction, 0xD1, 'getlocal1', 1)
+getlocal2 = m(_Avm2ShortInstruction, 0xD2, 'getlocal2', 1)
+getlocal3 = m(_Avm2ShortInstruction, 0xD3, 'getlocal3', 1)
 newactivation = m(_Avm2ShortInstruction, 0x57, 'newactivation', 1,\
                       flags=METHODFLAG_Activation)
 pushfalse = m(_Avm2ShortInstruction, 0x27, 'pushfalse', 1)
@@ -400,10 +400,10 @@ pushscope = m(_Avm2ShortInstruction, 0x30, 'pushscope', -1, 1) # Changes scope d
 pushwith = m(_Avm2ShortInstruction, 0x1C, 'pushwith', -1, 1) # Changes scope depth.
 returnvalue = m(_Avm2ShortInstruction, 0x48, 'returnvalue', -1)
 rshift = m(_Avm2ShortInstruction, 0xA6, 'rshift', -1)
-setlocal_0 = m(_Avm2ShortInstruction, 0xD4, 'setlocal_0', -1)
-setlocal_1 = m(_Avm2ShortInstruction, 0xD5, 'setlocal_1', -1)
-setlocal_2 = m(_Avm2ShortInstruction, 0xD6, 'setlocal_2', -1)
-setlocal_3 = m(_Avm2ShortInstruction, 0xD7, 'setlocal_3', -1)
+setlocal0 = m(_Avm2ShortInstruction, 0xD4, 'setlocal0', -1)
+setlocal1 = m(_Avm2ShortInstruction, 0xD5, 'setlocal1', -1)
+setlocal2 = m(_Avm2ShortInstruction, 0xD6, 'setlocal2', -1)
+setlocal3 = m(_Avm2ShortInstruction, 0xD7, 'setlocal3', -1)
 strictequals = m(_Avm2ShortInstruction, 0xAC, 'strictequals', -1)
 subtract = m(_Avm2ShortInstruction, 0xA1, 'subtract', -1)
 subtract_i = m(_Avm2ShortInstruction, 0xC6, 'subtract_i', -1)
@@ -530,15 +530,21 @@ setproperty = m(_Avm2MultinameInstruction, 0x61, 'setproperty', -2)
 setsuper = m(_Avm2MultinameInstruction, 0x05, 'setsuper', -2)
 
 def setlocal(index):
-    _speed = {0: setlocal_0, 1: setlocal_1, 2: setlocal_2, 3: setlocal_3}
+    _speed = {0: setlocal0, 1: setlocal1, 2: setlocal2, 3: setlocal3}
     if index in _speed:
-        return _speed[index]()
+        inst = _speed[index]()
+        inst.argument = index
+        inst.arguments = [index]
+        return inst
     return _setlocal(index)
 
 def getlocal(index):
-    _speed = {0: getlocal_0, 1: getlocal_1, 2: getlocal_2, 3: getlocal_3}
+    _speed = {0: getlocal0, 1: getlocal1, 2: getlocal2, 3: getlocal3}
     if index in _speed:
-        return _speed[index]()
+        inst = _speed[index]()
+        inst.argument = index
+        inst.arguments = [index]
+        return inst
     return _getlocal(index)
     
 del m
