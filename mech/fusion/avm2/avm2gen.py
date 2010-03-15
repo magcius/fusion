@@ -45,19 +45,37 @@ class _MethodContextMixin(object):
     
     def new_method(self, name, params=None, rettype=None, kind="method", static=False, override=False):
         """
-        Create a new method with the given name, parameters, and return type.
+        Create a new method with the name "name" and parameter list "arglist" and
+        return type "returntype".
 
-        The "name" and "super_name" parameters should be an object with a
-        multiname() method for converting to an ABC Multiname (QName,TypeName,
-        Multiname, Name, etc). A common use is to use a QName with the ns
-        being a private, protected or public namespace for access protection.
+        The "name" parameter should be a string or an object with a multiname()
+        method for converting to an ABC Multiname (QName, TypeName, Multiname,
+        Name, etc). A common use is to use a QName with the ns being a private,
+        protected or public namespace for access protection.
+
+        "arglist" should be an iterable of (type, name) pairs, with the "name"
+        being a string and "type" being an object with a multiname() method for
+        specifying the type of the parameter.
+
+        "returntype" should be the same kind of "type" parameter.
+
+        "kind" is the type of method. It can either be "method", "getter", or "setter". If
+        it is a getter, it must have a non-void return type and no argument list. If it is
+        a setter, it must have a void return type and must take one argument.
+
+        "static" determines whether to add the function to the static or instance
+        traits of the class. For a script, this parameter will do nothing.
+
+        "override" has to be set if you attempt to override a method in the
+        superclass, including ones from the native Flash Player API.
         """
         params = params or []
-        meth = self.new_method_info(name, params, rettype or constants.QName("void"))
+        name = self.gen._get_type(name)
+        meth = self.new_method_info(str(name), params, rettype or constants.QName("void"))
         KIND = dict(method=traits.AbcMethodTrait,
                     getter=traits.AbcGetterTrait,
                     setter=traits.AbcSetterTrait)
-        trait = KIND.get(kind, kind)(self.gen._get_type(name), meth, override=override)
+        trait = KIND.get(kind, kind)(name, meth, override=override)
         if static:
             self.add_static_trait(trait)
         else:
@@ -135,8 +153,6 @@ class ScriptContext(_MethodContextMixin):
             insts = meth.asm.instructions[2:]
             meth.asm.instructions = meth.asm.instructions[:2]
 
-        self.gen.I(instructions.getscopeobject(0))
-
         for key in self.pending_classes_order:
             context, parents = self.pending_classes[key]
             if parents is None:
@@ -146,7 +162,10 @@ class ScriptContext(_MethodContextMixin):
                     parents.append(ctx.name)
                     ctx = self.gen._get_class_context(ctx.super_name, self.pending_classes)
 
-                parents.append(constants.QName("Object"))
+                if not constants.QName("Object") in parents:
+                    parents.append(constants.QName("Object"))
+
+            self.gen.I(instructions.getscopeobject(0))
 
             for parent in reversed(parents):
                 self.gen.I(instructions.getlex(parent),
@@ -471,10 +490,10 @@ class Avm2ilasm(object):
         Create a new method with the name "name" and parameter list "arglist" and
         return type "returntype".
 
-        The "name" parameter should be an object with a multiname() method for
-        converting to an ABC Multiname (QName, TypeName, Multiname, Name, etc).
-        A common use is to use a QName with the ns being a private, protected
-        or public namespace for access protection.
+        The "name" parameter should be a string or an object with a multiname()
+        method for converting to an ABC Multiname (QName, TypeName, Multiname,
+        Name, etc). A common use is to use a QName with the ns being a private,
+        protected or public namespace for access protection.
 
         "arglist" should be an iterable of (type, name) pairs, with the "name"
         being a string and "type" being an object with a multiname() method for
@@ -994,10 +1013,10 @@ class Avm2ilasm(object):
         Return a context manager that can be used with the with statement
         that calls begin_method and end_method.
 
-        The "name" parameter should be an object with a multiname() method for
-        converting to an ABC Multiname (QName, TypeName, Multiname, Name, etc).
-        A common use is to use a QName with the ns being a private, protected
-        or public namespace for access protection.
+        The "name" parameter should be a string or an object with a multiname()
+        method for converting to an ABC Multiname (QName, TypeName, Multiname,
+        Name, etc). A common use is to use a QName with the ns being a private,
+        protected or public namespace for access protection.
 
         "arglist" should be an iterable of (type, name) pairs, with the "name"
         being a string and "type" being an object with a multiname() method for
