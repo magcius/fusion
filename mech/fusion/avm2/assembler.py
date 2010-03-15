@@ -77,7 +77,6 @@ class Avm2CodeAssembler(object):
         Optimize when adding an instruction.
         """
         test = prev.name, instruction.name
-        print test
         if instruction.name.startswith("setlocal"):
             self.registers_used.setdefault(instruction.argument, len(self.registers_used))
             instruction = setlocal(self.registers_used[instruction.argument])
