@@ -1,8 +1,12 @@
 
+import itertools
+
 from mech.fusion.bitstream.flash_formats import U32
 
 from mech.fusion.avm2.util import ValuePool
-from mech.fusion.avm2.instructions import parse_instruction, INSTRUCTIONS, getlocal, setlocal
+from mech.fusion.avm2.instructions import (parse_instruction, INSTRUCTIONS,
+                                           getlocal, setlocal,
+                                           _Avm2OffsetInstruction)
 
 BRANCH_OPTIMIZE = {
     ("equals", "not",  "iftrue"):  "ifne",
@@ -35,6 +39,9 @@ NO_OP = set((
 
 NO_OP_GLSL = "getlocal", "setlocal"
 
+LABEL_JUMP = "label", "jump"
+JUMP_LABEL = "jump", "label"
+
 class Avm2CodeAssembler(object):
     
     def __init__(self, constants, local_names):
@@ -50,24 +57,24 @@ class Avm2CodeAssembler(object):
         self._stack_depth_max = 0
         self._scope_depth_max = 0
         
-        self.offsets = []
+        self.offsets = {}
         self.labels  = {}
 
         self.flags = 0
         self.constants = constants
 
         self.registers_used = dict((i, i) for i, a in enumerate(local_names))
+        self.do_optimize = False
 
     def add_instruction(self, instruction):
         """
         Add an instruction to this block.
         """
         if self.instructions:
-            prev = self.instructions[-1]
-            instruction = self.optimize(prev, instruction)
-            prev = self.instructions[-1] # may have popped instruction
+            if self.do_optimize:
+                instruction = self.optimize(self.instructions[-1], instruction)
             if instruction:
-                prev.next = instruction
+                self.instructions[-1].next = instruction
         if instruction:
             instruction.set_assembler_props(self)
             self.instructions.append(instruction)
@@ -81,11 +88,22 @@ class Avm2CodeAssembler(object):
             self.registers_used.setdefault(instruction.argument, len(self.registers_used))
             instruction = setlocal(self.registers_used[instruction.argument])
         elif instruction.name.startswith("getlocal"):
-            instruction = getlocal(self.registers_used[instruction.argument])
+            instruction = getlocal(self.registers_used.get(instruction.argument, instruction.argument))
         if test in BRANCH_OPTIMIZE:
             self.instructions.pop()
             instruction = INSTRUCTIONS[BRANCH_OPTIMIZE[test]](instruction.lblname)
         elif test in NO_OP or (test == NO_OP_GLSL and prev.argument == instruction.argument):
+            self.instructions.pop()
+            return
+        elif isinstance(instruction, _Avm2OffsetInstruction):
+            self.offsets.setdefault(instruction.lblname, [])
+            self.offsets[instruction.lblname].append(instruction)
+        elif test == LABEL_JUMP:
+            self.instructions.pop()
+            for inst in self.offsets[prev.lblname]:
+                inst.lblname = instruction.lblname
+            return
+        elif test == JUMP_LABEL and prev.lblname == instruction.lblname:
             self.instructions.pop()
             return
         return instruction
@@ -153,13 +171,14 @@ class Avm2CodeAssembler(object):
         for inst in self.instructions:
             inst.set_assembler_props_late(self, len(code))
             code += inst.serialize()
-        for inst in self.offsets:
+        for inst in itertools.chain(*self.offsets.itervalues()):
             code = code[:inst.address+1] + inst.lbl.relative_offset(inst.address+4) + code[inst.address+4:]
         return code
 
     @classmethod
     def parse(cls, bitstream, abc, constants, local_count):
-        asm = cls(constants, ("_loc%d" % (i,) for i in xrange(local_count)))
+        asm = cls(constants, ["_loc%d" % (i,) for i in xrange(local_count)])
+        asm.do_optimize = False
         codelen = bitstream.read(U32)
         finish  = bitstream.cursor + codelen*8
         while bitstream.cursor < finish:

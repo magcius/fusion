@@ -148,9 +148,9 @@ class _Avm2U30Instruction(_Avm2ShortInstruction):
     
     def serialize(self):
         if self.arg_count != len(self.arguments):
-            raise ValueError("This opcode takes %d argument(s). "
+            raise ValueError("%s takes %d argument(s). "
                              "This instance has %d argument(s)." % \
-                             (self.arg_count, len(self.arguments)))
+                             (self.name, self.arg_count, len(self.arguments)))
         return chr(self.opcode) + ''.join(u32(i) for i in self.arguments)
     
     def __init__(self, argument, *arguments):
@@ -182,7 +182,6 @@ class _Avm2MultinameInstruction(_Avm2U30Instruction):
         self.multiname = multiname.multiname()
 
 class _Avm2OffsetInstruction(_Avm2ShortInstruction):
-    void = False
     def __repr_inner__(self):
         return" lbl=%r" % self.lblname
     
@@ -191,12 +190,7 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
         self.lbl = get_label(self.lblname, asm)
 
     def set_assembler_props_late(self, asm, address):
-        # Quick optimization geared towards PyPy.
-        if isinstance(self.next, label) and self.next.lblname == self.lblname:
-            self.void = True
-        else:
-            asm.offsets.append(self)
-            self.address = address
+        self.address = address
     
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -206,8 +200,6 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
         return cls(lbl.name)
     
     def serialize(self):
-        if self.void:
-            return ""
         return chr(self.opcode) + "\0\0\0"
     
     def __init__(self, name):
@@ -313,7 +305,7 @@ class _Avm2CallIDX(_Avm2U30Instruction):
         return cls(constants.multiname_pool.value_at(bitstream.read(U32)), bitstream.read(U32))
 
     def __repr_inner__(self):
-        return ", multiname=%s, arg_count=%d" % (self.multiname, self.num_args)
+        return ", multiname=%s, num_args=%d" % (self.multiname, self.num_args)
 
 class _Avm2CallMN(_Avm2CallIDX):
     is_void = False
@@ -339,16 +331,15 @@ class _Avm2NewObject(_Avm2U30Instruction):
     def set_assembler_props(self, asm):
         asm.stack_depth += 1 - (2 * self.argument)
 
-def _make_avm2(class_, opcode, name, stack=0, scope=0, flags=0, no_rt=False, num_args=1):
-    o, n, st, sc, f, nr, na = opcode, name, stack, scope, flags, no_rt, num_args
+def _make_avm2(class_, opcode, name, stack=0, scope=0, **kwargs):
+    o, n, st, sc = opcode, name, stack, scope
     class inner(class_):
         opcode = o
         name = n
         stack = st
         scope = sc
-        flags = f
-        no_rt = nr
-        arg_count = na
+    for k, v in kwargs.iteritems():
+        setattr(inner, k, v)
     inner.__name__ = name
     INSTRUCTIONS[name]   = inner
     INSTRUCTIONS[opcode] = inner
@@ -360,10 +351,10 @@ del _make_avm2
 # Instructions that push one value to the stack and take no arguments.
 dup = m(_Avm2ShortInstruction, 0x2A, "dup", 1)
 getglobalscope = m(_Avm2ShortInstruction, 0x64, "getglobalscope", 1)
-getlocal0 = m(_Avm2ShortInstruction, 0xD0, "getlocal0", 1)
-getlocal1 = m(_Avm2ShortInstruction, 0xD1, 'getlocal1', 1)
-getlocal2 = m(_Avm2ShortInstruction, 0xD2, 'getlocal2', 1)
-getlocal3 = m(_Avm2ShortInstruction, 0xD3, 'getlocal3', 1)
+getlocal0 = m(_Avm2ShortInstruction, 0xD0, "getlocal0", 1, argument=1)
+getlocal1 = m(_Avm2ShortInstruction, 0xD1, 'getlocal1', 1, argument=2)
+getlocal2 = m(_Avm2ShortInstruction, 0xD2, 'getlocal2', 1, argument=3)
+getlocal3 = m(_Avm2ShortInstruction, 0xD3, 'getlocal3', 1, argument=4)
 newactivation = m(_Avm2ShortInstruction, 0x57, 'newactivation', 1,\
                       flags=METHODFLAG_Activation)
 pushfalse = m(_Avm2ShortInstruction, 0x27, 'pushfalse', 1)
@@ -400,10 +391,10 @@ pushscope = m(_Avm2ShortInstruction, 0x30, 'pushscope', -1, 1) # Changes scope d
 pushwith = m(_Avm2ShortInstruction, 0x1C, 'pushwith', -1, 1) # Changes scope depth.
 returnvalue = m(_Avm2ShortInstruction, 0x48, 'returnvalue', -1)
 rshift = m(_Avm2ShortInstruction, 0xA6, 'rshift', -1)
-setlocal0 = m(_Avm2ShortInstruction, 0xD4, 'setlocal0', -1)
-setlocal1 = m(_Avm2ShortInstruction, 0xD5, 'setlocal1', -1)
-setlocal2 = m(_Avm2ShortInstruction, 0xD6, 'setlocal2', -1)
-setlocal3 = m(_Avm2ShortInstruction, 0xD7, 'setlocal3', -1)
+setlocal0 = m(_Avm2ShortInstruction, 0xD4, 'setlocal0', -1, argument=1)
+setlocal1 = m(_Avm2ShortInstruction, 0xD5, 'setlocal1', -1, argument=2)
+setlocal2 = m(_Avm2ShortInstruction, 0xD6, 'setlocal2', -1, argument=3)
+setlocal3 = m(_Avm2ShortInstruction, 0xD7, 'setlocal3', -1, argument=4)
 strictequals = m(_Avm2ShortInstruction, 0xAC, 'strictequals', -1)
 subtract = m(_Avm2ShortInstruction, 0xA1, 'subtract', -1)
 subtract_i = m(_Avm2ShortInstruction, 0xC6, 'subtract_i', -1)
@@ -441,14 +432,14 @@ typeof = m(_Avm2ShortInstruction, 0x95, 'typeof')
 call = m(_Avm2Call, 0x41, 'call')
 construct = m(_Avm2Construct, 0x42, 'construct')
 constructsuper = m(_Avm2ConstructSuper, 0x49, 'constructsuper')
-callmethod = m(_Avm2CallIDX, 0x43, 'callmethod', num_args=2)
-callstatic = m(_Avm2CallIDX, 0x43, 'callstatic', num_args=2)
-callsuper = m(_Avm2CallMN, 0x45, 'callsuper', num_args=2)
-callproperty = m(_Avm2CallMN, 0x46, 'callproperty', num_args=2)
-constructprop = m(_Avm2CallMN, 0x4A, 'constructprop', num_args=2)
-callproplex = m(_Avm2CallMN, 0x4C, 'callproplex', num_args=2)
-callsupervoid = m(_Avm2CallMNVoid, 0x4E, 'callsupervoid', num_args=2)
-callpropvoid = m(_Avm2CallMNVoid, 0x4F, 'callpropvoid', num_args=2)
+callmethod = m(_Avm2CallIDX, 0x43, 'callmethod', arg_count=2)
+callstatic = m(_Avm2CallIDX, 0x43, 'callstatic', arg_count=2)
+callsuper = m(_Avm2CallMN, 0x45, 'callsuper', arg_count=2)
+callproperty = m(_Avm2CallMN, 0x46, 'callproperty', arg_count=2)
+constructprop = m(_Avm2CallMN, 0x4A, 'constructprop', arg_count=2)
+callproplex = m(_Avm2CallMN, 0x4C, 'callproplex', arg_count=2)
+callsupervoid = m(_Avm2CallMNVoid, 0x4E, 'callsupervoid', arg_count=2)
+callpropvoid = m(_Avm2CallMNVoid, 0x4F, 'callpropvoid', arg_count=2)
 
 # Instructions that do not chage the stack height stack and take one U30 argument.
 astype = m(_Avm2U30Instruction, 0x86, 'astype')
@@ -485,7 +476,7 @@ _setlocal = m(_Avm2U30Instruction, 0x63, 'setlocal')
 setslot = m(_Avm2U30Instruction, 0x6D, 'setslot', -1)
 
 # Instructions that push one value to the stack and take two U30 arguments.
-hasnext2 = m(_Avm2U30Instruction, 0x32, 'hasnext2', 1, num_args=2)
+hasnext2 = m(_Avm2U30Instruction, 0x32, 'hasnext2', 1, arg_count=2)
 
 # Instructions that push/pop values to the stack (depends on arg) and take one U30 argument.
 newarray = m(_Avm2NewArray, 0x56, 'newarray')
@@ -532,19 +523,13 @@ setsuper = m(_Avm2MultinameInstruction, 0x05, 'setsuper', -2)
 def setlocal(index):
     _speed = {0: setlocal0, 1: setlocal1, 2: setlocal2, 3: setlocal3}
     if index in _speed:
-        inst = _speed[index]()
-        inst.argument = index
-        inst.arguments = [index]
-        return inst
+        return _speed[index]()
     return _setlocal(index)
 
 def getlocal(index):
     _speed = {0: getlocal0, 1: getlocal1, 2: getlocal2, 3: getlocal3}
     if index in _speed:
-        inst = _speed[index]()
-        inst.argument = index
-        inst.arguments = [index]
-        return inst
+        return _speed[index]()
     return _getlocal(index)
     
 del m
