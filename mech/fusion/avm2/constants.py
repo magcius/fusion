@@ -357,6 +357,11 @@ class MultinameA(Multiname):
 
 class QName(object):
     KIND = TYPE_MULTINAME_QName
+
+    def __new__(typ, name, ns=None):
+        if ns is None and isinstance(name, QName):
+            return name
+        return object.__new__(typ)
     
     def __init__(self, name, ns=None):
         self.name = name
@@ -384,8 +389,8 @@ class QName(object):
 
     @classmethod
     def parse_inner(cls, bitstream, constants):
-        return cls(ns=constants.namespace_pool.value_at(bitstream.read_u32()),
-                   name=constants.utf8_pool.value_at(bitstream.read_u32()))
+        return cls(ns=constants.namespace_pool.value_at(bitstream.read(U32)),
+                   name=constants.utf8_pool.value_at(bitstream.read(U32)))
         
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
@@ -598,13 +603,3 @@ class AbcConstantPool(BitStreamParseMixin):
         read_pool(pool.multiname_pool, serializable(Multiname))
 
         return pool
-
-
-
-
-
-
-
-
-
-

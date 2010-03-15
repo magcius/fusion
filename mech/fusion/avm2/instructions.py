@@ -309,6 +309,9 @@ class _Avm2CallIDX(_Avm2U30Instruction):
     def parse_inner(cls, bitstream, abc, constants, asm):
         return cls(constants.multiname_pool.value_at(bitstream.read(U32)), bitstream.read(U32))
 
+    def __repr_inner__(self):
+        return " multiname=%s, arg_count=%d" % (self.multiname, self.num_args)
+
 class _Avm2CallMN(_Avm2CallIDX):
     is_void = False
     def set_assembler_props(self, asm):

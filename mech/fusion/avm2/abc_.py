@@ -41,10 +41,14 @@ class AbcFile(BitStreamParseMixin):
         self.bodies    = ValuePool(parent=self)
 
     def write(self, value):
-        if hasattr(value, "write_to_abc"):
+        if getattr(value, "write_to_abc", None):
             value.write_to_abc(self)
-        if hasattr(value, "write_to_pool"):
+        if getattr(value, "write_to_pool", None):
             value.write_to_pool(self.constants)
+
+    def create_generator(self, make_script=True):
+        from mech.fusion.avm2.avm2gen import Avm2ilasm
+        return Avm2ilasm(self, make_script)
 
     @classmethod
     def from_bitstream(cls, bitstream):

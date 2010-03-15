@@ -68,6 +68,7 @@ def dump_class(cls, indent):
         print "extends %s" % (cls.instance.super_name,),
     print "{"
     cls.cinit.name = "%s$cinit" % (cls.name.name,)
+    cls.cinit.return_type = constants.QName("void")
     cls.instance.iinit.name = "%s$iinit" % (cls.name.name,)
     dump_method(cls.cinit, indent+"    ", "static ")
     dump_method(cls.instance.iinit, indent+"    ")

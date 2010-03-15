@@ -98,10 +98,8 @@ class Avm2CodeAssembler(object):
         code = ""
         for inst in self.instructions:
             inst.set_assembler_props_late(self, len(code))
-            print len(code), inst
             code += inst.serialize()
         for inst in self.offsets:
-            print inst.address, inst
             code = code[:inst.address+1] + inst.lbl.relative_offset(inst.address+4) + code[inst.address+4:]
         return code
 
