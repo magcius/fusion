@@ -57,7 +57,6 @@ class Avm2CodeAssembler(object):
         self.constants = constants
 
         self.registers_used = dict((i, i) for i, a in enumerate(local_names))
-        print self.registers_used
 
     def add_instruction(self, instruction):
         """
