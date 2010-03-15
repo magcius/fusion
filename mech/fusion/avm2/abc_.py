@@ -3,17 +3,14 @@ import struct
 
 from mech.fusion.bitstream import BitStream, BitStreamParseMixin
 
-from mech.fusion.avm2 import instructions
-
 from mech.fusion.avm2.constants import (AbcConstantPool,
                                         METHODFLAG_HasOptional,
                                         METHODFLAG_HasParamNames,
                                         py_to_abc, abc_to_py)
 
+from mech.fusion.avm2 import instructions
 from mech.fusion.avm2.util import serialize_u32 as s_u32, ValuePool
-
 from mech.fusion.avm2.assembler import Avm2CodeAssembler
-
 from mech.fusion.avm2.traits import AbcTrait
 
 MAJOR_VERSION = 46
@@ -121,7 +118,7 @@ class AbcMethodInfo(object):
                                  constants) for i in xrange(L)]
 
         param_names = None
-        if flags & METHODFLAG_HasParamNames:
+        if flags & Methodflag_hasparamnames:
             param_names = [constants.utf8_pool(bitstream.read_u32()) for i in xrange(PTL)]
 
         return cls(name, param_types, return_type, flags, options, param_names)
@@ -336,7 +333,7 @@ class AbcScriptInfo(object):
         self.traits = traits or []
         
         self.init = init
-        self._init_index = None
+
 
     @classmethod
     def parse(cls, bitstream, abc, constants):
@@ -345,7 +342,6 @@ class AbcScriptInfo(object):
         return cls(init, traits)
 
     def serialize(self):
-        
         code = ""
         
         code += s_u32(self._init_index)
@@ -391,7 +387,9 @@ class AbcMethodBodyInfo(object):
         traits     = [AbcTrait    .parse(bitstream, abc, constants) for i in xrange(bitstream.read_u32())]
     
     def serialize(self):
-        self.code.add_instruction(instructions.returnvoid())
+        if not isinstance(self.code.instructions[-1],(instructions.returnvalue, instructions.returnvoid)):
+            self.code.add_instruction(instructions.returnvoid())
+
         code = ""
         code += s_u32(self._method_info_index)
         code += s_u32(self.code._stack_depth_max+1) # just to be safe.
@@ -431,7 +429,6 @@ class AbcException(object):
         
         self.exc_type = exc_type
         self._exc_type_index = None
-
         self.var_name = var_name
         self._var_name_index = None
 
@@ -454,5 +451,3 @@ class AbcException(object):
     def write_to_pool(self, pool):
         self._exc_type_index = pool.multiname_pool.index_for(self.exc_type)
         self._var_name_index = pool.utf8_pool.index_for(self.var_name)
-        
-        

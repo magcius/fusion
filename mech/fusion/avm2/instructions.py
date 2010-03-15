@@ -47,6 +47,7 @@ class _Avm2ShortInstruction(object):
     opcode = None
     name  = None
     label = None
+    next  = None
     
     def __repr__(self):
         if self.opcode is None:
@@ -178,6 +179,7 @@ class _Avm2MultinameInstruction(_Avm2U30Instruction):
         self.multiname = multiname.multiname()
 
 class _Avm2OffsetInstruction(_Avm2ShortInstruction):
+    void = False
     def __repr_inner__(self):
         return" lbl=%r" % self.lblname
     
@@ -186,8 +188,12 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
         self.lbl = get_label(self.lblname, asm)
 
     def set_assembler_props_late(self, asm, address):
-        asm.offsets.append(self)
-        self.address = address
+        # Quick optimization geared towards PyPy.
+        if isinstance(self.next, label) and self.next.lblname == self.lblname:
+            self.void = True
+        else:
+            asm.offsets.append(self)
+            self.address = address
     
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -197,6 +203,8 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
         inst = cls(lbl.name)
     
     def serialize(self):
+        if self.void:
+            return ""
         return chr(self.opcode) + "\0\0\0"
     
     def __init__(self, name):

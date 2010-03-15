@@ -31,8 +31,9 @@ class Avm2CodeAssembler(object):
         Add an instruction to this block.
         """
         instruction.set_assembler_props(self)
+        if self.instructions:
+            self.instructions[-1].next = instruction
         self.instructions.append(instruction)
-        self.instructions[-1].next = instruction
 
     def add_instructions(self, instructions):
         """
@@ -64,27 +65,15 @@ class Avm2CodeAssembler(object):
         return self.temporaries.next_free()
 
     def set_local(self, name):
-        if isinstance(name, int):
-            return name
         return self.temporaries.index_for(name, True)
 
     def get_local(self, name):
-        if isinstance(name, int):
-            return name
         return self.temporaries.index_for(name, False)
     
     def kill_local(self, name):
-        if isinstance(name, int):
-            return name
         return self.temporaries.kill(name)
 
     def has_local(self, name):
-        if isinstance(name, int):
-            try:
-                self.temporaries.value_at(name)
-                return True
-            except IndexError:
-                return False
         return name in self.temporaries
 
     @property
