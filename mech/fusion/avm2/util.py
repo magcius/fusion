@@ -121,6 +121,8 @@ class ValuePool(object):
         if value is empty:
             raise ValueError
 
+        return value
+
     def next_free(self):
         if empty in self.pool:
             index = self.pool.index(empty)

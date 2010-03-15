@@ -1,6 +1,8 @@
 
 import struct
 from mech.fusion.bitstream.bitstream import BitStreamParseMixin
+from mech.fusion.bitstream.flash_formats import UI8, U32, DOUBLE
+from mech.fusion.bitstream.formats import UTF8
 from mech.fusion.avm2.util import (serialize_u32 as s_u32,
                                    ValuePool, U32_MAX, S32_MAX)
 
@@ -203,7 +205,7 @@ class Namespace(object):
         return hash((self.name, self.kind))
         
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.name == other.name and self.kind == other.kind
+        return isinstance(other, type(self)) and self.name == other.name and self.kind == other.kind
 
     def __ne__(self, other):
         return not self == other
@@ -217,7 +219,8 @@ class Namespace(object):
 
     @classmethod
     def parse(cls, bitstream, constants):
-        return cls(bitstream.read_int_value(8), constants.utf8_pool.value_at(bitstream.read_u32()))
+        inst = cls(bitstream.read(UI8), constants.utf8_pool.value_at(bitstream.read(U32)))
+        return inst
     
     def __repr__(self):
         return self.name or 'global'
@@ -235,7 +238,7 @@ class NamespaceSet(object):
         return hash(tuple(self.namespaces))
     
     def __eq__(self, other):
-        return  isinstance(other, self.__class__) and self.namespaces == other.namespaces
+        return  isinstance(other, type(self)) and self.namespaces == other.namespaces
 
     def __ne__(self, other):
         return not self == other
@@ -245,7 +248,7 @@ class NamespaceSet(object):
 
     @classmethod
     def parse(cls, bitstream, constants):
-        return cls(*(Namespace.parse(bitstream, constants) for i in bitstream.read_u32()))
+        return cls(*(Namespace.parse(bitstream, constants) for i in bitstream.read(U32)))
     
     def serialize(self):
         assert self._namespace_indices is not None, "Please call write_to_pool before serializing"
@@ -566,10 +569,10 @@ class AbcConstantPool(BitStreamParseMixin):
         pool = cls()
         
         def double():
-            return bitstream.read_float_value(64, endianness="<")
+            return bitstream.read(DOUBLE)
 
         def utf8():
-            return bitstream.read_string(bitstream.read_u32())
+            return bitstream.read(UTF8[bitstream.read(U32)])
 
         def serializable(item):
             def _inner():

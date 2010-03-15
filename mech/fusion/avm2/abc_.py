@@ -118,7 +118,7 @@ class AbcMethodInfo(object):
                                  constants) for i in xrange(L)]
 
         param_names = None
-        if flags & Methodflag_hasparamnames:
+        if flags & METHODFLAG_HasParamNames:
             param_names = [constants.utf8_pool(bitstream.read_u32()) for i in xrange(PTL)]
 
         return cls(name, param_types, return_type, flags, options, param_names)

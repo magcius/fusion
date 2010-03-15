@@ -1,4 +1,4 @@
-\
+
 from collections import namedtuple
 
 from math import log, floor, ceil, isnan
