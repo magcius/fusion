@@ -125,7 +125,7 @@ class _Avm2DebugInstruction(_Avm2ShortInstruction):
     
 class _Avm2U8Instruction(_Avm2ShortInstruction):
     def __repr_inner__(self):
-        return " arg=%d" % (self.argument,)
+        return ", arg=%d" % (self.argument,)
     
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -140,7 +140,7 @@ class _Avm2U8Instruction(_Avm2ShortInstruction):
 class _Avm2U30Instruction(_Avm2ShortInstruction):
     arg_count = 1
     def __repr_inner__(self):
-        return " arg=" + ' '.join("0x%02X" % (a,) for a in self.arguments)
+        return ", arg=" + ' '.join("0x%02X" % (a,) for a in self.arguments)
     
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -174,6 +174,9 @@ class _Avm2MultinameInstruction(_Avm2U30Instruction):
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
         return cls(constants.multiname_pool.value_at(bitstream.read(U32)))
+
+    def __repr_inner__(self):
+        return ", multiname=%s" % (self.multiname,)
     
     def __init__(self, multiname):
         self.multiname = multiname.multiname()
@@ -310,7 +313,7 @@ class _Avm2CallIDX(_Avm2U30Instruction):
         return cls(constants.multiname_pool.value_at(bitstream.read(U32)), bitstream.read(U32))
 
     def __repr_inner__(self):
-        return " multiname=%s, arg_count=%d" % (self.multiname, self.num_args)
+        return ", multiname=%s, arg_count=%d" % (self.multiname, self.num_args)
 
 class _Avm2CallMN(_Avm2CallIDX):
     is_void = False

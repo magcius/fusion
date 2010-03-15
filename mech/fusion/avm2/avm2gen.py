@@ -38,7 +38,7 @@ class _MethodContextMixin(object):
         An internal function for generating an AbcMethodInfo
         with the given name, parameters, and return type.
         """
-        return abc.AbcMethodInfo(self.gen._get_type(name),
+        return abc.AbcMethodInfo(name,
                                  [self.gen._get_type(t) for t, n in params],
                                  self.gen._get_type(rettype),
                                  param_names=[n for t, n in params])
@@ -52,7 +52,8 @@ class _MethodContextMixin(object):
         Multiname, Name, etc). A common use is to use a QName with the ns
         being a private, protected or public namespace for access protection.
         """
-        meth = self.new_method_info(name, params or [], rettype or constants.QName("void"))
+        params = params or []
+        meth = self.new_method_info(name, params, rettype or constants.QName("void"))
         KIND = dict(method=traits.AbcMethodTrait,
                     getter=traits.AbcGetterTrait,
                     setter=traits.AbcSetterTrait)
@@ -128,9 +129,11 @@ class ScriptContext(_MethodContextMixin):
         self.done = True
         meth = self.make_init()
 
-        if meth.asm.instructions:
-            insts = meth.asm.instructions
-            meth.asm.instructions = []
+        insts = []
+
+        if meth.asm.instructions[2:]:
+            insts = meth.asm.instructions[2:]
+            meth.asm.instructions = meth.asm.instructions[:2]
 
         self.gen.I(instructions.getscopeobject(0))
 
@@ -207,7 +210,7 @@ class ClassContext(_MethodContextMixin):
         else:
             self.iinit = self.new_method_info("", params, constants.QName("void"))
             self.iinit.ctx = MethodContext(self.gen, self.iinit, self, [])
-            self.iiint.ctx.constructor = True
+            self.iinit.ctx.constructor = True
         
         self.gen.enter_context(self.iinit.ctx)
 
