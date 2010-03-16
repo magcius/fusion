@@ -478,7 +478,7 @@ class Avm2ilasm(object):
 
     def end_class(self):
         """
-        Exit and return the current context if we are in a class, throw a
+        Exit and return the current context if we are in a class, raise a
         WrongContextError otherwise.
         """
         if self.context.CONTEXT_TYPE == "class":
@@ -532,7 +532,7 @@ class Avm2ilasm(object):
 
     def end_method(self):
         """
-        Exit and return the current context if we are in a class, throw a
+        Exit and return the current context if we are in a class, raose a
         WrongContextError otherwise.
 
         This method will work for constructors, but it is is recommended
@@ -545,7 +545,7 @@ class Avm2ilasm(object):
 
     def end_constructor(self):
         """
-        Exit and return the current context if we are in a class, throw a
+        Exit and return the current context if we are in a class, raise a
         WrongContextError otherwise.
         """
         if self.context.CONTEXT_TYPE == "method" and self.context.constructor:
@@ -626,6 +626,12 @@ class Avm2ilasm(object):
         """
         self.I(instructions.dup())
 
+    def throw(self):
+        """
+        Throw the top item on the stack.
+        """
+        self.I(instructions.throw())
+
     def swap(self):
         """
         Swap the top two items on the stack.
@@ -668,55 +674,55 @@ class Avm2ilasm(object):
             self.branch_if_false(lblname)
 
     def branch_if_true(self, lblname):
-        self.emit('iftrue', lblname)
+        self.I(instructions.iftrue(lblname))
 
     def branch_if_false(self, lblname):
-        self.emit('iffalse', lblname)
+        self.I(instructions.iffalse(lblname))
 
     def branch_if_equal(self, lblname):
-        self.emit('ifeq', lblname)
+        self.I(instructions.ifeq(lblname))
 
     def branch_if_strict_equal(self, lblname):
-        self.emit('ifstricteq', lblname)
+        self.I(instructions.ifstricteq(lblname))
 
     def branch_if_not_equal(self, lblname):
-        self.emit('ifne', lblname)
+        self.I(instructions.ifne(lblname))
 
     def branch_if_strict_not_equal(self, lblname):
-        self.emit('ifstrictne', lblname)
+        self.I(instructions.ifstrictne(lblname))
 
     def branch_if_greater_than(self, lblname):
-        self.emit('ifgt', lblname)
+        self.I(instructions.ifgt(lblname))
 
     def branch_if_greater_equals(self, lblname):
-        self.emit('ifge', lblname)
+        self.I(instructions.ifge(lblname))
 
     def branch_if_less_than(self, lblname):
-        self.emit('iflt', lblname)
+        self.I(instructions.iflt(lblname))
 
     def branch_if_less_equals(self, lblname):
-        self.emit('ifle', lblname)
+        self.I(instructions.ifle(lblname))
 
     def branch_if_not_greater_than(self, lblname):
-        self.emit('ifngt', lblname)
+        self.I(instructions.ifngt(lblname))
 
     def branch_if_not_greater_equals(self, lblname):
-        self.emit('ifnge', lblname)
+        self.I(instructions.ifnge(lblname))
 
     def branch_if_not_less_than(self, lblname):
-        self.emit('ifnlt', lblname)
+        self.I(instructions.ifnlt(lblname))
 
     def branch_if_not_less_equals(self, lblname):
-        self.emit('ifnle', lblname)
+        self.I(instructions.ifnle(lblname))
 
     def call_function_constargs(self, name, *args):
         """
         Call the global function "name" with constant arguments.
         """
-        self.emit('findpropstrict', constants.QName(name))
+        self.I(instructions.findpropstrict(constants.QName(name)))
         if args:
             self.load(*args)
-        self.emit('callproperty', constants.QName(name), len(args))
+        self.I(instructions.callproperty(constants.QName(name), len(args)))
 
     def return_value(self):
         """
@@ -869,9 +875,9 @@ class Avm2ilasm(object):
         """
         Creates an Array with the given length.
         """
-        self.emit('getglobalscope')
+        self.I(instructions.getglobalscope())
         self.push_const(length)
-        self.emit('constructprop', constants.QName("Array"), 1)
+        self.I(instructions.constructprop(constants.QName("Array"), 1))
 
     def call_function(self, name, argcount):
         """
@@ -882,8 +888,8 @@ class Avm2ilasm(object):
         arguments in first-pushed first-argument order.
         """
         name = constants.QName(name)
-        self.emit('findpropstrict', name)
-        self.emit('callproperty', name, argcount)
+        self.I(instructions.findpropstrict(name))
+        self.I(instructions.callproperty(name, argcount))
 
     def call_method(self, name, argcount):
         """
@@ -893,7 +899,7 @@ class Avm2ilasm(object):
         off the stack, and calls the method on the receiver with the
         arguments in first-pushed first-argument order.
         """
-        self.emit('callproperty', constants.QName(name), argcount)
+        self.I(instructions.callproperty(constants.QName(name), argcount))
 
     def set_field(self, fieldname):
         """
@@ -902,7 +908,7 @@ class Avm2ilasm(object):
         Pops "value" from the stack. Pops "obj" from the stack. Sets the
         field named "fieldname" on "obj" with the value "value".
         """
-        self.emit('setproperty', constants.QName(fieldname))
+        self.I(instructions.setproperty(constants.QName(fieldname)))
 
     def get_field(self, fieldname):
         """
@@ -911,7 +917,7 @@ class Avm2ilasm(object):
         Pops an object from the top of the stack, gets the field "fieldname",
         and pushes it on the stack.
         """
-        self.emit('getproperty', constants.QName(fieldname))
+        self.I(instructions.getproperty(constants.QName(fieldname)))
 
     def downcast(self, TYPE):
         """
@@ -922,7 +928,7 @@ class Avm2ilasm(object):
         on the top of the stack. Otherwise, it pushes the constant null
         on the top of the stack.
         """
-        self.emit('coerce', self._get_type(TYPE))
+        self.I(instructions.coerce(self._get_type(TYPE)))
 
     def isinstance(self, TYPE):
         """
@@ -931,7 +937,7 @@ class Avm2ilasm(object):
         Pops an object from the top of the stack, checks if it inherits or
         implements TYPE, and pushes that boolean onto the stack.
         """
-        self.emit('istype', self._get_type(TYPE))
+        self.I(instructions.istype(self._get_type(TYPE)))
 
     def gettype(self):
         """
@@ -963,26 +969,26 @@ class Avm2ilasm(object):
         idx = self.context.add_exception(name)
         self.context.restore_scopes()
         self.enter_context(ctx)
-        self.emit('newcatch', idx)
+        self.I(instructions.newcatch(idx))
         self.dup()
         self.store_var(ctx.local)
         self.dup()
-        self.emit('pushscope')
+        self.I(instructions.pushscope(pushscope))
         self.swap()
-        self.emit('setslot', 1)
+        self.I(instructions.setslot(1))
 
     def push_exception(self, nest=None):
         """
         If we are in a catch block, attempt to push the exception.
         """
-        self.emit('getscopeobject', nest or self.context.scope_nest)
-        self.emit('getslot', 1)
+        self.I(instructions.getscopeobject(nest or self.context.scope_nest))
+        self.I(instructions.getslot(1))
 
     def end_catch(self):
         """
         End a catch block.
         """
-        self.emit('popscope')
+        self.I(instructions.popscope())
         self.KL(self.context.local)
         self.exit_context()
 
