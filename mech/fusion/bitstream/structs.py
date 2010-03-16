@@ -374,7 +374,10 @@ class Struct(StructMixin):
             ', '.join("%r=%s" % (k, v) for k, v in self._FIELDS.iteritems()))
 
     def __getattr__(self, name):
-        return self._FIELDS[name]
+        try:
+            return self._FIELDS[name]
+        except KeyError, e:
+            raise AttributeError(str(e))
 
     def _setattr(self, name, value):
         self._FIELDS[name] = value
