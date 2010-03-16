@@ -6,7 +6,7 @@ swf = s.SwfData()
 swf.add_tag(t.FileAttributes())
 swf.add_tag(t.SetBackgroundColor(0x333333))
 swf.add_tag(t.DefineEditText(r.Rect(0, 600, 0, 400), "tt",
-                                  "Testing script order.", color=r.RGBA(0xFFFFFF)))
+                             "Testing script order.", color=r.RGBA(0xFFFFFF)))
 swf.add_tag(t.PlaceObject2(1, 2, name="edittext"))
 abc = t.DoABC()
 actions = g.Avm2ilasm(abc, False)

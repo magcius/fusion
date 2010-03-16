@@ -153,14 +153,10 @@ class RGBA(RGB):
         ====== ===========
         """
         bits = RGB.as_bitstream(self)
-        
-        from mech.fusion.swf.tags import DefineShape
-        
-        # If we are in a DefineShape and the version does not support
-        # alpha (DefineShape1 or DefineShape2), don't use alpha!
-        if DefineShape._current_variant not in (1, 2):
-            bits.write(int(self.alpha * 0xFF), UI8)
-        
+        bits.skip_to_end()
+
+        bits.write(int(self.alpha * 0xFF), UI8)
+
         return bits
 
     @classmethod
@@ -168,9 +164,7 @@ class RGBA(RGB):
         from mech.fusion.swf.tags import DefineShape
         rgb = RGB.from_bitstream(bitstream)
         color = rgb.color
-        alpha = 1.0
-        if DefineShape._current_variant not in (1, 2):
-            alpha = bitstream.read(UI8) / 255.
+        alpha = bitstream.read(UI8) / 255.
         return RGBA(color, alpha)
 
 class CXForm(Struct):
