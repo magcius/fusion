@@ -557,6 +557,7 @@ class DefineEditText(SwfTag):
     def parse_inner(cls, bits):
         CharacterID = bits.read(UI16)
         Bounds      = Rect.from_bitstream(bits)
+        bits.skip_flush()
         
         HasText       = bits.read(Bit)
         WordWrap      = bits.read(Bit)
@@ -594,7 +595,7 @@ class DefineEditText(SwfTag):
         if HasLayout:    Layout    = NonExistant.parse(bits)
 
         Variable         = bits.read(CString)
-        if HasText: Text = Text.read(CString)
+        if HasText: Text = bits.read(CString)
 
         inst = cls(Bounds, Variable, Text, ReadOnly, IsHTML, WordWrap,
                    Multiline, Password, AutoSize, not NotSelectable,
@@ -606,11 +607,11 @@ class DefineEditText(SwfTag):
 
     def serialize_data(self):
         bits = BitStream()
-        bits.write(self.characterid, SI16)
-        
+        bits.write(self.characterid, UI16)
+
         bits += self.rect
         bits.flush()
-        
+
         flags = BitStream()
         flags.write(self.text != "")
         flags.write(self.wordwrap)
@@ -620,7 +621,7 @@ class DefineEditText(SwfTag):
         flags.write(self.color is not None)
         flags.write(self.maxlength is not None)
         flags.write(self.font is not None)
-        
+
         flags.write(self.fontclass is not None)
         flags.write(self.autosize)
         flags.write(self.layout is not None)
@@ -631,14 +632,15 @@ class DefineEditText(SwfTag):
         flags.write(self.outlines)
 
         bits += flags
-        
+        print bits
+
         if self.font is not None:
             bits.write(self.font.id, UI16) # Doesn't exist yet.
         if self.fontclass is not None:
             bits.write(self.fontclass, CString)
         if self.font is not None:
             bits.write(self.size, UI16)
-        
+
         if self.color is not None:
             bits += self.color
         if self.maxlength is not None:
@@ -646,12 +648,15 @@ class DefineEditText(SwfTag):
         if self.layout is not None:
             bits += self.layout # Doesn't exist yet.
 
-        bits.write_cstring(self.variable)
-        
+        bits.write(self.variable, CString)
+
         if self.text != "":
-            bits.write_cstring(self.text)
+            bits.write(self.text, CString)
         return bits.serialize()
-        
+
+    def __repr_inner__(self):
+        return "bounds=%s, variable=%r, initial_text=%r" % (self.rect, self.variable, self.text)
+
 class End(SwfTag):
 
     TAG_TYPE = 0

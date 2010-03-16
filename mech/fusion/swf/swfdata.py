@@ -108,6 +108,8 @@ class SwfData(BitStreamParseMixin):
         return ["CWS" if self.compress else "FWS", struct.pack("<B", self.version), "\0\0\0\0"]
 
     def _gen_data_stub(self):
-        data = Rect(XMax=self.width, YMax=self.height).as_bitstream().serialize()
-        return data + struct.pack("<BBH", int((self.fps - int(self.fps)) * 0x100),
+        rect = Rect(XMax=self.width, YMax=self.height).as_bitstream()
+        print len(rect)
+        rect = rect.serialize()
+        return rect + struct.pack("<BBH", int((self.fps - int(self.fps)) * 0x100),
                                   self.fps, self.frame_count)

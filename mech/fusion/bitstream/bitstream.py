@@ -309,20 +309,21 @@ class BitStreamFormatAdaptor(object):
     # bs.read(BitStream)
     def _read(self, bs, cursor):
         inst = self.bitstream()
-        L = len(bs)
-        BitStreamDataFormat(type(self), L)._write(bs, cursor, argument)
+        L = bs.bits_available
+        advance = BitStreamDataFormat(type(self), L)._write(inst, 0, bs)
         inst.rewind()
-        return inst
+        return inst, advance
     
     # bs.write(bs2, BitStream)
     # bs.write(bs2)
     def _write(self, bs, cursor, argument):
         argument = IBitStream(argument)
-        cursor = argument.cursor
+        argcursor = argument.cursor
         argument.rewind()
-        L = len(argument)
-        BitStreamDataFormat(type(self), L)._write(bs, cursor, argument)
-        argument.cursor = cursor
+        L = argument.bits_available
+        advance = BitStreamDataFormat(type(self), L)._write(bs, cursor, argument)
+        argument.cursor = argcursor
+        return advance
 
 # bs.read(BitStream)
 # bs.write(bs2, BitStream)
@@ -367,9 +368,10 @@ class BitStreamDataFormat(object):
         bs.write(argument.read(F.ByteString[bytes]),
                  F.ByteString[bytes:self.endianness])
         if bits:
-            bs.cursor = cursor
-            bs.write(argument.read(F.UB[bits]), F.UB[bits])
-        return bytes*8
+            if self.endianness == "<":
+                F.UB[bits]._write(bs, cursor, argument.read(F.UB[bits]))
+            else:
+                bs.write(argument.read(F.UB[bits]), F.UB[bits])
 
 class BitStreamParseMixin(object):
     @classmethod
