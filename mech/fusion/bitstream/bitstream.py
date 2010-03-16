@@ -391,4 +391,4 @@ class BitStreamParseMixin(object):
 
     @classmethod
     def from_filename(cls, filename):
-        return cls.from_file(open(filename))
+        return cls.from_file(open(filename, "rb"))

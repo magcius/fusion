@@ -55,11 +55,11 @@ actions.exit_context()
 actions.exit_context()
 actions.exit_context()
 
-f = open("example.abc", "w")
+f = open("example.abc", "wb")
 f.write(a.AbcFile.serialize(abc))
 f.close()
 
-f = open("example.swf", "w")
+f = open("example.swf", "wb")
 f.write(swf.serialize())
 f.close()
 
