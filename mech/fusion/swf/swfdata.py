@@ -1,9 +1,9 @@
 
 import struct
 
-from mech.fusion.bitstream.formats import UB, SB, ByteString, ByteList
+from mech.fusion.bitstream.formats import ByteString
 from mech.fusion.bitstream.flash_formats import UI8, UI16, UI32, FIXED8
-from mech.fusion.bitstream.bitstream import BitStream, BitStreamParseMixin
+from mech.fusion.bitstream.bitstream import BitStreamParseMixin
 from mech.fusion.swf.records import Rect
 from mech.fusion.swf.tags import REVERSE_INDEX, ShowFrame, SwfTag
 
@@ -109,7 +109,6 @@ class SwfData(BitStreamParseMixin):
 
     def _gen_data_stub(self):
         rect = Rect(XMax=self.width, YMax=self.height).as_bitstream()
-        print len(rect)
         rect = rect.serialize()
         return rect + struct.pack("<BBH", int((self.fps - int(self.fps)) * 0x100),
                                   self.fps, self.frame_count)

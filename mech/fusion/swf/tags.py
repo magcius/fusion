@@ -632,7 +632,6 @@ class DefineEditText(SwfTag):
         flags.write(self.outlines)
 
         bits += flags
-        print bits
 
         if self.font is not None:
             bits.write(self.font.id, UI16) # Doesn't exist yet.

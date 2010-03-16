@@ -2,8 +2,6 @@
 from mech.fusion.swf import swfdata as s, tags as t, records as r
 from mech.fusion.avm2 import avm2gen as g, constants as c, abc_ as a, traits
 
-fl_dis_ns = c.Namespace("flash.display", c.TYPE_NAMESPACE_PackageNamespace)
-
 swf = s.SwfData()
 swf.add_tag(t.FileAttributes())
 swf.add_tag(t.SetBackgroundColor(0x333333))
