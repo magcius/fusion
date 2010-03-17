@@ -204,7 +204,10 @@ class AbcMetadataInfo(object):
             return constants.utf8_pool.value_at(bitstream.read(U32))
         
         name = uv()
-        items = [(uv(), uv()) for i in xrange(bitstream.read(U32))]
+        item_count = bitstream.read(U32)
+        keys   = [uv() for i in xrange(item_count)]
+        values = [uv() for i in xrange(item_count)]
+        items = dict(zip(keys, values))
         
         return cls(name, items)
         
@@ -218,6 +221,9 @@ class AbcMetadataInfo(object):
             code += s_u32(val_i)
         
         return code
+
+    def __repr__(self):
+        return "Metadata(%r, %s)" % (self.name, ''.join("%s=%r" % t for t in self.items.iteritems()))
 
     def write_to_pool(self, pool):
         strindex = pool.utf8_pool.index_for
@@ -406,7 +412,7 @@ class AbcMethodBodyInfo(object):
         code._scope_depth_max = scope_depth_max
 
         exceptions = [AbcException.parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
-        traits     = [AbcTrait    .parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
+        traits     = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
 
         return cls(minfo, code, traits, exceptions)
     

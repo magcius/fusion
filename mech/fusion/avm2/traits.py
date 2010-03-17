@@ -3,6 +3,7 @@ import struct
 
 from mech.fusion.bitstream.bitstream import BitStream
 from mech.fusion.bitstream.formats import U32, Bit, UB
+from mech.fusion.bitstream.flash_formats import UI8
 
 from mech.fusion.avm2.constants import py_to_abc, abc_to_py
 from mech.fusion.avm2.util import serialize_u32 as s_u32
@@ -37,7 +38,7 @@ class AbcTrait(object):
     def parse(cls, bitstream, abc, constants):
         name = constants.multiname_pool.value_at(bitstream.read(U32))
         bitstream.cursor += 1
-        has_metadata = bitstream.read_bit()
+        has_metadata = bitstream.read(Bit)
         override = bitstream.read(Bit)
         final    = bitstream.read(Bit)
         cls = TRAIT_KINDS[bitstream.read(UB[4])]
@@ -46,7 +47,7 @@ class AbcTrait(object):
         inst.final    = final
         inst.override = override
         if has_metadata:
-            L = xrange(bitstream.read_u32())
+            L = xrange(bitstream.read(U32))
             inst.metadata = [abc.metadatas.value_at(bitstream.read(U32)) for i in L]
         return inst
     
@@ -119,7 +120,7 @@ class AbcSlotTrait(AbcTrait):
         if self.value is None:
             self._value_index = 0
         else:
-            self._value_kind, self._value_index = py_to_abc(self.value)
+            self._value_kind, self._value_index = py_to_abc(self.value, pool)
             if self._value_index is None:
                 self._value_index = self._value_kind
         
@@ -133,7 +134,7 @@ class AbcSlotTrait(AbcTrait):
         value     = None
         if vindex:
             vkind = bitstream.read(UI8)
-            value = abc_to_py((vindex, vkind))
+            value = abc_to_py((vindex, vkind), constants)
         
         return cls(None, type_name, value, slot_id)
     
