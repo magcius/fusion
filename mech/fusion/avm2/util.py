@@ -57,9 +57,8 @@ class Avm2Label(object):
             % (self.name, self.address, self.stack_depth, self.scope_depth)
 
 empty = object()
-    
+
 class ValuePool(object):
-    
     def __init__(self, default=None, parent=None, debug=False):
         self.parent = parent
         self.index_map = {}
@@ -80,30 +79,29 @@ class ValuePool(object):
     def __len__(self):
         return len(self.pool) + int(self.has_default)
 
-    def index_for(self, value, add=True):
-        if self.debug and isinstance(value, str):
-            pass
-        
-        if self.has_default and (value == self.default or value is None):
+    def index_for(self, value, add=True, allow_conflicts=False):
+        if self.has_default and (value == self.default or value is None) and not allow_conflicts:
             return 0
-        
-        if value in self.index_map:
+
+        if value in self.index_map and not allow_conflicts:
             return self.index_map[value]
-        
+
         if not add:
             raise ValueError("value not in ValuePool\n\nHave: %r, requested %r" % (self.pool, value))
-        
+
         if hasattr(self.parent, "write_to"):
             self.parent.write(value)
-        
+
         index, reuse = self.next_free()
 
         if reuse:
             self.pool[index] = value
         else:
             self.pool.append(value)
-        self.index_map[value] = index
-        
+
+        if value not in self.index_map or value == self.default:
+            self.index_map[value] = index
+
         return index
 
     def value_at(self, index):
@@ -112,7 +110,7 @@ class ValuePool(object):
 
         if self.has_default:
             index -= 1
-        
+
         value = self.pool[index]
 
         if value is empty:
@@ -127,10 +125,10 @@ class ValuePool(object):
         else:
             index = len(self.pool)
             reuse = False
-        
+
         if self.has_default:
             index += 1
-        
+
         return index, reuse
 
     def kill(self, value):
