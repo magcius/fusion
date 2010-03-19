@@ -302,18 +302,17 @@ class Byte(Format):
                                  "available bits is not divisible by 8.")
             length = bs.bits_available // 8
 
+       # if bs.bits_available < length*8:
+       #     raise ValueError("BitStream read beyond boundaries")
+
         R = bs[cursor:cursor+length*8]
-        
         R = izip(*[iter(R)]*8)
-        
-        try:
-            if self.string:
-                bytes = ''.join(chr(lookup[a]) for a in R)
-            else:
-                bytes = [lookup[a] for a in R]
-        except KeyError:
-            raise ValueError("%s read beyond boundaries" % (bs,))
-        
+
+        if self.string:
+            bytes = ''.join(chr(lookup[a]) for a in R)
+        else:
+            bytes = [lookup[a] for a in R]
+
         if self.endianness == "<":
             bytes = bytes[::-1]
 
@@ -353,7 +352,7 @@ class Byte(Format):
                     bs.write(Zero[L])
         elif isinstance(bytes, str):
             if self.length is not None:
-                L = len(bytes) - self.length
+                L = self.length - len(bytes)
                 if L > 0 and self.endianness != "<":
                     bs.write(Zero[8*L])
                 elif L < 0:
