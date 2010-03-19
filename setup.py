@@ -3,7 +3,7 @@
 from distutils.core import setup
 
 setup(name='mecheye-fusion',
-      version='0.1.7',
+      version='0.1.8',
       description='SWF export/parse library',
       author='JP "magcius" St. Pierre, Josh Lory, Jon "Jonanin" Morton',
       author_email='jstpierre@mecheye.net',
