@@ -388,7 +388,10 @@ class CatchContext(object):
         return self.parent
 
 class Avm2ilasm(object):
-    """ AVM2 'assembler' generator routines """
+    """
+    Avm2ilasm is a nice generator interface for generating
+    common idioms in methods.
+    """
     def __init__(self, abc_=None, make_script=True):
         self.abc = abc_ or abc.AbcFile()
         self.constants = self.abc.constants
@@ -642,7 +645,7 @@ class Avm2ilasm(object):
         """
         Emit an instruction, with given arguments.
 
-        The list of possible instruction names is at on the bottom of
+        The list of possible instruction names is at the bottom of
         instructions.py
         """
         self.I(instructions.INSTRUCTIONS[instr](*args, **kwargs))
@@ -658,8 +661,8 @@ class Avm2ilasm(object):
         """
         Branch unconditionally to "lblname", also called a "jump".
 
-        Note: if a jump results a net zero offset, an instruction won't
-        be generated.
+        Note: if a jump results in a net zero offset, a jump instruction
+        won't be generated.
         """
         self.emit('jump', lblname)
 
@@ -717,7 +720,9 @@ class Avm2ilasm(object):
 
     def call_function_constargs(self, name, *args):
         """
-        Call the global function "name" with constant arguments.
+        Call the global function "name" with the constant arguments "args".
+
+        
         """
         self.I(instructions.findpropstrict(constants.QName(name)))
         if args:
@@ -736,6 +741,8 @@ class Avm2ilasm(object):
         
         Pop a value off the stack and store it in the local
         occupied to "name"
+
+        :param name: the name the local variable
         """
         self.SL(name)
 
