@@ -44,7 +44,7 @@ Undocumented as of now.
 METHODFLAG_IgnoreRest    = 0x10
 
 """
-Undocumented as fo now. Assuming this flag is to implement the
+Undocumented as of now. Assuming this flag is to implement the
 "native" keyword in AS3.
 """
 METHODFLAG_Native        = 0x20
@@ -328,6 +328,9 @@ class Multiname(MultinameL):
     def __hash__(self):
         return hash((self.KIND, self.name))
 
+    def __repr__(self):
+        return "%s::%s" % (self.ns_set, self.name)
+
     def write_to_pool(self, pool):
         super(Multiname, self).write_to_pool(pool)
         assert self.name != ""
@@ -577,7 +580,10 @@ class AbcConstantPool(BitStreamParseMixin):
     @classmethod
     def from_bitstream(cls, bitstream):
         pool = cls()
-        
+
+        def u32():
+            return bitstream.read(U32)
+
         def double():
             return bitstream.read(DOUBLE)
 
@@ -590,12 +596,12 @@ class AbcConstantPool(BitStreamParseMixin):
             return _inner
 
         def read_pool(P, fn):
-            L = bitstream.read_u32()
+            L = bitstream.read(U32)
             for i in xrange(L-1):
-                P.index_for(fn())
+                P.index_for(fn(), allow_conflicts=True)
 
-        read_pool(pool.int_pool, bitstream.read_u32)
-        read_pool(pool.uint_pool, bitstream.read_u32)
+        read_pool(pool.int_pool, u32)
+        read_pool(pool.uint_pool, u32)
         read_pool(pool.double_pool, double)
         read_pool(pool.utf8_pool, utf8)
         read_pool(pool.namespace_pool, serializable(Namespace))
