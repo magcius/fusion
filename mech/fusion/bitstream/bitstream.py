@@ -200,7 +200,7 @@ class BitStreamMixin(object):
         def set_cursor(bs, cursor):
             return None, value
         self.modify(set_cursor)
-    
+
     def decompress(self):
         """
         Decompress and replace the contents of
@@ -208,10 +208,10 @@ class BitStreamMixin(object):
         """
         cursor = self.cursor
         bytes = zlib.decompress(self.read(F.ByteString))
-        new_cursor = IFormat(F.ByteString)._write(self, cursor, bytes)
+        new_cursor = IFormat(F.ByteString)._write(self, cursor, bytes) + cursor
         self[new_cursor:] = []
         self.cursor = cursor
-    
+
     def serialize(self, align=ALIGN_LEFT):
         """
         Serialize bit array into a byte string, aligning either
