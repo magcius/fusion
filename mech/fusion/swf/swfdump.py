@@ -35,10 +35,8 @@ def dump_swf(swfdata):
     abcs = []
     for tag in swfdata.tags:
         print "    %04x %s" % (tag.offset, tag,)
-        if isinstance(tag, AbcFile):
-            abcs.append(tag)
 
-    for abc in abcs:
+    for abc in swfdata.collect_type(AbcFile):
         print "  %s:" % (abc.name,)
         dump_abc(abc, indent="  ")
 
@@ -52,9 +50,11 @@ def dump_pool(name, pool, indent="", default=None):
 def dump_traits(traits, indent, attrib=""):
     for trait in traits:
         if isinstance(trait, TRAITS.AbcSlotTrait):
+            print "["
             print indent+attrib+("const" if type(trait) is TRAITS.AbcConstTrait else "var"),
             print "%s:%s" % (trait.name, trait.type_name),
             print "// slot id=%d" % (trait.slot_id,)
+            print
         if isinstance(trait, TRAITS.AbcClassTrait):
             dump_class(trait.cls, indent)
         elif isinstance(trait, TRAITS.AbcMethodTrait):
@@ -76,10 +76,14 @@ def dump_class(cls, indent):
     print
 
 def dump_method(meth, indent, attrib=""):
-    print indent + "function %s%s(%s):%s {" % (attrib, meth.name,
-        ', '.join("%s:%s" % t for t in zip(meth.param_names, meth.param_types)), meth.return_type)
-    print meth.body.code.dump_instructions(indent=indent+"  ")
-    print indent + "}"
+    print indent + "function %s%s(%s):%s" % (attrib, meth.name,
+        ', '.join("%s:%s" % t for t in zip(meth.param_names, meth.param_types)), meth.return_type),
+    if meth.flags & constants.METHODFLAG_Native:
+        print ";"
+    else:
+        print "{"
+        print meth.body.code.dump_instructions(indent=indent+"  ")
+        print indent + "}"
     print
 
 def dump_abc(abc, indent=""):
