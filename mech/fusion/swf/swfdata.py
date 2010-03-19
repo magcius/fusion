@@ -1,4 +1,5 @@
 
+import itertools
 import struct
 
 from mech.fusion.bitstream.formats import ByteString
@@ -24,16 +25,18 @@ class SwfData(BitStreamParseMixin):
         Return all tags of *TYPE*.
 
         :param TYPE: a string indicating the tag name or the
-                     actual type itself, or a number indicating the tag type.
+                     actual type itself, or a number indicating the tag type,
+                     or tuples containing one or the other.
         :returns: an iterable of Tag objects, all the same type.
         """
+
+        if isinstance(TYPE, tuple):
+            return itertools.chain(*(self.collect_type(t) for t in TYPE))
         
         if TYPE in REVERSE_INDEX:
             TYPE = REVERSE_INDEX[TYPE]
-        
-        for tag in self.tags:
-            if type(tag) == TYPE:
-                yield tag
+
+        return (tag for tag in self.tags if isinstance(tag, TYPE))
 
     def __getitem__(self, i):
         return self.tags[i]
