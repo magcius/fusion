@@ -243,7 +243,7 @@ class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
         return cls(lbl.name, cases)
 
     def __init__(self, default_label_name=None, case_label_names=None):
-        self.default_label_name = default_label_name, self.case_label_names = case_label_names
+        self.default_label_name, self.case_label_names = default_label_name, case_label_names
 
 class _Avm2LabelInstruction(_Avm2ShortInstruction):
     def set_assembler_props(self, asm):
