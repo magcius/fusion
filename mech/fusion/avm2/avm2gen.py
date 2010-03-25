@@ -230,7 +230,7 @@ class ClassContext(_MethodContextMixin):
             self.iinit = self.new_method_info("", params, constants.QName("void"))
             self.iinit.ctx = MethodContext(self.gen, self.iinit, self, [])
             self.iinit.ctx.constructor = True
-        
+
         self.gen.enter_context(self.iinit.ctx)
 
         if not self.iinit.done:
@@ -257,10 +257,10 @@ class ClassContext(_MethodContextMixin):
         assert self.parent.CONTEXT_TYPE == "script"
         if self.iinit is None:
             self.make_iinit()
-            self.gen.exit_context()
+            self.gen.end_constructor()
         if self.cinit is None:
             self.make_cinit()
-            self.gen.exit_context()
+            self.gen.end_method()
         self.instance = abc.AbcInstanceInfo(self.name, self.iinit,
                                             traits=self.instance_traits,
                                             super_name=self.super_name)
@@ -268,7 +268,7 @@ class ClassContext(_MethodContextMixin):
         self.index = self.gen.abc.instances.index_for(self.instance)
         self.gen.abc.classes.index_for(self.classobj)
         return self.parent
-        
+
 class MethodContext(object):
     CONTEXT_TYPE = "method"
     scope_nest   = 0
@@ -283,7 +283,7 @@ class MethodContext(object):
         self.exceptions = []
         if stdprologue:
             self.restore_scopes()
-    
+
     def exit(self):
         if self.method.done:
             return self.parent
@@ -319,13 +319,13 @@ class MethodContext(object):
         self.asm.add_instruction(instructions.addexcinfo(self, exc))
         self.exceptions.append(exc)
         return len(self.exceptions)-1
-    
+
     def add_instructions(self, *i):
         """
         Add one or more instructions to this method.
         """
         self.asm.add_instructions(*i)
-    
+
     @property
     def next_free_local(self):
         """
