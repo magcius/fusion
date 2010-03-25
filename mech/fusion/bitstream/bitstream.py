@@ -103,17 +103,20 @@ class BitStreamMixin(object):
         This sets the cursor to the end of the stream.
         """
         self.skip_to_end()
-        lself = len(self)
-        if lself & 7:
-            self.write(F.Zero[8 - (lself & 7)])
+        leftover = self.cursor & 7
+        if leftover & 7:
+            self.write(F.Zero[8 - (leftover)])
     
     def skip_flush(self):
         """
         Align the cursor so that it is flush with the next
         byte, as in the cursor is a multiple of 8.
+
+        If there are not enough bits left, do nothing.
         """
-        if self.cursor & 7:
-            self.cursor += 8 - self.cursor & 7
+        leftover = self.cursor & 7
+        if leftover and self.bits_available > 8-leftover:
+            self.seek(8-leftover, os.SEEK_CUR)
 
     def __iter__(self):
         return iter(self.bits)
@@ -140,11 +143,15 @@ class BitStreamMixin(object):
               Standard Python library documentation.
         """
         if whence == os.SEEK_SET:
-            self.cursor = offset
+            def seek(bs, cursor):
+                return None, offset
         elif whence == os.SEEK_CUR:
-            self.cursor += offset
+            def seek(bs, cursor):
+                return None, offset + cursor
         elif whence == os.SEEK_END:
-            self.bits_available = offset
+            def seek(bs, cursor):
+                return None, len(bs) - offset
+        self.modify(seek)
 
     def rewind(self):
         """

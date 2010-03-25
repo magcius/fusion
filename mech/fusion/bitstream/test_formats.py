@@ -3,24 +3,12 @@ import py.test
 import os
 
 from mech.fusion.bitstream.bitstream import BitStream
-from mech.fusion.bitstream.formats import (Bit, Byte, ByteString,
-                                           CString, Zero, UB,
-                                           FloatFormat, FixedFormat)
 
-def test_constructor():
-    bits = BitStream("10")
-    assert bits.bits == [True, False]
+from mech.fusion.bitstream.formats import BitsList, Bit, Byte, ByteList, \
+     ByteString, SignedByte, SignedByteList, CString, UTF8, CUTF8, Zero, \
+     One, UB, SB, FB, FloatFormat, FixedFormat
 
-    bits = BitStream("10101100")
-    assert bits.bits == [True, False, True, False, True, True, False, False]
-
-    bits = BitStream("  1  ")
-    assert len(bits) == 1
-
-    bits = BitStream([True, False, True, False])
-    assert str(bits) == "1010"
-
-def test_read_bit():
+def test_Bit_read():
     bits = BitStream("1001")
     assert bits.read(Bit) == 1
     assert bits.read(Bit) == 0
@@ -29,60 +17,228 @@ def test_read_bit():
     assert bits.bits_available == 0
     py.test.raises(IndexError, bits.read, Bit)
 
-def test_write_bit():
+def test_Bit_write():
     bits = BitStream()
+
+    # Testing IFormat adapting.
     bits.write(True)
     bits.write(False)
+
+    # Testing Bit format.
     bits.write(1, Bit)
     bits.write(0, Bit)
-    assert str(bits) == "1010"
+
+    # Testing Bit format adaption by Bool.
+    bits.write(bits, Bit) # Should be True.
+    bits.write([], Bit)   # Should be False.
+
+    # Testing boolean formats.
+    bits.write(One)
+    bits.write(Zero)
+    assert str(bits) == "10101010"
     assert bits.bits_available == 0
 
-def test_cursor():
-    bits = BitStream("01001101")
-    assert bits.cursor == 0
-    bits.seek(1, os.SEEK_END)
-    assert bits.bits_available == 1
-    assert bits.read(Bit) == 1
-    py.test.raises(IndexError, bits.read, Bit)
+def test_FormatArray_read():
+    bits = BitStream("010101")
 
-    bits.rewind()
+    result = bits.read(Bit[:][6])
+    assert result == [False, True]*3
+
+def test_FormatArray_write():
+    bits = BitStream()
+
+    bits.write([True, False]*3, Bit[:][6])
+    assert str(bits) == "101010"
+
+def test_sequence_to_IFormat():
+    bits = BitStream()
+
+    bits.write([True, False, True])
+    assert str(bits) == "101"
+
+def test_Byte_read():
+    # Testing basics.
+    bits = BitStream("10101010 11001100")
+    result = bits.read(Byte[1])
+    assert result == 0b10101010
     assert bits.bits_available == 8
 
-    result = bits.read(Bit)
-    assert result == 0
+    result = bits.read(Byte[1])
+    assert result == 0b11001100
+    assert bits.bits_available == 0
 
-    result = bits.read(BitStream[2])
-    assert result == [True, False]
+    # Testing out-of-bounds checking.
+    py.test.raises(ValueError, bits.read, Byte)
 
-    bits.seek(1, os.SEEK_CUR)
-    assert bits.bits_available == 4
-    assert bits.read(BitStream[2]) == [True, True]
+    # Testing length.
+    bits.rewind()
+    result = bits.read(Byte[2])
+    assert result == 0b1010101011001100
+    assert bits.bits_available == 0
 
+    # Testing endianness.
+    bits.rewind()
+    result = bits.read(Byte[2:"<"])
+    assert result == 0b1100110010101010
+    assert bits.bits_available == 0
+
+    # Testing length behavior.
+    bits.rewind()
+    result = bits.read(Byte) # This should read one byte.
+    assert result == 0b10101010
+    assert bits.bits_available == 8
+
+    # Make length not divisible by 8.
     bits.skip_to_end()
-    assert bits.cursor == len(bits)
+    bits.write(Zero)
 
-    bits.cursor = 0
-    result = bits.read(BitStream[8])
-    assert str(result) == str(bits)
+    bits.rewind()
+    result = bits.read(Byte) # But this should still work.
+    assert result == 0b10101010
+    assert bits.bits_available == 9
 
-def test_read_string():
-    bits = BitStream("00101010")
-    result = bits.read(ByteString[1])
-    assert result == chr(42)
-    assert bits.bits_available == 0
+def test_Byte_write():
+    # Testing basics.
+    bits = BitStream()
+    bits.write(42, Byte)
+    assert str(bits) == "00101010"
 
+    # Testing signed numbers.
+    bits = BitStream()
+    bits.write(-42, SignedByte)
+    assert str(bits) == "11010110"
+
+    # Testing multiple-byte values.
+    bits = BitStream()
+    bits.write(1033, Byte)
+    assert str(bits) == "0000010000001001"
+
+    # Testing explicit length.
+    bits = BitStream()
+    bits.write(1033, Byte[3])
+    assert str(bits) == "000000000000010000001001"
+
+    # Testing leftover < 0.
+    bits = BitStream()
+    py.test.raises(ValueError, bits.write, 1033, Byte[1])
+
+    # Testing endianness.
+    bits = BitStream()
+    bits.write(1033, Byte["<"])
+    assert str(bits) == "0000100100000100"
+
+    # Testing endianness and explicit length.
+    bits = BitStream()
+    bits.write(1033, Byte[3:"<"])
+    assert str(bits) == "000010010000010000000000"
+
+def test_ByteString_read():
+    # Testing basics.
     bits = BitStream("00101010 00101111")
+    result = bits.read(ByteString[1])
+    assert result == chr(0b00101010)
+    assert bits.bits_available == 8
+
+    # Testing length.
+    bits.rewind()
     result = bits.read(ByteString[2])
-    assert result == chr(42) + chr(47)
+    assert result == chr(0b00101010) + chr(0b00101111)
     assert bits.bits_available == 0
 
+    # Testing endianness.
     bits.rewind()
     result = bits.read(ByteString[2:"<"])
-    assert result == chr(47) + chr(42)
+    assert result == chr(0b00101111) + chr(0b00101010)
     assert bits.bits_available == 0
 
+    # Testing with no length provided.
     bits.rewind()
+    result = bits.read(ByteString)
+    assert result == chr(0b00101010) + chr(0b00101111)
+
+
+    # Testing non-flush length.
+
+    # Make length not divisible by 8.
+    bits.skip_to_end()
+    bits.write(Zero)
+
+    bits.rewind()
+    result = bits.read(ByteString[2]) # This should still work.
+    assert result == chr(0b00101010) + chr(0b00101111)
+    assert bits.bits_available == 1
+
+    bits.rewind()
+    py.test.raises(ValueError, bits.read, ByteString) # But this should fail.
+
+def test_ByteString_write():
+    # Testing basics.
+    bits = BitStream()
+    bits.write("SWF", ByteString)
+    assert bits.bits_available == 0
+    assert len(bits) == 24
+
+    bits.rewind()
+    for i, char in enumerate("SWF"):
+        result = bits.read(Byte)
+        assert result == ord(char)
+        assert bits.bits_available + i*8 == 16
+
+    # Testing explicit length.
+    bits = BitStream()
+    bits.write("SWF", ByteString[3])
+    assert bits.bits_available == 0
+    assert len(bits) == 24
+
+    bits.rewind()
+    for i, char in enumerate("SWF"):
+        result = bits.read(Byte)
+        assert result == ord(char)
+        assert bits.bits_available + i*8 == 16
+
+    # Testing leftover > 0.
+    bits = BitStream()
+    bits.write("SWF", ByteString[4])
+    assert bits.bits_available == 0
+    assert len(bits) == 32
+
+    bits.rewind()
+    for i, char in enumerate("\0SWF"):
+        result = bits.read(Byte)
+        assert result == ord(char)
+        assert bits.bits_available + i*8 == 24
+
+    # Testing leftover < 0.
+    bits = BitStream()
+    py.test.raises(ValueError, bits.write, "SWF", ByteString[1])
+
+    # Testing endianness.
+    bits = BitStream()
+    bits.write("SWF", ByteString["<"])
+    assert bits.bits_available == 0
+    assert len(bits) == 24
+
+    bits.rewind()
+    for i, char in enumerate("FWS"):
+        result = bits.read(Byte)
+        assert result == ord(char)
+        assert bits.bits_available + i*8 == 16
+
+    # Testing leftover > 0 and endianness.
+    bits = BitStream()
+    bits.write("SWF", ByteString[5:"<"])
+    assert bits.bits_available == 0
+    assert len(bits) == 40
+
+    bits.rewind()
+    for i, char in enumerate("FWS\0\0"):
+        result = bits.read(Byte)
+        assert result == ord(char)
+        assert bits.bits_available + i*8 == 32
+
+def test_CString_read():
+    # Testing basics.
+    bits = BitStream()
     test_data = "test 123\x01\xFF"
     bits.write(test_data, ByteString)
     bits.write(Zero[8])
@@ -90,25 +246,14 @@ def test_read_string():
     result = bits.read(CString)
     assert result == test_data
 
+    # Testing error-handling.
     bits = BitStream()
     bits.write("adsfasfdgjklhrgokrjygaosaf", ByteString)
     bits.rewind()
     py.test.raises(ValueError, bits.read, CString)
 
-def test_write_string():
-    bits = BitStream()
-    bits.write("FWS", ByteString)
-    assert bits.bits_available == 0
-    assert len(bits) == 24
-    bits.rewind()
-    result = bits.read(Byte)
-    assert result == ord("F")
-    result = bits.read(Byte)
-    assert result == ord("W")
-    result = bits.read(Byte)
-    assert result == ord("S")
-    assert bits.bits_available == 0
-
+def test_CString_write():
+    # Testing basics.
     bits = BitStream()
     bits.write("FWS", CString)
     assert bits.bits_available == 0
@@ -116,68 +261,33 @@ def test_write_string():
     bits.rewind()
     result = bits.read(Byte)
     assert result == ord("F")
+    assert bits.bits_available == 24
     result = bits.read(Byte)
     assert result == ord("W")
+    assert bits.bits_available == 16
     result = bits.read(Byte)
     assert result == ord("S")
+    assert bits.bits_available == 8
     result = bits.read(Byte)
     assert result == 0
     assert bits.bits_available == 0
 
-def test_read_bits():
-    bits = BitStream("1011001")
-    result = bits.read(BitStream[4])
-    assert result == [True, False, True, True]
-    assert bits.bits_available == 3
-    py.test.raises(IndexError, bits.read, BitStream[4])
-
-    bits = BitStream()
-    bits.write("SWF", ByteString)
-    
-    bits.rewind()
-    result = bits.read(BitStream[24:"<"])
-    result = result.read(ByteString[3])
-    assert result == "FWS"
-    assert bits.bits_available == 0
-
-def test_write_bits():
-    L = [1, 0, True, False]
-    
-    bits = BitStream()
-    bits.write(L)
-    assert str(bits) == "1010"
-    
-    bits = BitStream("11")
-    bits.write(L)
-    assert str(bits) == "1010"
-
-    bits = BitStream()
-    bits.write(L[3:], BitStream[1])
-    bits.write(L[2:], BitStream[1])
-    assert str(bits) == "01"
-
-    test = BitStream()
-    test.write("SWF", ByteString)
-    test.rewind()
-    print str(test)
-    
-    bits = BitStream()
-    bits.write(test, BitStream["<"])
-    bits.rewind()
-    print str(bits)
-    
-    result = bits.read(ByteString[3])
-    assert result == "FWS"
-    assert bits.bits_available == 0
-
-def test_read_ub():
+def test_UB_read():
     bits = BitStream("101010")
     assert bits.read(UB[6]) == 42
     assert bits.bits_available == 0
 
-    bits = BitStream("01011111111111")
+    bits = BitStream("010 0111011001 101010 10001 10111")
     assert bits.read(UB[3]) == 2
-    assert bits.read_int_value(11) == 2047
+    assert bits.bits_available == 26
+    assert bits.read(UB[10]) == 0b0111011001
+    assert bits.bits_available == 16
+    assert bits.read(UB[6]) == 0b101010
+    assert bits.bits_available == 10
+    assert bits.read(UB[5]) == 0b10001
+    assert bits.bits_available == 5
+    assert bits.read(UB[5]) == 0b10111
+    assert bits.bits_available == 0
 
     bits = BitStream()
     bits.write("\xDD\xEE\xFF", ByteString)
@@ -190,9 +300,9 @@ def test_read_ub():
     bits.rewind()
     result = bits.read(UB[24:"<"])
     assert result == 0xFFEEDD
-    assert bits.bits_available == 0 
+    assert bits.bits_available == 0
 
-def test_write_ub():
+def test_UB_write():
     bits = BitStream()
     bits.write(0b1111, UB[4])
     assert len(bits) == 4 and str(bits) == "1111"
@@ -215,17 +325,18 @@ def test_write_ub():
     assert result == "\xFF\xEE\xDD"
     assert bits.bits_available == 0
 
-def test_write_byte():
-    bits = BitStream()
-    bits.write(0xFFEEDD, Byte[4:"<"])
-    print bits
-    assert False
-
-def test_read_fixed_value():
+def test_FixedValue_read():
     # TODO
     pass
 
-def test_read_float_value_16():
+def test_FixedValue_write():
+    # TODO
+    pass
+
+def test_FloatValue_read():
+    # Testing 16-bit float values.
+    # Note that these are Flash's FLOAT16, with a different exponent
+    # bias than the extended IEEE 754 spec.
     bits = BitStream("0100000000000000")
     result = bits.read(FloatFormat[16])
     assert result == 1
@@ -241,7 +352,7 @@ def test_read_float_value_16():
     assert result == float("-inf")
     assert bits.bits_available == 0
 
-def test_read_float_value_32():
+    # Testing 32-bit float values.
     bits = BitStream("0 01111100 01000000000000000000000")
     result = bits.read(FloatFormat[32])
     assert result == 0.15625
@@ -261,8 +372,8 @@ def test_read_float_value_32():
     result = bits.read(FloatFormat[32])
     assert result == float("-inf")
     assert bits.bits_available == 0
-    
-def test_read_float_value_64():
+
+    # Testing 32-bit float values.
     bits = BitStream("0011111111110000000000000000000000000000000000000000000000000000")
     result = bits.read(FloatFormat[64])
     assert result == 1
@@ -276,25 +387,4 @@ def test_read_float_value_64():
     bits = BitStream("1111111111110000000000000000000000000000000000000000000000000000")
     result = bits.read(FloatFormat[64])
     assert result == float("-inf")
-    assert bits.bits_available == 0
-
-def test_flush():
-    bits = BitStream("11")
-    bits.flush()
-    assert str(bits) == "11000000"
-    assert bits.bits_available == 0
-    
-    bits = BitStream("1111")
-    bits.flush()
-    assert str(bits) == "11110000"
-    assert bits.bits_available == 0
-
-    bits = BitStream("111111")
-    bits.flush()
-    assert str(bits) == "11111100"
-    assert bits.bits_available == 0
-    
-    bits = BitStream("11111111")
-    bits.flush()
-    assert str(bits) == "11111111"
     assert bits.bits_available == 0

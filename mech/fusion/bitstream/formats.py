@@ -20,16 +20,14 @@ def lookup():
     b1 = {}
     b2 = {}
     b3 = {}
-    b4 = {}
     for i in xrange(256):
         tup = tuple(bool(i & (1 << j)) for j in reversed(xrange(8)))
         b1[i] = tup
         b2[tup] = i
-        b3[i-128] = tup
-        b4[tup] = i-128
-    return b1, b2, b3, b4
+        b3[tup] = i-128
+    return b1, b2, b3
 
-BYTE_TO_BITS, BITS_TO_BYTE, SIGNED_BYTE_TO_BITS, BITS_TO_SIGNED_BYTE = lookup()
+BYTE_TO_BITS, BITS_TO_BYTE, BITS_TO_SIGNED_BYTE = lookup()
 del lookup
 
 def nbits_fixed(num, *args):
@@ -187,16 +185,16 @@ class Format(object):
             self.repr))
 
 class FormatArray(object):
-    
     implements(IFormat, IStructEvaluateable)
-    
     def __init__(self, format, repeat):
         self.format = IFormat(format)
         self.repeat = repeat
 
     def _read(self, bs, cursor):
+        results = []
         for i in xrange(self.repeat):
-            yield bs.read(self.format)
+            results.append(bs.read(self.format))
+        return results
 
     def _write(self, bs, cursor, argument):
         if len(argument) != self.repeat:
@@ -210,10 +208,10 @@ class FormatArray(object):
 
     def _evaluate(self, struct):
         return type(self)(self.format._evaluate(struct), self.repeat)
-    
+
     def __str__(self):
         return "%s[%s]" % (self.format, self.repeat)
-    
+
 class Bit(Format):
     
     """
@@ -223,7 +221,7 @@ class Bit(Format):
     @no_endianness
     def _read(self, bs, cursor):
         return bs[cursor], 1
-    
+
     @requires_length(can_be=(1, None))
     @no_endianness
     def _write(self, bs, cursor, bit):
@@ -238,7 +236,7 @@ class BitsList(Format):
              length = len(bs)
         data = bs[cursor:cursor+length]
         return data, length
-    
+
     @no_endianness
     def _write(self, bs, cursor, argument):
         lenL = len(argument)
@@ -251,8 +249,10 @@ class BoolFormat(Format):
     @no_endianness
     def _read(self, bs, cursor):
         length = 1 if self.length is None else self.length
+        value = bs.read(BitsList[self.length])
+        assert all(bit == self.VALUE for bit in value)
         return None, length
-    
+
     @no_endianness
     def _write(self, bs, cursor, argument):
         length = 1 if self.length is None else self.length
@@ -284,9 +284,9 @@ class Byte(Format):
         lookup = BITS_TO_BYTE
         if self.signed:
             lookup = BITS_TO_SIGNED_BYTE
-        
+
         length = self.length
-        if (length in (None, 1) and not self.string) or length == 1:
+        if (length == None and not self.string) or length == 1:
             if bs.bits_available < 8:
                 raise ValueError("%s read beyond boundaries" % (bs,))
             byte = lookup[tuple(bs.read(BitsList[8]))]
@@ -302,16 +302,16 @@ class Byte(Format):
                                  "available bits is not divisible by 8.")
             length = bs.bits_available // 8
 
-       # if bs.bits_available < length*8:
-       #     raise ValueError("BitStream read beyond boundaries")
+        if bs.bits_available < length*8:
+            raise ValueError("BitStream read beyond boundaries")
 
-        R = bs[cursor:cursor+length*8]
-        R = izip(*[iter(R)]*8)
+        bits = bs[cursor:cursor+length*8]
+        bits = izip(*[iter(bits)]*8) # group them.
 
         if self.string:
-            bytes = ''.join(chr(lookup[a]) for a in R)
+            bytes = ''.join(chr(lookup[a]) for a in bits)
         else:
-            bytes = [lookup[a] for a in R]
+            bytes = [lookup[a] for a in bits]
 
         if self.endianness == "<":
             bytes = bytes[::-1]
@@ -326,53 +326,61 @@ class Byte(Format):
 
     def _write(self, bs, cursor, bytes):
         if isinstance(bytes, (int, long)):
-            if bytes < 256 and self.length in (1, None):
+            if bytes in xrange(256) and self.length in (1, None):
                 bs[cursor:cursor+8] = BYTE_TO_BITS[bytes]
                 return 8
             Len = int(ceil(nbits(bytes)/8.)) * 8
-            L = self.length*8 - Len
-            if L > 0 and self.endianness != "<":
+            if self.length:
+                leftover = self.length*8 - Len
+            else:
+                leftover = 0
+            if leftover > 0 and self.endianness != "<":
                 if self.signed and bytes < 0:
-                    bs.write(One[L])
+                    bs.write(One[leftover])
                 else:
-                    bs.write(Zero[L])
-            elif L < 0:
+                    bs.write(Zero[leftover])
+            elif leftover < 0:
                 raise ValueError("%r does not fit in %d bytes"
                                  ""% (bytes, self.length))
-            
+
             R = xrange(0, Len, 8)
             if self.endianness != "<":
                 R = reversed(R)
+
             for i in R:
                 bs.write(BYTE_TO_BITS[(bytes & (0xFF << i)) >> i])
+
             if self.endianness == "<":
                 if self.signed and bytes < 0:
-                    bs.write(One[L])
+                    bs.write(One[leftover])
                 else:
-                    bs.write(Zero[L])
+                    bs.write(Zero[leftover])
+
         elif isinstance(bytes, str):
+            bits = []
             if self.length is not None:
-                L = self.length - len(bytes)
-                if L > 0 and self.endianness != "<":
-                    bs.write(Zero[8*L])
-                elif L < 0:
+                leftover = self.length - len(bytes)
+                if leftover > 0 and self.endianness != "<":
+                    bits += [False]*leftover*8
+                elif leftover < 0:
                     raise ValueError("%r does not fit in %d bytes"
                                      "" % (bytes, self.length))
             else:
-                L = 0
+                leftover = 0
+
             if self.endianness == "<":
                 bytes = reversed(bytes)
 
-            R = []
             for i in bytes:
-                if isinstance(i, str):
-                    i = ord(i)
-                R += BYTE_TO_BITS[i]
-            if self.endianness == "<":
-                R += [False]*L*8
-            S = len(R)
-            bs[cursor:cursor+S] = R
-            return S
+                bits += BYTE_TO_BITS[ord(i)]
+
+            if self.endianness == "<" and leftover > 0:
+                bits += [False]*leftover*8
+
+            bitlen = len(bits)
+            bs[cursor:cursor+bitlen] = bits
+            return bitlen
+
         else:
             raise TypeError("Invalid type for Byte/ByteString")
 
@@ -722,9 +730,9 @@ def bool_to_iformat(bit):
         return IFormat(One)
     return IFormat(Zero)
 
-def generic_to_iformat(obj):
+def sequence_to_iformat(obj):
     return IFormat(IBitStream(obj))
 
 provideAdapter(bool_to_iformat,    [bool],  IFormat)
-provideAdapter(generic_to_iformat, [list],  IFormat)
-provideAdapter(generic_to_iformat, [tuple], IFormat)
+provideAdapter(sequence_to_iformat, [list],  IFormat)
+provideAdapter(sequence_to_to_iformat, [tuple], IFormat)
