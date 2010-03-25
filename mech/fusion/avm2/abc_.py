@@ -18,16 +18,30 @@ MAJOR_VERSION = 46
 MINOR_VERSION = 16
 
 def eval_traits(self):
+    fields = []
     for trait in self.traits:
         trait.owner = self
+        if isinstance(trait, TRAITS.AbcSlotTrait):
+            trait.kind = "slot"
+            if isinstance(trait, TRAITS.AbcConstTrait):
+                trait.kind = "const"
+            fields.append(trait)
         if isinstance(trait, TRAITS.AbcMethodTrait):
+            trait.method.kind  = "method"
             trait.method.name  = trait.name
             trait.method.owner = self
-        if isinstance(trait, TRAITS.AbcClassTrait):
+            if isinstance(trait, TRAITS.AbcGetterTrait):
+                trait.method.kind = trait.kind = "getter"
+                fields.append(trait)
+            elif isinstance(trait, TRAITS.AbcSetterTrait):
+                trait.method.kind = trait.kind = "setter"
+                fields.append(trait)
+        elif isinstance(trait, TRAITS.AbcClassTrait):
             trait.cls.name           = trait.name
             trait.cls.owner          = self
             trait.cls.instance.name  = trait.name
             trait.cls.instance.owner = self
+    self.fields = fields
 
 class AbcFile(BitStreamParseMixin):
     write_to = "abc"
