@@ -257,21 +257,19 @@ class BitStream(BitStreamMixin):
         self._cursor = 0
 
     # New API.
-    
+
     def read(self, part):
-        retval, cursor = IFormat(part)._read(self, self._cursor), 0
-        if isinstance(retval, tuple):
-            retval, cursor = retval
+        retval, cursor = IFormat(part)._read(self, self._cursor)
         self._cursor += cursor
         return retval
-    
+
     def write(self, argument, part=None):
         if part is None:
             part = argument
         cursor = IFormat(part)._write(self, self._cursor, argument)
         if cursor:
             self._cursor += cursor
-        
+
     def modify(self, modifier, *args, **kwargs):
         data, self._cursor = modifier(self, self._cursor, *args, **kwargs)
         return data
@@ -309,10 +307,10 @@ provideAdapter(list_to_bitstream, [tuple], IBitStream)
 
 class BitStreamFormatAdaptor(object):
     implements(IFormat)
-    
+
     def __init__(self, bitstream):
         self.bitstream = bitstream
-    
+
     # bs.read(BitStream)
     def _read(self, bs, cursor):
         inst = self.bitstream()
@@ -320,7 +318,7 @@ class BitStreamFormatAdaptor(object):
         advance = BitStreamDataFormat(type(self), L)._write(inst, 0, bs)
         inst.rewind()
         return inst, advance
-    
+
     # bs.write(bs2, BitStream)
     # bs.write(bs2)
     def _write(self, bs, cursor, argument):
@@ -347,7 +345,7 @@ class BitStreamDataFormat(object):
         data = IFormatData(data)
         self.length = data.length
         self.endianness = data.endianness
-    
+
     # bs.read(BitStream[8])
     def _read(self, bs, cursor):
         inst = self.cls()
@@ -361,7 +359,7 @@ class BitStreamDataFormat(object):
                 inst.rewind()
             inst.write(bs.read(F.UB[bits]), F.UB[bits])
         inst.rewind()
-        return inst
+        return inst, 0
 
     # bs.write(bs2, BitStream[8])
     def _write(self, bs, cursor, argument):
@@ -384,18 +382,18 @@ class BitStreamParseMixin(object):
     @classmethod
     def from_bitstream(cls, bitstream):
         raise NotImplementedError
-    
+
     @classmethod
-    def from_bytestring(cls, bytes):
+    def from_bytestring(cls, bytes, *a, **kw):
         bits = BitStream()
         bits.write(bytes, F.ByteString)
         bits.rewind()
-        return cls.from_bitstream(bits)
+        return cls.from_bitstream(bits, *a, **kw)
 
     @classmethod
-    def from_file(cls, file):
-        return cls.from_bytestring(file.read())
+    def from_file(cls, file, *a, **kw):
+        return cls.from_bytestring(file.read(), *a, **kw)
 
     @classmethod
-    def from_filename(cls, filename):
-        return cls.from_file(open(filename, "rb"))
+    def from_filename(cls, filename, *a, **kw):
+        return cls.from_file(open(filename, "rb"), *a, **kw)

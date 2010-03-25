@@ -18,41 +18,66 @@ MAJOR_VERSION = 46
 MINOR_VERSION = 16
 
 def eval_traits(self):
-    fields = []
+    fields     = {}
+    methods    = {}
+    properties = {}
     for trait in self.traits:
         trait.owner = self
         if isinstance(trait, TRAITS.AbcSlotTrait):
             trait.kind = "slot"
             if isinstance(trait, TRAITS.AbcConstTrait):
                 trait.kind = "const"
-            fields.append(trait)
+            fields[trait.name] = trait
         if isinstance(trait, TRAITS.AbcMethodTrait):
             trait.method.kind  = "method"
             trait.method.name  = trait.name
             trait.method.owner = self
             if isinstance(trait, TRAITS.AbcGetterTrait):
-                trait.method.kind = trait.kind = "getter"
-                fields.append(trait)
+                trait.type_name = trait.method.return_type
+                if trait.name in fields:
+                    properties[trait.name] = (trait.name, trait.type_name,
+                                              trait, properties[trait.name][3])
+                    trait.kind = properties[trait.name][3].kind = "property"
+                else:
+                    trait.method.kind = trait.kind = "getter"
+                    properties[trait.name] = (trait.name, trait.type_name,
+                                              trait, None)
             elif isinstance(trait, TRAITS.AbcSetterTrait):
-                trait.method.kind = trait.kind = "setter"
-                fields.append(trait)
+                trait.type_name = trait.method.param_types[0]
+                if trait.name in properties:
+                    properties[trait.name] = (trait.name, trait.type_name,
+                                              properties[trait.name][2], trait)
+                    trait.kind = properties[trait.name][2].kind = "property"
+                else:
+                    trait.method.kind = trait.kind = "setter"
+                    properties[trait.name] = (trait.name, trait.type_name,
+                                              None, trait)
+            else:
+                methods[trait.name] = trait
         elif isinstance(trait, TRAITS.AbcClassTrait):
             trait.cls.name           = trait.name
             trait.cls.owner          = self
             trait.cls.instance.name  = trait.name
             trait.cls.instance.owner = self
-    self.fields = fields
+    self.fields     = fields
+    self.methods    = methods
+    self.properties = properties
 
 class AbcFile(BitStreamParseMixin):
     write_to = "abc"
     def __init__(self, constants=None):
         self.constants = constants or AbcConstantPool()
-        self.methods   = ValuePool(parent=self, debug=True)
-        self.metadatas = ValuePool(parent=self)
-        self.instances = ValuePool(parent=self)
-        self.classes   = ValuePool(parent=self)
-        self.scripts   = ValuePool(parent=self)
-        self.bodies    = ValuePool(parent=self)
+        (self.methods, self.metadatas, self.instances,
+        self.classes, self.scripts, self.bodies) = (ValuePool(parent=self) \
+                                                    for i in xrange(6))
+
+    def merge(self, file, *files):
+        for name in ("methods", "metadatas", "instances",
+                     "classes", "scripts", "bodies"):
+            getattr(self, name).merge(getattr(file, name))
+
+        for f in files:
+            self.merge(f)
 
     def write(self, value):
         if getattr(value, "write_to_abc", None):
@@ -100,6 +125,7 @@ class AbcFile(BitStreamParseMixin):
         return abc
 
     def serialize(self):
+
         def write_pool(pool, prefix_count=True):
             code = ""
             if prefix_count:
@@ -111,7 +137,7 @@ class AbcFile(BitStreamParseMixin):
         code = ""
         code += struct.pack("<HH", MINOR_VERSION, MAJOR_VERSION)
         code += self.constants.serialize()
-        
+
         code += write_pool(self.methods)
         code += write_pool(self.metadatas)
         code += write_pool(self.instances)

@@ -537,7 +537,7 @@ class AbcConstantPool(BitStreamParseMixin):
         self.utf8_pool      = ValuePool(object(), self) # don't use "" because multinames expect "*"
         self.namespace_pool = ValuePool(ANY_NAMESPACE, self)
         self.nsset_pool     = ValuePool(NO_NAMESPACE_SET, self)
-        self.multiname_pool = ValuePool(ANY_NAME, self, debug=True)
+        self.multiname_pool = ValuePool(ANY_NAME, self)
 
     def write(self, value):
         if hasattr(value, "write_to_pool"):

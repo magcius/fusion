@@ -59,11 +59,11 @@ class Avm2Label(object):
 empty = object()
 
 class ValuePool(object):
-    def __init__(self, default=None, parent=None, debug=False):
+    def __init__(self, default=None, parent=None):
         self.parent = parent
         self.index_map = {}
         self.pool      = []
-        self.debug     = debug
+        self.free      = []
         self.default   = default
         self.has_default = default is not None
 
@@ -79,6 +79,10 @@ class ValuePool(object):
     def __len__(self):
         return len(self.pool) + int(self.has_default)
 
+    def merge(self, pool):
+        for value in pool:
+            self.index_for(value)
+
     def index_for(self, value, add=True, allow_conflicts=False):
         if self.has_default and (value == self.default or value is None) and not allow_conflicts:
             return 0
@@ -89,7 +93,7 @@ class ValuePool(object):
         if not add:
             raise ValueError("value not in ValuePool\n\nHave: %r, requested %r" % (self.pool, value))
 
-        if hasattr(self.parent, "write_to"):
+        if self.parent and getattr(self.parent, "write_to", None):
             self.parent.write(value)
 
         index, reuse = self.next_free()
@@ -119,8 +123,8 @@ class ValuePool(object):
         return value
 
     def next_free(self):
-        if empty in self.pool:
-            index = self.pool.index(empty)
+        if self.free:
+            index = self.free.pop(0)
             reuse = True
         else:
             index = len(self.pool)
@@ -135,4 +139,5 @@ class ValuePool(object):
         index = self.index_map[value]
         del self.index_map[value]
         self.pool[index] = empty
+        self.free.append(index)
         return index

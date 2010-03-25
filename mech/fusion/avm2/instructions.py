@@ -40,6 +40,10 @@ def get_label(name, asm):
         lbl.name = name
     return lbl
 
+class InstructionCacher(type):
+    def __init__(self, name, bases, dct):
+        self.instruction_cache = {}
+
 class _Avm2ShortInstruction(object):
     flags = 0
     stack = 0
@@ -48,7 +52,16 @@ class _Avm2ShortInstruction(object):
     name  = None
     label = None
     next  = None
-    
+    __metaclass__ = InstructionCacher
+
+    def __new__(cls, *args):
+        D = cls.instruction_cache
+        if args in D:
+            return D[args]
+        inst = object.__new__(cls)
+        D[args] = inst
+        return inst
+
     def __repr__(self):
         if self.opcode is None:
             return self.name
@@ -71,35 +84,6 @@ class _Avm2ShortInstruction(object):
     
     def serialize(self):
         return chr(self.opcode)
-
-class _Avm2BogusInstruction(_Avm2ShortInstruction):
-    opcode = -1
-    def serialize(self):
-        return ""
-
-class _Avm2TryInstruction(_Avm2BogusInstruction):
-    def set_assembler_props_late(self, asm, address):
-        setattr(self.context, self.attrname, address)
-
-    def __init__(self, context):
-        self.context = context
-
-class begintry(_Avm2TryInstruction): attrname = "try_begin"
-class endtry  (_Avm2TryInstruction): attrname = "try_end"
-
-class addexcinfo(_Avm2BogusInstruction):
-    scope = 1
-    def set_assembler_props_late(self, asm, address):
-        self.exc.from_  = self.context.try_begin
-        self.exc.to_    = self.context.try_end
-        self.exc.target = address
-
-    def __init__(self, context, exc):
-        self.context = context
-        self.exc = exc
-
-class _Avm2BeginCatchInstruction(_Avm2BogusInstruction):
-    scope = 1
 
 class _Avm2DebugInstruction(_Avm2ShortInstruction):    
     def serialize(self):
@@ -233,16 +217,16 @@ class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
 
         # case label count
         cases, count = [], bitstream.read(U32) + 1
-        
+
         for i in xrange(count):
             offset  = bitstream.read(UI24)
             offset += bitstream.cursor//8
             lbl = make_offset_label(offset, asm)
             cases.append(lbl.name)
 
-        return cls(lbl.name, cases)
+        return cls(lbl.name, *cases)
 
-    def __init__(self, default_label_name=None, case_label_names=None):
+    def __init__(self, default_label_name=None, *case_label_names):
         self.default_label_name, self.case_label_names = default_label_name, case_label_names
 
 class _Avm2LabelInstruction(_Avm2ShortInstruction):
@@ -347,7 +331,35 @@ def _make_avm2(class_, opcode, name, stack=0, scope=0, **kwargs):
 
 m = _make_avm2
 del _make_avm2
-        
+
+class _Avm2BogusInstruction(_Avm2ShortInstruction):
+    opcode = -1
+    def serialize(self):
+        return ""
+
+class _Avm2TryInstruction(_Avm2BogusInstruction):
+    def set_assembler_props_late(self, asm, address):
+        setattr(self.context, self.attrname, address)
+
+    def __init__(self, context):
+        self.context = context
+
+class begintry(_Avm2TryInstruction): attrname = "try_begin"
+class endtry  (_Avm2TryInstruction): attrname = "try_end"
+
+class addexcinfo(_Avm2BogusInstruction):
+    scope = 1
+    def set_assembler_props_late(self, asm, address):
+        self.exc.from_  = self.context.try_begin
+        self.exc.to_    = self.context.try_end
+        self.exc.target = address
+
+    def __init__(self, context, exc):
+        self.context = context
+        self.exc = exc
+
+class begincatch(_Avm2BogusInstruction): scope = 1
+
 # Instructions that push one value to the stack and take no arguments.
 dup = m(_Avm2ShortInstruction, 0x2A, "dup", 1)
 getglobalscope = m(_Avm2ShortInstruction, 0x64, "getglobalscope", 1)
@@ -520,16 +532,16 @@ initproperty = m(_Avm2MultinameInstruction, 0x68, 'initproperty', -2)
 setproperty = m(_Avm2MultinameInstruction, 0x61, 'setproperty', -2)
 setsuper = m(_Avm2MultinameInstruction, 0x05, 'setsuper', -2)
 
+_s_speed = {0: setlocal0, 1: setlocal1, 2: setlocal2, 3: setlocal3}
 def setlocal(index):
-    _speed = {0: setlocal0, 1: setlocal1, 2: setlocal2, 3: setlocal3}
-    if index in _speed:
-        return _speed[index]()
+    if index in _s_speed:
+        return _s_speed[index]()
     return _setlocal(index)
 
+_g_speed = {0: getlocal0, 1: getlocal1, 2: getlocal2, 3: getlocal3}
 def getlocal(index):
-    _speed = {0: getlocal0, 1: getlocal1, 2: getlocal2, 3: getlocal3}
-    if index in _speed:
-        return _speed[index]()
+    if index in _g_speed:
+        return _g_speed[index]()
     return _getlocal(index)
     
 del m

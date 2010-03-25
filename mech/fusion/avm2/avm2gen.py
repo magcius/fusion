@@ -976,6 +976,7 @@ class Avm2ilasm(object):
         idx = self.context.add_exception(name)
         self.context.restore_scopes()
         self.enter_context(ctx)
+        self.I(instructions.begincatch())
         self.I(instructions.newcatch(idx))
         self.dup()
         self.store_var(ctx.local)

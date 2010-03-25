@@ -29,10 +29,9 @@ class SwfData(BitStreamParseMixin):
                      or tuples containing one or the other.
         :returns: an iterable of Tag objects, all the same type.
         """
-
         if isinstance(TYPE, tuple):
             return itertools.chain(*(self.collect_type(t) for t in TYPE))
-        
+
         if TYPE in REVERSE_INDEX:
             TYPE = REVERSE_INDEX[TYPE]
 
@@ -59,6 +58,7 @@ class SwfData(BitStreamParseMixin):
             if tag.TAG_TYPE == ShowFrame.TAG_TYPE:
                 self.frame_count += 1
             self.tags.append(tag)
+        return tag
 
     def add_tags(self, tag_container):
         """
@@ -86,7 +86,7 @@ class SwfData(BitStreamParseMixin):
         return "".join(header + [data])
 
     @classmethod
-    def from_bitstream(cls, bitstream):
+    def from_bitstream(cls, bitstream, tags_as_list=False):
         header = bitstream.read(ByteString[3])
         compressed = False
         if header == "CWS": # compressed
@@ -103,9 +103,18 @@ class SwfData(BitStreamParseMixin):
         frame_count = bitstream.read(UI16)
         inst = cls(rect.XMax, rect.YMax, fps, compressed, version)
         inst.frame_count = frame_count
-        while bitstream.bits_available:
-            inst.add_tag(SwfTag.from_bitstream(bitstream))
+        inst.tags = inst.read_tags(bitstream)
+        if tags_as_list:
+            inst.tags = list(inst.tags)
         return inst
+
+    def read_tags(self, bitstream):
+        tags = []
+        while bitstream.bits_available:
+            tag = SwfTag.from_bitstream(bitstream)
+            yield tag
+            tags.append(tag)
+        self.tags = tags
 
     def _gen_header(self):
         return ["CWS" if self.compress else "FWS", struct.pack("<B", self.version), "\0\0\0\0"]
