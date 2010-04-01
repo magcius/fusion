@@ -2,7 +2,7 @@
 from mech.fusion.swf.swfdump import dump_abc
 from mech.fusion.avm2.abc_ import AbcFile
 from mech.fusion.avm2.constants import packagedQName
- 
+
 abc = AbcFile()
 gen = abc.create_generator()
 with gen.Class(packagedQName("foo.bar", "WhatUpHomies")):

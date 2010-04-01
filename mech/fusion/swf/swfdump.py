@@ -43,14 +43,12 @@ def dump_swf(swfdata):
 def dump_pool(name, pool, indent="", default=None):
     print indent + "    %s:" % (name,)
     print indent + "      %s[0] = %s" % (name, pool.default if default is None else default)
-    for i, num in enumerate(pool):
-        print indent + "      %s[%d] = %s" % (name, i+1, num)
-
+    for i, obj in enumerate(pool):
+        print indent + "      %s[%d] = %r" % (name, i+1, obj)
 
 def dump_traits(traits, indent, attrib=""):
     for trait in traits:
         if isinstance(trait, TRAITS.AbcSlotTrait):
-            print "["
             print indent+attrib+("const" if type(trait) is TRAITS.AbcConstTrait else "var"),
             print "%s:%s" % (trait.name, trait.type_name),
             print "// slot id=%d" % (trait.slot_id,)
@@ -62,7 +60,7 @@ def dump_traits(traits, indent, attrib=""):
 
 def dump_class(cls, indent):
     print indent + "class %s" % (cls.name),
-    if cls.instance.super_name and cls.instance.super_name != constants.QName("Object"):
+    if cls.instance.super_name:
         print "extends %s" % (cls.instance.super_name,),
     print "{"
     cls.cinit.name = "%s$cinit" % (cls.name.name,)
@@ -95,6 +93,9 @@ def dump_abc(abc, indent=""):
     dump_pool("namespaces", abc.constants.namespace_pool, indent)
     dump_pool("nssets", abc.constants.nsset_pool, indent)
     dump_pool("multinames", abc.constants.multiname_pool, indent, default="*")
+
+    for meth in abc.methods:
+        dump_method(meth, indent+"    ")
 
     print
     for i, script in enumerate(abc.scripts):

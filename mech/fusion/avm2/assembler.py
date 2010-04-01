@@ -1,16 +1,14 @@
-
 import itertools
 
 from mech.fusion.bitstream.flash_formats import U32
 
 from mech.fusion.avm2.util import ValuePool
 from mech.fusion.avm2.instructions import (parse_instruction, INSTRUCTIONS,
-                                           getlocal, setlocal,
-                                           _Avm2OffsetInstruction)
+                                           getlocal, setlocal, get_label)
 
 BRANCH_OPTIMIZE = {
-    ("equals", "not",  "iftrue"):  "ifne",
-    ("equals", "not",  "iffalse"): "ifeq",
+    ("not",            "iftrue"):  "iffalse",
+    ("not",            "iffalse"): "iftrue",
     ("equals",         "iftrue"):  "ifeq",
     ("equals",         "iffalse"): "ifne",
     ("lessthan",       "iftrue"):  "iflt",
@@ -25,92 +23,164 @@ BRANCH_OPTIMIZE = {
     ("strictequals",   "iffalse"): "ifstrict",
 }
 
-NO_OP = set((
-    ("setlocal0", "getlocal0"),
-    ("setlocal1", "getlocal1"),
-    ("setlocal2", "getlocal2"),
-    ("setlocal3", "getlocal3"),
-    
+NO_OP_GLSL = set((
     ("getlocal0", "setlocal0"),
     ("getlocal1", "setlocal1"),
     ("getlocal2", "setlocal2"),
     ("getlocal3", "setlocal3"),
 ))
 
-NO_OP_GLSL = "getlocal", "setlocal"
-
-LABEL_JUMP = "label", "jump"
-JUMP_LABEL = "jump", "label"
-
 class Avm2CodeAssembler(object):
-    
     def __init__(self, constants, local_names):
+        self.local_names = local_names
         self.temporaries = ValuePool()
         for i in local_names:
             self.temporaries.index_for(i)
 
         self.instructions = []
-        
+
         self._stack_depth = 0
         self._scope_depth = 0
 
         self._stack_depth_max = 0
         self._scope_depth_max = 0
-        
+
         self.offsets = {}
         self.labels  = {}
 
         self.flags = 0
         self.constants = constants
 
-        self.registers_used = dict((i, i) for i, a in enumerate(local_names))
-        self.do_optimize = False
-
     def add_instruction(self, instruction):
         """
         Add an instruction to this block.
         """
-        if self.instructions:
-            if self.do_optimize:
-                instruction = self.optimize(self.instructions[-1], instruction)
-            if instruction:
-                self.instructions[-1].next = instruction
         if instruction:
-            instruction.set_assembler_props(self)
+            if self.instructions:
+                self.instructions[-1].next = instruction
             self.instructions.append(instruction)
 
-    def optimize(self, prev, instruction):
+    def optimize(self):
         """
-        Optimize when adding an instruction.
+        Do some simple optimizations for stupid code generator
+        clients.
         """
-        test = prev.name, instruction.name
-        if instruction.name.startswith("setlocal"):
-            self.registers_used.setdefault(instruction.argument, len(self.registers_used))
-            instruction = setlocal(self.registers_used[instruction.argument])
-        elif instruction.name.startswith("getlocal"):
-            instruction = getlocal(self.registers_used.get(instruction.argument, instruction.argument))
-        if test in BRANCH_OPTIMIZE:
-            self.instructions.pop()
-            instruction = INSTRUCTIONS[BRANCH_OPTIMIZE[test]](instruction.lblname)
-        elif test in NO_OP or (test == NO_OP_GLSL and prev.argument == instruction.argument):
-            self.instructions.pop()
-            return
-        elif isinstance(instruction, _Avm2OffsetInstruction):
-            self.offsets.setdefault(instruction.lblname, [])
-            self.offsets[instruction.lblname].append(instruction)
-        elif test == LABEL_JUMP:
-            self.instructions.pop()
-            for inst in self.offsets[prev.lblname]:
-                inst.lblname = instruction.lblname
-            return
-        elif test == JUMP_LABEL and prev.lblname == instruction.lblname:
-            self.instructions.pop()
-            return
-        return instruction
+        for _ in xrange(2):
+            jumps = {}
+            slgl_marked = set()
+            null_marked = set()
+
+            prev = None
+            # First pass - mark anything needed for the second pass.
+            for curr in self.instructions:
+                if prev is None:
+                    prev = curr
+                    continue
+
+                # Label then jump. Optimize so that the people who jump to that
+                # label jump to the label that label is jumping to. This will
+                # require a second pass.
+                if curr.offset:
+                    jumps.setdefault(curr.lblname, []).append(curr)
+
+                # Detect if there are any references to this register other than
+                # the setlocal/getlocal sequence here.
+                if prev.name.startswith("setlocal") and \
+                   curr.name.startswith("getlocal") and \
+                   prev.argument == curr.argument:
+                    slgl_marked.add(curr.argument)
+                elif prev.name.startswith(("pushnull", "pushundefined")) and \
+                     curr.name.startswith("setlocal"):
+                    null_marked.add(curr.argument)
+
+                elif curr.name.startswith("getlocal"):
+                    if curr.argument in slgl_marked:
+                        slgl_marked.remove(curr.argument)
+                    if curr.argument in null_marked:
+                        null_marked.remove(curr.argument)
+
+                prev = curr
+
+            institer = iter(self.instructions)
+            instructions = [institer.next(), institer.next()]
+            # Second pass
+            for newinst in institer:
+                keep_going = True
+                while keep_going:
+                    curr, prev = instructions[-1], instructions[-2]
+                    test = prev.name, curr.name
+
+                    # Branch optimizations geared for PyPy.
+                    if test in BRANCH_OPTIMIZE:
+                        instructions = instructions[:-2]
+                        new = INSTRUCTIONS[BRANCH_OPTIMIZE[test]](curr.lblname)
+                        jumps[curr.lblname].remove(curr)
+                        jumps[curr.lblname].append(new)
+                        instructions.append(new)
+
+                    # Two opcodes in a row that do nothing should be removed.
+                    elif test in NO_OP_GLSL or (test == ("getlocal", "setlocal") and \
+                                                prev.argument == curr.argument):
+                        instructions = instructions[:-2]
+
+                    # Jump then label. Just remove the jump.
+                    elif test == ("jump", "label") and  \
+                         prev.lblname == curr.lblname:
+                        # Don't remove the label, we may need it for a backref
+                        # later on.
+                        instructions.pop(-2)
+                        jumps[prev.lblname].remove(prev)
+
+                    ## # If a label isn't jumped to at all, it's outta here.
+                    ## elif curr.name == "label" and (curr.lblname not in jumps or \
+                    ##                                not jumps[curr.lblname]):
+                    ##     instructions.pop()
+
+                    elif test == ("label", "jump"):
+                        for jump in jumps[prev.lblname]:
+                            jump.lblname = curr.lblname
+                        jumps[curr.lblname].remove(curr)
+                        jumps[curr.lblname].extend(jumps[prev.lblname])
+                        del jumps[prev.lblname]
+                        instructions = instructions[:-2]
+                        print instructions
+
+                    elif prev.name.startswith("setlocal") and \
+                         curr.name.startswith("getlocal") and \
+                         curr.argument in slgl_marked:
+                        instructions = instructions[:-2]
+
+                    elif prev.name.startswith(("pushnull", "pushundefined")) and \
+                         curr.name.startswith("setlocal") and \
+                         curr.argument in null_marked:
+                        instructions = instructions[:-2]
+                    else:
+                        keep_going = False
+
+                instructions.append(newinst)
+
+            self.instructions = instructions
+
+        # Third pass - pack in those registers.
+        institer = iter(self.instructions)
+        instructions = [institer.next()]
+        used_registers = dict((i, i) for i in xrange(len(self.local_names)))
+        for newinst in institer:
+            curr = instructions.pop()
+            if curr.name.startswith("setlocal"):
+                curr = setlocal(used_registers.setdefault(curr.argument,
+                                                          len(used_registers)))
+            elif curr.name.startswith("getlocal"):
+                curr = getlocal(used_registers.get(curr.argument,
+                                                   curr.argument))
+            instructions += curr, newinst
+
+        self.instructions = instructions
 
     def add_instructions(self, instructions):
         """
-        Add these instructions to this block.
+        Iterate over the given argument and add these instructions,
+        one by one, to this assembler.
         """
         for i in instructions:
             self.add_instruction(i)
@@ -132,45 +202,99 @@ class Avm2CodeAssembler(object):
     def scope_depth(self, value):
         self._scope_depth = value
         self._scope_depth_max = max(value, self._scope_depth_max)
-        
+
     @property
     def next_free_local(self):
+        """
+        Return the index of the next empty local.
+        """
         return self.temporaries.next_free()
 
     def set_local(self, name):
+        """
+        Mark the register named "name" as set and return
+        the index.
+        """
         return self.temporaries.index_for(name, True)
 
     def get_local(self, name):
+        """
+        Return the index for the local named "name".
+        """
         return self.temporaries.index_for(name, False)
-    
+
     def kill_local(self, name):
+        """
+        Mark the register named "name" as free and return
+        the index.
+        """
         return self.temporaries.kill(name)
 
     def has_local(self, name):
+        """
+        Returns True if we have a register named "name" in the current
+        assembler context.
+        """
         return name in self.temporaries
 
     @property
     def local_count(self):
+        """
+        The current local count.
+        """
         return len(self.temporaries)
 
-    def dump_instructions(self, indent="\t"):
+    def dump_instructions(self, indent="\t", use_label_names=False):
+        """
+        Dump this assembler's instructions to a string, with the given
+        "indent" prepended to each line. If "use_label_names" is True,
+        then the label names will be used when dumping, otherwise
+        label names will be generated. Label names are not kept in
+        compiled code, so it makes to set this to False when dumping
+        parsed code.
+        """
+        lblmap = {}
+        for inst in self.instructions:
+            inst.assembler_pass1(self)
+            if inst.label and not use_label_names:
+                lblmap[inst.label.name] = "L%d" % (len(lblmap)+1)
+                inst.label.name = lblmap[inst.label.name]
         dump, offset = "", 0
         for inst in self.instructions:
             if inst.label:
                 dump += "\n%s%s:\n" % (indent, inst.label.name,)
+            if getattr(inst, "lblname", None):
+                if not use_label_names:
+                    inst.lblname = lblmap.get(inst.lblname, inst.lblname)
             dump += "%s%d%s%s\n" % (indent*2, offset, indent, inst)
+            if inst.offset:
+                dump += "\n"
             offset += len(inst.serialize())
         return dump
-    
+
+    def pass1(self):
+        """
+        Do assembler pass 1.
+        """
+        # Pass 1.
+        for inst in self.instructions:
+            inst.assembler_pass1(self)
+
+    def write_to_pool(self, pool):
+        for inst in self.instructions:
+            inst.write_to_pool(pool)
+
     def serialize(self):
         """
         Serialize this code to a string, and also
         resolve any jump offsets.
         """
         code = ""
+        # Pass 2. Generate code.
         for inst in self.instructions:
-            inst.set_assembler_props_late(self, len(code))
+            inst.assembler_pass2(self, len(code))
             code += inst.serialize()
+        # Patch up offsets.
         for inst in itertools.chain(*self.offsets.itervalues()):
             code = code[:inst.address+1] + inst.lbl.relative_offset(inst.address+4) + code[inst.address+4:]
         return code
@@ -178,7 +302,6 @@ class Avm2CodeAssembler(object):
     @classmethod
     def parse(cls, bitstream, abc, constants, local_count):
         asm = cls(constants, ["_loc%d" % (i,) for i in xrange(local_count)])
-        asm.do_optimize = False
         codelen = bitstream.read(U32)
         finish  = bitstream.cursor + codelen*8
         while bitstream.cursor < finish:

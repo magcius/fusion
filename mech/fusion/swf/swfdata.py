@@ -4,8 +4,8 @@ import struct
 
 from mech.fusion.bitstream.formats import ByteString
 from mech.fusion.bitstream.flash_formats import UI8, UI16, UI32, FIXED8
-from mech.fusion.bitstream.bitstream import BitStreamParseMixin
-from mech.fusion.swf.records import Rect
+from mech.fusion.bitstream.bitstream import BitStream, BitStreamParseMixin
+from mech.fusion.swf.records import Rect, RecordHeader
 from mech.fusion.swf.tags import REVERSE_INDEX, ShowFrame, SwfTag
 
 class SwfData(BitStreamParseMixin):
@@ -30,12 +30,16 @@ class SwfData(BitStreamParseMixin):
         :returns: an iterable of Tag objects, all the same type.
         """
         if isinstance(TYPE, tuple):
-            return itertools.chain(*(self.collect_type(t) for t in TYPE))
+            return [self.collect_type(t) for t in TYPE]
 
         if TYPE in REVERSE_INDEX:
             TYPE = REVERSE_INDEX[TYPE]
 
-        return (tag for tag in self.tags if isinstance(tag, TYPE))
+        tags = []
+        for tag in self.tags:
+            if isinstance(tag, TYPE):
+                tags.append(tag)
+        return tags
 
     def __getitem__(self, i):
         return self.tags[i]
@@ -76,8 +80,8 @@ class SwfData(BitStreamParseMixin):
         """
         header = self._gen_header()
         data = self._gen_data_stub()
-        data += ''.join(tag.as_bitstream() for tag in self.tags)
-        
+        data += ''.join(tag.serialize() for tag in self.tags)
+
         header[2] = struct.pack("<L", 8 + len(data)) # FileSize
         if self.compress:
             import zlib
@@ -86,7 +90,7 @@ class SwfData(BitStreamParseMixin):
         return "".join(header + [data])
 
     @classmethod
-    def from_bitstream(cls, bitstream, tags_as_list=False):
+    def from_bitstream(cls, bitstream, tags_as_list=False, only_parse_type=None):
         header = bitstream.read(ByteString[3])
         compressed = False
         if header == "CWS": # compressed
@@ -103,17 +107,32 @@ class SwfData(BitStreamParseMixin):
         frame_count = bitstream.read(UI16)
         inst = cls(rect.XMax, rect.YMax, fps, compressed, version)
         inst.frame_count = frame_count
-        inst.tags = inst.read_tags(bitstream)
+        inst.tags = inst.read_tags(bitstream, only_parse_type)
         if tags_as_list:
             inst.tags = list(inst.tags)
         return inst
 
-    def read_tags(self, bitstream):
+    def read_tags(self, bitstream, only_parse_type=None):
+        if only_parse_type in REVERSE_INDEX:
+            only_parse_type = REVERSE_INDEX[only_parse_type]
+
         tags = []
-        while bitstream.bits_available:
-            tag = SwfTag.from_bitstream(bitstream)
-            yield tag
-            tags.append(tag)
+        if only_parse_type:
+            while bitstream.bits_available:
+                rh = RecordHeader.from_bitstream(bitstream)
+                cls = REVERSE_INDEX[rh.type]
+                if isinstance(cls, type) and issubclass(cls, only_parse_type):
+                    tag = cls.parse_inner(bitstream.read(BitStream[rh.length*8]))
+                    yield tag
+                    tags.append(tag)
+                else:
+                    bitstream.cursor += rh.length * 8
+                    yield None
+        else:
+            while bitstream.bits_available:
+                tag = SwfTag.from_bitstream(bitstream)
+                yield tag
+                tags.append(tag)
         self.tags = tags
 
     def _gen_header(self):
@@ -124,3 +143,4 @@ class SwfData(BitStreamParseMixin):
         rect = rect.serialize()
         return rect + struct.pack("<BBH", int((self.fps - int(self.fps)) * 0x100),
                                   self.fps, self.frame_count)
+

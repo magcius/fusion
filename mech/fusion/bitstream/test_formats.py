@@ -4,9 +4,9 @@ import os
 
 from mech.fusion.bitstream.bitstream import BitStream
 
-from mech.fusion.bitstream.formats import BitsList, Bit, Byte, ByteList, \
-     ByteString, SignedByte, SignedByteList, CString, UTF8, CUTF8, Zero, \
-     One, UB, SB, FB, FloatFormat, FixedFormat
+from mech.fusion.bitstream.formats import BitsList, Bit, Byte, ByteList,  \
+     ByteString, SignedByte, CString, UTF8, CUTF8, Zero, One, UB, SB, FB, \
+     FloatFormat, FixedFormat
 
 def test_Bit_read():
     bits = BitStream("1001")

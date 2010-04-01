@@ -10,6 +10,7 @@ FIXED      = FixedFormat[32:"<":"FIXED"]
 
 SI8        = SignedByte[1:"<":"SI8"]
 SI16       = SignedByte[2:"<":"SI16"]
+SI24       = SignedByte[3:"<":"SI24"]
 SI32       = SignedByte[4:"<":"SI32"]
 
 UI8        = Byte[1:"<":"UI8"]

@@ -116,7 +116,7 @@ class BitStreamMixin(object):
         """
         leftover = self.cursor & 7
         if leftover and self.bits_available > 8-leftover:
-            self.seek(8-leftover, os.SEEK_CUR)
+            self.cursor += 8-leftover
 
     def __iter__(self):
         return iter(self.bits)
@@ -130,7 +130,8 @@ class BitStreamMixin(object):
     def __str__(self):
         return "".join("1" if b else "0" for b in self.bits)
 
-    __repr__ = __str__
+    def __repr__(self):
+        return "<BitStream '%s' cursor=%d>" % (str(self), self.cursor)
 
     def seek(self, offset, whence=os.SEEK_SET):
         """
@@ -143,31 +144,23 @@ class BitStreamMixin(object):
               Standard Python library documentation.
         """
         if whence == os.SEEK_SET:
-            def seek(bs, cursor):
-                return None, offset
+            self.cursor = offset
         elif whence == os.SEEK_CUR:
-            def seek(bs, cursor):
-                return None, offset + cursor
+            self.cursor = offset + self.cursor
         elif whence == os.SEEK_END:
-            def seek(bs, cursor):
-                return None, len(bs) - offset
-        self.modify(seek)
+            self.cursor = len(self) - offset
 
     def rewind(self):
         """
         Seek to the beginning of the stream.
         """
-        def rewind(bs, cursor):
-            return None, 0
-        self.modify(rewind)
-        
+        self.cursor = 0
+
     def skip_to_end(self):
         """
         Seek to the end of the stream.
         """
-        def skip_to_end(bs, cursor):
-            return None, len(bs)
-        self.modify(skip_to_end)
+        self.cursor = len(self)
 
     @property
     def bits_available(self):
@@ -175,16 +168,12 @@ class BitStreamMixin(object):
         The number of bits available to be read, or the
         distance from the cursor to the end of the stream.
         """
-        def bits_available(bs, cursor):
-            return len(bs) - cursor, cursor
-        return self.modify(bits_available)
-    
+        return len(self) - self.cursor
+
     @bits_available.setter
     def bits_available(self, value):
-        def bits_available(bs, cursor):
-            return None, len(bs) - value
-        self.modify(bits_available)
-    
+        self.cursor = len(self) - value
+
     def __add__(self, bits):
         b = BitStream()
         b += self
@@ -195,18 +184,6 @@ class BitStreamMixin(object):
         self.skip_to_end()
         self.write(IBitStream(bits))
         return self
-
-    @property
-    def cursor(self):
-        def get_cursor(bs, cursor):
-            return cursor, cursor
-        return self.modify(get_cursor)
-
-    @cursor.setter
-    def cursor(self, value):
-        def set_cursor(bs, cursor):
-            return None, value
-        self.modify(set_cursor)
 
     def decompress(self):
         """
@@ -254,24 +231,24 @@ class BitStream(BitStreamMixin):
         self.bits = [bool(b) and b != "0" for b in bits if \
                          (isinstance(b, str) and b.strip() != "") or not \
                          isinstance(b, str)]
-        self._cursor = 0
+        self.cursor = 0
 
     # New API.
 
     def read(self, part):
-        retval, cursor = IFormat(part)._read(self, self._cursor)
-        self._cursor += cursor
+        retval, cursor = IFormat(part)._read(self, self.cursor)
+        self.cursor += cursor
         return retval
 
     def write(self, argument, part=None):
         if part is None:
             part = argument
-        cursor = IFormat(part)._write(self, self._cursor, argument)
-        if cursor:
-            self._cursor += cursor
+        cursor = IFormat(part)._write(self, self.cursor, argument)
+        if cursor is not None:
+            self.cursor += cursor
 
     def modify(self, modifier, *args, **kwargs):
-        data, self._cursor = modifier(self, self._cursor, *args, **kwargs)
+        data, self.cursor = modifier(self, self.cursor, *args, **kwargs)
         return data
 
     def __getitem__(self, i):
@@ -349,34 +326,32 @@ class BitStreamDataFormat(object):
     # bs.read(BitStream[8])
     def _read(self, bs, cursor):
         inst = self.cls()
-        bytes, bits = divmod(self.length, 8)
-        if self.endianness == "<" and bits:
-            inst.write(F.Zero[bits])
-        inst.write(bs.read(F.ByteString[bytes]),
-                   F.ByteString[bytes:self.endianness])
-        if bits:
-            if self.endianness == "<":
-                inst.rewind()
-            inst.write(bs.read(F.UB[bits]), F.UB[bits])
+        length = self.length
+        if bs.bits_available < length:
+            raise IndexError("BitStream read beyond boundaries")
+        if self.endianness == "<":
+            if length & 7: # we don't support non-byte-aligned endianness
+                raise ValueError("You must have a length of a multiple of 8"
+                                 " in order to read with endianness")
+            inst.write(bs.read(F.ByteString[length//8]), F.ByteString["<"])
+            length = 0
+        else:
+            inst[:] = bs[cursor:cursor+length]
         inst.rewind()
-        return inst, 0
+        return inst, length
 
     # bs.write(bs2, BitStream[8])
     def _write(self, bs, cursor, argument):
         argument = IBitStream(argument)
-        length = self.length
-        if length is None:
-            length = argument.bits_available
-        bytes, bits = divmod(length, 8)
-        if self.endianness == "<" and bits:
-            bs.write(F.Zero[bits])
-        bs.write(argument.read(F.ByteString[bytes]),
-                 F.ByteString[bytes:self.endianness])
-        if bits:
-            if self.endianness == "<":
-                F.UB[bits]._write(bs, cursor, argument.read(F.UB[bits]))
-            else:
-                bs.write(argument.read(F.UB[bits]), F.UB[bits])
+        length = len(argument) if self.length is None else self.length
+        if self.endianness == "<":
+            if length & 7:
+                raise ValueError("You must have a length of a multiple of 8"
+                                 " in order to write with endianness")
+            bs.write(argument.read(F.ByteString[length//8]), F.ByteString["<"])
+        else:
+            bs[cursor:cursor+length] = argument.read(F.BitsList[length])
+            return length
 
 class BitStreamParseMixin(object):
     @classmethod

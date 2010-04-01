@@ -1,8 +1,8 @@
-
 from mech.fusion.avm2 import (assembler, constants,
                               instructions, abc_ as abc,
-                              traits, util)
+                              traits, util, library)
 
+from math import isnan
 from itertools import chain
 
 class WrongContextError(BaseException):
@@ -22,7 +22,7 @@ class GlobalContext(object):
 
     def exit(self):
         return None
-        
+
     def new_script(self):
         ctx = ScriptContext(self.gen, self)
         self.gen.enter_context(ctx)
@@ -42,8 +42,9 @@ class _MethodContextMixin(object):
                                  [self.gen._get_type(t) for t, n in params],
                                  self.gen._get_type(rettype),
                                  param_names=[n for t, n in params])
-    
-    def new_method(self, name, params=None, rettype=None, kind="method", static=False, override=False):
+
+    def new_method(self, name, params=None, rettype=None, kind="method", static=False,
+                   override=False, optimize=None):
         """
         Create a new method with the name "name" and parameter list "arglist" and
         return type "returntype".
@@ -66,8 +67,11 @@ class _MethodContextMixin(object):
         "static" determines whether to add the function to the static or instance
         traits of the class. For a script, this parameter will do nothing.
 
-        "override" has to be set if you attempt to override a method in the
-        superclass, including ones from the native Flash Player API.
+        "override" marks the the method as overridden, which is required for Tamarin,
+        even for native Flash Player classes.
+
+        "optimize" determines whether the code should undergo simple optimizations.
+        It may be useful to turn this off for debugging.
         """
         params = params or []
         name = self.gen._get_type(name)
@@ -75,12 +79,12 @@ class _MethodContextMixin(object):
         KIND = dict(method=traits.AbcMethodTrait,
                     getter=traits.AbcGetterTrait,
                     setter=traits.AbcSetterTrait)
-        trait = KIND.get(kind, kind)(name, meth, override=override)
+        trait = KIND.get(kind, kind)(name, meth, override=override or self.overridden(static, name))
         if static:
             self.add_static_trait(trait)
         else:
             self.add_instance_trait(trait)
-        ctx = MethodContext(self.gen, meth, self, params)
+        ctx = MethodContext(self.gen, meth, self, params, optimize=optimize)
         self.gen.enter_context(ctx)
         return ctx
 
@@ -95,22 +99,30 @@ class ScriptContext(_MethodContextMixin):
         self.pending_classes = {}
         self.pending_classes_order = []
         self.done = False
-    
-    def make_init(self):
+
+    def overridden(self, static, name):
+        """
+        Determines whether a method name "name" should be
+        marked with the "override" flag.
+        """
+        return False
+
+    def make_init(self, optimize=None):
         """
         Create a script init method and enter the context
         for generating code on that method.
         """
         if not self.init:
             self.init = abc.AbcMethodInfo("", [], constants.ANY_NAME)
-            self.init.ctx = MethodContext(self.gen, self.init, self, [])
+            self.init.ctx = MethodContext(self.gen, self.init, self, [],
+                                          optimize=optimize or self.gen.optimize)
         self.gen.enter_context(self.init.ctx)
         return self.init.ctx
-    
+
     def new_class(self, name, super_name=None, bases=None):
         """
         Create a new class and enter the context for that class.
-        
+
         This will generate both the AbcInstance and the AbcClass.
 
         The "name" parameter should be an object with a multiname() method for
@@ -170,14 +182,14 @@ class ScriptContext(_MethodContextMixin):
             for parent in reversed(parents):
                 self.gen.I(instructions.getlex(parent),
                            instructions.pushscope())
-            
+
             self.traits.append(traits.AbcClassTrait(context.name,
                                                     context.classobj))
             self.gen.I(instructions.getlex(context.super_name))
             self.gen.I(instructions.newclass(context.index))
             self.gen.I(*[instructions.popscope()]*len(parents))
             self.gen.I(instructions.initproperty(context.name))
-        
+
         self.gen.abc.scripts.index_for(abc.AbcScriptInfo(self.init,
                                                          self.traits))
         self.gen.exit_context()
@@ -190,14 +202,24 @@ class ClassContext(_MethodContextMixin):
     def __init__(self, gen, name, super_name, parent):
         self.gen = gen
         self.name = name
-        self.super_name = super_name or constants.QName("Object")
+        self.super_name = super_name or "Object"
         self.parent = parent
         self.instance_traits = []
         self.static_traits   = []
         self.cinit = None
         self.iinit = None
 
-    def make_cinit(self):
+    def overridden(self, static, name):
+        """
+        Determines whether a method name "name" should be mared with the
+        "override" flag.
+        """
+        ctx = self.gen.get_class_context(name)
+        if static:
+            return constants.QName(name) in ctx.StaticMethods
+        return constants.QName(name) in ctx.Methods
+
+    def make_cinit(self, optimize=None):
         """
         Create a cinit (class initializer) method used to set up static
         traits and variables, and enter the correct context to generate
@@ -209,18 +231,19 @@ class ClassContext(_MethodContextMixin):
         """
         if not self.cinit:
             self.cinit = abc.AbcMethodInfo("", [], constants.ANY_NAME)
-            self.cinit.ctx = MethodContext(self.gen, self.cinit, self, [])
+            self.cinit.ctx = MethodContext(self.gen, self.cinit, self, [],
+                                   optimize=optimize or self.gen.optimize)
         self.gen.enter_context(self.cinit.ctx)
         return self.cinit.ctx
 
-    def make_iinit(self, params=None):
+    def make_iinit(self, params=None, optimize=None):
         """
         Create a iinit (instance initializer) method used to set up instance
         variables, and enter the correct context to generate code on it.
 
         iinits are always called when an instance of a class is created using
-        the "new" operator in ECMAScript, which translates into the "constructprop"
-        opcode in ABC.
+        the "new" operator in ECMAScript, which translates into the
+        "constructprop" opcode in ABC.
         """
         params = params or ()
         if self.iinit:
@@ -228,7 +251,8 @@ class ClassContext(_MethodContextMixin):
                 raise ValueError("parameters cannot be redefined")
         else:
             self.iinit = self.new_method_info("", params, constants.QName("void"))
-            self.iinit.ctx = MethodContext(self.gen, self.iinit, self, [])
+            self.iinit.ctx = MethodContext(self.gen, self.iinit, self, [],
+                                   optimize=optimize or self.gen.optimize)
             self.iinit.ctx.constructor = True
 
         self.gen.enter_context(self.iinit.ctx)
@@ -252,7 +276,7 @@ class ClassContext(_MethodContextMixin):
         """
         self.static_traits.append(trait)
         return len(self.static_traits)
-    
+
     def exit(self):
         assert self.parent.CONTEXT_TYPE == "script"
         if self.iinit is None:
@@ -274,30 +298,27 @@ class MethodContext(object):
     scope_nest   = 0
     constructor  = False
 
-    def __init__(self, gen, method, parent, params, stdprologue=True):
-        self.gen, self.method, self.parent = gen, method, parent
+    def __init__(self, gen, method, parent, params, stdprologue=True, optimize=None):
+        self.gen, self.method, self.parent, self.optimize = gen, method, parent, optimize
         param_names = [n for t, n in params]
         self.asm = assembler.Avm2CodeAssembler(gen.constants,
                                                ['this']+param_names)
         self.acv_traits = []
         self.exceptions = []
+        self.body = abc.AbcMethodBodyInfo(
+                self.method, self.asm, self.acv_traits, self.exceptions, self.optimize)
         if stdprologue:
             self.restore_scopes()
 
     def exit(self):
-        if self.method.done:
-            return self.parent
-
-        self.method.done = True
         self.gen.abc.methods.index_for(self.method)
-        self.gen.abc.bodies.index_for(abc.AbcMethodBodyInfo(
-                self.method, self.asm, self.acv_traits, self.exceptions))
+        self.gen.abc.bodies.index_for(self.body)
         return self.parent
 
     def add_activation_trait(self, trait):
         """
         Add activation traits, or traits on the activation object.
-        
+
         This is used to implement some core concepts in ECMAScript,
         like the function-as-class semantics between calling a function
         and constructing an instance of a function. When you construct
@@ -392,10 +413,11 @@ class Avm2ilasm(object):
     Avm2ilasm is a nice generator interface for generating
     common idioms in methods.
     """
-    def __init__(self, abc_=None, make_script=True):
+    def __init__(self, abc_=None, make_script=True, optimize=True):
         self.abc = abc_ or abc.AbcFile()
         self.constants = self.abc.constants
         self.context = GlobalContext(self)
+        self.optimize = optimize
         if make_script:
             self.script0 = self.context.new_script()
 
@@ -404,21 +426,21 @@ class Avm2ilasm(object):
         An internal function designed to get a QName for
         a special construct of a "TYPE"
         """
-        if getattr(TYPE, "multiname", None):
-            return TYPE.multiname()
-        if isinstance(TYPE, str):
-            return constants.QName(TYPE)
-        return TYPE
+        return constants.QName(TYPE)
 
     def _get_class_context(self, name, DICT):
         """
         An internal function designed to get a certain
-        class context for a name and a fallback dict.
+        class context for a name and a fallback dict
 
-        This is going used with some pending playerglobal
-        parsing code that will automatically resolve base
-        classes and push them onto the scope stack.
+        This method uses the native library API to find
+        a native playerglobal class.
         """
+        if library.type_exists(name):
+            TYPE = library.get_type(name, False).clone()
+            TYPE.super_name = TYPE.BaseType
+            TYPE.name       = TYPE.FullName
+            return TYPE
         return DICT.get(name, [None])[0]
 
     def I(self, *i):
@@ -467,7 +489,7 @@ class Avm2ilasm(object):
         excluding "Object", through a list of objects with a multiname()
         method which returns a appropriate QName (QName implements this itself).
         This restriction should go away soon, hopefully.
-        
+
         The "name" and "super_name" parameters should be an object with a
         multiname() method for converting to an ABC Multiname (QName, TypeName,
         Multiname, Name, etc). A common use is to use a QName with the ns being
@@ -488,7 +510,8 @@ class Avm2ilasm(object):
             return self.exit_context()
         raise WrongContextError("end_class", self.context.CONTEXT_TYPE)
 
-    def begin_method(self, name, arglist=None, returntype=None, kind="method", static=False, override=False):
+    def begin_method(self, name, arglist=None, returntype=None, kind="method",
+                     static=False, override=False, optimize=None):
         """
         Create a new method with the name "name" and parameter list "arglist" and
         return type "returntype".
@@ -504,23 +527,25 @@ class Avm2ilasm(object):
 
         "returntype" should be the same kind of "type" parameter.
 
-        "kind" is the type of method. It can either be "method", "getter", or "setter". If
-        it is a getter, it must have a non-void return type and no argument list. If it is
-        a setter, it must have a void return type and must take one argument.
+        "kind" is the type of method. It can either be "method", "getter", or
+        "setter". If it is a getter, it must have a non-void return type and no
+        argument list. If it is a setter, it must have a void return type and
+        must take one argument.
 
         "static" determines whether to add the function to the static or instance
         traits of the class. For a script, this parameter will do nothing.
 
-        "override" has to be set if you attempt to override a method in the
-        superclass, including ones from the native Flash Player API.
+        "optimize" determines whether the code should undergo very simple
+        optimizations. It may be useful to turn this off for debugging.
 
-        To make the constructor method of a class, please use "begin_constructor".
+        To make the constructor method of a class, use "begin_constructor".
         """
         if self.context.CONTEXT_TYPE not in ("class", "script"):
             raise WrongContextError("begin_method", self.context.CONTEXT_TYPE)
-        return self.context.new_method(name, arglist, returntype, kind, static, override)
+        return self.context.new_method(name, arglist, returntype, kind, static, override,
+                                       optimize or self.optimize)
 
-    def begin_constructor(self, arglist=None):
+    def begin_constructor(self, arglist=None, optimize=None):
         """
         Create the constructor method of the current class with the parameter list
         "arglist", also called the "instance initializer".
@@ -528,10 +553,13 @@ class Avm2ilasm(object):
         "arglist" should be an iterable of (name, type) pairs, with the "name"
         being a string and "type" being an object with a multiname() method for
         specifying the type of the parameter.
+
+        "optimize" determines whether the code should go through very simple optimizations.
+        It may be helpful to turn this off for debugging.
         """
         if self.context.CONTEXT_TYPE != "class":
-            raise WrongContextError("begin_method", self.context.CONTEXT_TYPE)
-        return self.context.make_iinit(arglist)
+            raise WrongContextError("begin_constructor", self.context.CONTEXT_TYPE)
+        return self.context.make_iinit(arglist, optimize or self.optimize)
 
     def end_method(self):
         """
@@ -554,7 +582,7 @@ class Avm2ilasm(object):
         if self.context.CONTEXT_TYPE == "method" and self.context.constructor:
             return self.exit_context()
         raise WrongContextError("end_constructor", self.context.CONTEXT_TYPE)
-    
+
     def finish(self):
         """
         Finalize this generator, by exiting all contexts.
@@ -718,16 +746,34 @@ class Avm2ilasm(object):
     def branch_if_not_less_equals(self, lblname):
         self.I(instructions.ifnle(lblname))
 
-    def call_function_constargs(self, name, *args):
+    def call_function_constargs(self, name, *args, **kwargs):
         """
         Call the global function "name" with the constant arguments "args".
 
-        
+        Find the owner of the function "name", push every element of "args"
+        onto the stack, and call the function.
+
+        If a keyword argument "void" that is passed in is True, it will
+        use callpropvoid instead of callproperty, which discards the undefined
+        return value that exists on the stack.
         """
         self.I(instructions.findpropstrict(constants.QName(name)))
+        self.call_method_constargs(name, *args, **kwargs)
+
+    def call_method_constargs(self, name, *args, **kwargs):
+        """
+        Call a method on an object on the stack with the constant arguments
+        "args". If a keyword argument "void" that is passed in is True, it will
+        use callpropvoid instead of callproperty, which discards the undefined
+        return value that exists on the stack.
+        """
         if args:
             self.load(*args)
-        self.I(instructions.callproperty(constants.QName(name), len(args)))
+        if kwargs.pop("void", False):
+            i = instructions.callpropvoid
+        else:
+            i = instructions.callproperty
+        self.I(i(constants.QName(name), len(args)))
 
     def return_value(self):
         """
@@ -735,10 +781,10 @@ class Avm2ilasm(object):
         """
         self.I(instructions.returnvalue())
 
-    def store_var(self, name):
+    def store_var(self, name, TYPE=None):
         """
         Stores a local variable.
-        
+
         Pop a value off the stack and store it in the local
         occupied to "name"
 
@@ -753,8 +799,9 @@ class Avm2ilasm(object):
         If an argument has a multiname method, a "getlex" is done
         on the result of calling the multiname.
         """
-        if getattr(v, "multiname", None):
-            self.I(instructions.getlex(v.multiname()))
+        m = getattr(v, "multiname", None)
+        if m:
+            self.I(instructions.getlex(m()))
         elif isinstance(v, list):
             self.init_array(v)
         elif isinstance(v, dict):
@@ -791,10 +838,17 @@ class Avm2ilasm(object):
           basestring (str and unicode) - uses the utf8 pool
           bool                         - uses the pushtrue/pushfalse instructions
         """
-        if isinstance(v, (long, int)):
+        if v is constants.null:
+            self.I(instructions.pushnull())
+        elif v is constants.undefined:
+            self.I(instructions.pushundefined())
+        elif v is True:
+            self.I(instructions.pushtrue())
+        elif v is False:
+            self.I(instructions.pushfalse())
+        elif isinstance(v, (long, int)):
             if v > util.U32_MAX or v < -util.S32_MAX:
-                self.I(instructions.pushdouble(
-                        self.constants.double_pool.index_for(v)))
+                self.I(instructions.pushdouble(v))
                 #if v > 0:
                 #    self.I(instructions.convert_u())
                 #else:
@@ -802,21 +856,16 @@ class Avm2ilasm(object):
             elif 0 <= v < 256:
                 self.I(instructions.pushbyte(v))
             elif v >= 0:
-                self.I(instructions.pushuint(
-                        self.constants.uint_pool.index_for(v)))
+                self.I(instructions.pushuint(v))
             else:
-                self.I(instructions.pushint(
-                        self.constants.int_pool.index_for(v)))
+                self.I(instructions.pushint(v))
         elif isinstance(v, basestring):
-            self.I(instructions.pushstring(
-                    self.constants.utf8_pool.index_for(v)))
+            self.I(instructions.pushstring(v))
         elif isinstance(v, float):
-            self.I(instructions.pushdouble(
-                    self.constants.double_pool.index_for(v)))
-        elif v is True:
-            self.I(instructions.pushtrue())
-        elif v is False:
-            self.I(instructions.pushfalse())
+            if isnan(v):
+                self.I(instructions.pushnan())
+            else:
+                self.I(instructions.pushdouble(v))
         else:
             assert False, "value for push_const not a literal value"
 
@@ -889,7 +938,7 @@ class Avm2ilasm(object):
     def call_function(self, name, argcount):
         """
         Call a global function with "argcount" arguments.
-        
+
         Pop "argcount" values off the stack, pop the receiver (this object)
         off the stack, and calls the method on the receiver with the
         arguments in first-pushed first-argument order.
@@ -898,49 +947,75 @@ class Avm2ilasm(object):
         self.I(instructions.findpropstrict(name))
         self.I(instructions.callproperty(name, argcount))
 
-    def call_method(self, name, argcount):
+    def call_method(self, name, argcount, TYPE=None):
         """
         Call a method on an object on the stack with "argcount" arguments on the stack.
-        
+
+        If "TYPE" is passed in, it will attempt to cast the value on the top of the
+        stack before returning the value.
+
         Pop "argcount" values off the stack, pop the receiver (this object)
         off the stack, and calls the method on the receiver with the
         arguments in first-pushed first-argument order.
         """
         self.I(instructions.callproperty(constants.QName(name), argcount))
+        if TYPE:
+            self.downcast(TYPE)
 
-    def set_field(self, fieldname):
+    def set_field(self, fieldname, TYPE=None):
         """
-        Sets the field "fieldname" on an object.
-        
+        Sets the field "fieldname" on an object. If "TYPE" is passed in,
+        it will attempt to cast the value on the top of the stack before
+        setting the field.
+
         Pops "value" from the stack. Pops "obj" from the stack. Sets the
         field named "fieldname" on "obj" with the value "value".
         """
+        if TYPE:
+            self.downcast(TYPE)
         self.I(instructions.setproperty(constants.QName(fieldname)))
 
-    def get_field(self, fieldname):
+    def get_field(self, fieldname, TYPE=None):
         """
-        Gets the field "fieldname" on an object.
-        
+        Gets the field "fieldname" on an object. If "TYPE" is passed in,
+        it will attempt to cast the value on the top of the stack before
+        returning the value.
+
         Pops an object from the top of the stack, gets the field "fieldname",
         and pushes it on the stack.
         """
         self.I(instructions.getproperty(constants.QName(fieldname)))
+        if TYPE:
+            self.downcast(TYPE)
+
+    fast_cast = {
+        constants
+        .QName("String"):  instructions.convert_s(),
+        constants.QName("uint"):    instructions.convert_u(),
+        constants.QName("int"):     instructions.convert_i(),
+        constants.QName("Number"):  instructions.convert_d(),
+        constants.QName("Object"):  instructions.convert_o(),
+        constants.QName("Boolean"): instructions.convert_b(), }
 
     def downcast(self, TYPE):
         """
         Attempts to downcast an object to "TYPE".
-        
+
         Pops an object "obj" from the top of the stack, checks if it
         inherits or implements TYPE. If it does, it pushes "obj" back
         on the top of the stack. Otherwise, it pushes the constant null
         on the top of the stack.
         """
-        self.I(instructions.coerce(self._get_type(TYPE)))
+        TYPE = self._get_type(TYPE)
+        if TYPE in self.fast_cast:
+            self.I(self.fast_cast[TYPE])
+        else:
+            self.I(instructions.coerce(TYPE))
 
     def isinstance(self, TYPE):
         """
         Checks if an object is an instance of TYPE.
-        
+
         Pops an object from the top of the stack, checks if it inherits or
         implements TYPE, and pushes that boolean onto the stack.
         """
@@ -981,7 +1056,7 @@ class Avm2ilasm(object):
         self.dup()
         self.store_var(ctx.local)
         self.dup()
-        self.I(instructions.pushscope(pushscope))
+        self.I(instructions.pushscope())
         self.swap()
         self.I(instructions.setslot(1))
 
@@ -1010,7 +1085,7 @@ class Avm2ilasm(object):
         excluding "Object", through a list of objects with a multiname()
         method which returns a appropriate QName (QName implements this itself).
         This restriction should go away soon, hopefully.
-        
+
         The "name" and "super_name" parameters should be an object with a
         multiname() method for converting to an ABC Multiname (QName, TypeName,
         Multiname, Name, etc). A common use is to use a QName with the ns being
@@ -1021,8 +1096,8 @@ class Avm2ilasm(object):
           packagedQName("flash.display", "Sprite")
         """
         return ContextManager((self.begin_class, (name, super_name, bases)), self.end_class)
-    
-    def Method(self, name, arglist=None, returntype=None, kind="method", static=False, override=False):
+
+    def Method(self, name, arglist=None, returntype=None, kind="method", static=False, optimize=None):
         """
         Return a context manager that can be used with the with statement
         that calls begin_method and end_method.
@@ -1045,14 +1120,14 @@ class Avm2ilasm(object):
         "static" determines whether to add the function to the static or instance
         traits of the class. For a script, this parameter will do nothing.
 
-        "override" has to be set if you attempt to override a method in the
-        superclass, including ones from the native Flash Player API.
+        "optimize" determines whether the code should go through very simple optimizations.
+        It may be helpful to turn this off for debugging.
 
         To make the constructor method of a class, please use "begin_constructor".
         """
-        return ContextManager((self.begin_method, (name, arglist, returntype, kind, static, override)), self.end_method)
+        return ContextManager((self.begin_method, (name, arglist, returntype, kind, static, optimize)), self.end_method)
 
-    def Constructor(self, arglist=None):
+    def Constructor(self, arglist=None, optimize=None):
         """
         Return a context manager that can be used with the with statement
         that calls begin_method and end_method.
@@ -1060,8 +1135,11 @@ class Avm2ilasm(object):
         "arglist" should be an iterable of (name, type) pairs, with the "name"
         being a string and "type" being an object with a multiname() method for
         specifying the type of the parameter.
+
+        "optimize" determines whether the code should go through very simple optimizations.
+        It may be helpful to turn this off for debugging.
         """
-        return ContextManager((self.begin_constructor, (arglist,)), self.end_constructor)
+        return ContextManager((self.begin_constructor, (arglist, optimize)), self.end_constructor)
 
 class ContextManager(object):
     def __init__(self, enter, exit):
@@ -1070,7 +1148,7 @@ class ContextManager(object):
 
     def __enter__(self):
         fn, args = self.enter
-        fn(*args)
+        return fn(*args)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.exit()

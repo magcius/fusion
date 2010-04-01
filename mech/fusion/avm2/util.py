@@ -1,21 +1,18 @@
-
 import struct
 import re
 from collections import namedtuple
 
-# 5 bytes with the 7 low bits contributing to the number
-U32_MAX = 2**(7*5) - 1
-S32_MAX = 2**((7*5) - 2)
+U32_MAX = 2**32 - 1
+S32_MAX = 2**31 - 1
 
 def serialize_u32(value):
-    s = ""
-    i = 0
+    s, i, v, b = "", 0, value & 0x07FFFFFFFF, value < 0
     while True:
         if i == 5:
-            raise ValueError("value does not fit in a u32: %r" % s)
-        bits = value & 0b01111111 # low 7 bits
-        value >>= 7
-        if not value:
+            raise ValueError("value does not fit in a u32: %r" % (value,))
+        bits = v & 0b01111111 # low 7 bits
+        if (not b and not v) or (b and v & 0x7F == 0x7F):
+        v >>= 7
             s += chr(bits)
             break
         s += chr(0b10000000 | bits)
@@ -32,10 +29,8 @@ def serialize_s24(value):
     return m[:3]
 
 class Avm2Label(object):
-    
     backref = False
-    
-    def __init__(self, asm, address=-1):
+    def __init__(self, asm, address=None):
         self.asm = asm
         self._address = address
         self.stack_depth = asm._stack_depth_max
@@ -48,7 +43,7 @@ class Avm2Label(object):
     @address.setter
     def address(self, value):
         self._address = value
-        
+
     def relative_offset(self, base):
         return serialize_s24(self.address - base)
 
@@ -59,12 +54,13 @@ class Avm2Label(object):
 empty = object()
 
 class ValuePool(object):
-    def __init__(self, default=None, parent=None):
+    def __init__(self, default=None, parent=None, debug=False):
         self.parent = parent
         self.index_map = {}
         self.pool      = []
         self.free      = []
         self.default   = default
+        self.debug     = debug
         self.has_default = default is not None
 
     def __contains__(self, value):
@@ -87,14 +83,17 @@ class ValuePool(object):
         if self.has_default and (value == self.default or value is None) and not allow_conflicts:
             return 0
 
+        if self.parent and getattr(self.parent, "write_to", None):
+            self.parent.write(value)
+
         if value in self.index_map and not allow_conflicts:
             return self.index_map[value]
 
+        if self.debug and not isinstance(value, basestring):
+            aaa
+
         if not add:
             raise ValueError("value not in ValuePool\n\nHave: %r, requested %r" % (self.pool, value))
-
-        if self.parent and getattr(self.parent, "write_to", None):
-            self.parent.write(value)
 
         index, reuse = self.next_free()
 

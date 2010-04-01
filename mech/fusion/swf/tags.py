@@ -2,7 +2,7 @@
 from zope.interface import implements, classProvides
 
 from mech.fusion.bitstream.interfaces import IStruct, IStructClass
-from mech.fusion.bitstream.formats import CString, Bit, Zero
+from mech.fusion.bitstream.formats import CString, Bit, Zero, ByteString
 from mech.fusion.bitstream.flash_formats import SI16, UI16, UI32
 from mech.fusion.swf.records import (RecordHeader, ShapeWithStyle,
                                      Matrix, CXForm, RGB, Rect)
@@ -15,6 +15,7 @@ from collections import defaultdict
 class complexdefaultdict(defaultdict):
     def __missing__(self, key):
         self[key] = self.default_factory(key)
+        return self[key]
 
 class UnknownSwfTag(object):
     """
@@ -115,11 +116,10 @@ class UnknownSwfTag(object):
 
     def __repr__(self):
         return "<%s (%#X) (Unknown Tag)>" % (self.name, self.tag)
-    
+
     def parse_inner(self, bitstream):
-        self.data = bitstream.read_string()
         return self
-    
+
 REVERSE_INDEX = complexdefaultdict(UnknownSwfTag)
 
 class SwfTagMeta(type):
@@ -161,21 +161,23 @@ class SwfTag(object):
     def __repr_inner__(self):
         return ""
     
-    def as_bitstream(self):
+    def serialize(self):
         """
         Return a bytestring containing the appropriate structures of the tag.
         """
         data = self.serialize_data()
-        return RecordHeader(self.TAG_TYPE, len(data)).as_bitstream().serialize() + data
+        rh = RecordHeader(self.TAG_TYPE, len(data)).as_bitstream()
+        return rh.serialize() + data
 
     @classmethod
-    def from_bitstream(cls, bitstream):
+    def from_bitstream(cls, bitstream, real=True):
         offset = bitstream.cursor//8
         recordheader = RecordHeader.from_bitstream(bitstream)
         cls = REVERSE_INDEX[recordheader.type]
-        if not hasattr(cls, "parse_inner"):
+        if not getattr(cls, "parse_inner", None):
             cls = UnknownSwfTag(recordheader.type)
-        inst = cls.parse_inner(bitstream.read(BitStream[recordheader.length*8]))
+        bits = bitstream.read(BitStream[recordheader.length*8])
+        inst = cls.parse_inner(bits)
         inst.length = recordheader.length
         inst.offset = offset
         return inst

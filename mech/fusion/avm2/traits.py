@@ -1,11 +1,10 @@
-
 import struct
 
 from mech.fusion.bitstream.bitstream import BitStream
 from mech.fusion.bitstream.formats import U32, Bit, UB
 from mech.fusion.bitstream.flash_formats import UI8
 
-from mech.fusion.avm2.constants import py_to_abc, abc_to_py
+from mech.fusion.avm2.constants import py_to_abc, abc_to_py, QName
 from mech.fusion.avm2.util import serialize_u32 as s_u32
 
 TRAIT_Slot     = 0
@@ -17,9 +16,33 @@ TRAIT_Function = 5
 TRAIT_Const    = 6
 
 class AbcTrait(object):
+    """
+    Traits are used to give names and owners to methods, variables,
+    constants, getters/setters and classes. There are four things
+    that can hold traits: method bodies, instances, classes, and
+    scripts. Abc
+
+    Slot and Const traits have a way of optimization called a "slot
+    index", which allows you to use an integer with getslot/setslot
+    instead of getproperty/setproperty.
+
+    Traits on methods are called "activation" traits, these traits
+    are usually used for implementing the "this" object in JavaScript.
+
+    Traits on classes are actually the static variables/constants/
+    methods. They are initialized when the class is created from the
+    script and only exist in one place in memory.
+
+    Traits on instances are members variables/constants/methods.
+    They control the things the object itself is able to hold/do.
+
+    Last, traits on scripts aren't used very often in the context of
+    the Flash Player, as far as I can tell they give the actual name
+    to the class that is used.
+    """
     KIND = None
     def __init__(self, name, final=False, override=False):
-        self.name = name
+        self.name = QName(name)
         self._name_index = None
 
         self.is_final = final
@@ -50,28 +73,26 @@ class AbcTrait(object):
             L = xrange(bitstream.read(U32))
             inst.metadata = [abc.metadatas.value_at(bitstream.read(U32)) for i in L]
         return inst
-    
+
     def serialize_inner(self):
         return ""
-    
+
     def serialize(self):
-        
         code = ""
-        
         code += s_u32(self._name_index)
 
         flags = BitStream()
-        flags.write_bit(False)
-        flags.write_bit(bool(self.metadata)) # ATTR_Metadata
-        flags.write_bit(self.is_override)    # ATTR_Override
-        flags.write_bit(self.is_final)       # ATTR_Final
-        
-        flags.write_int_value(self.KIND, 4)  # kind
+        flags.write(False)
+        flags.write(bool(self.metadata)) # ATTR_Metadata
+        flags.write(self.is_override)    # ATTR_Override
+        flags.write(self.is_final)       # ATTR_Final
+
+        flags.write(self.KIND, UB[4])  # kind
 
         code += flags.serialize()
 
         code += self.serialize_inner()
-        
+
         if self.metadata:
             code += s_u32(len(self.metadata))
             for m in self._metadata_indices:
@@ -97,7 +118,7 @@ class AbcClassTrait(AbcTrait):
         slot_id = bitstream.read(U32)
         clazz   = abc.classes.value_at(bitstream.read(U32))
         return cls(None, clazz, slot_id)
-    
+
     def serialize_inner(self):
         return s_u32(self.slot_id) + s_u32(self._class_index)
 
@@ -107,14 +128,14 @@ class AbcSlotTrait(AbcTrait):
     def __init__(self, name, type_name, value=None, slot_id=0):
         super(AbcSlotTrait, self).__init__(name, False, False)
         self.slot_id = slot_id
-        
-        self.type_name = type_name
+
+        self.type_name = QName(type_name)
         self._type_name_index = None
-        
+
         self.value = value
         self._value_index = None
         self._value_kind  = None
-    
+
     def write_to_pool(self, pool):
         super(AbcSlotTrait, self).write_to_pool(pool)
         if self.value is None:
@@ -123,7 +144,7 @@ class AbcSlotTrait(AbcTrait):
             self._value_kind, self._value_index = py_to_abc(self.value, pool)
             if self._value_index is None:
                 self._value_index = self._value_kind
-        
+
         self._type_name_index = pool.multiname_pool.index_for(self.type_name)
 
     @classmethod
@@ -135,12 +156,12 @@ class AbcSlotTrait(AbcTrait):
         if vindex:
             vkind = bitstream.read(UI8)
             value = abc_to_py((vindex, vkind), constants)
-        
+
         return cls(None, type_name, value, slot_id)
-    
+
     def serialize_inner(self):
         code = ""
-        
+
         code += s_u32(self.slot_id)
         code += s_u32(self._type_name_index)
         code += s_u32(self._value_index)
@@ -148,7 +169,7 @@ class AbcSlotTrait(AbcTrait):
             code += s_u32(self._value_kind)
 
         return code
-        
+
 class AbcConstTrait(AbcSlotTrait):
     KIND = TRAIT_Const
 
@@ -157,7 +178,7 @@ class AbcFunctionTrait(AbcTrait):
     def __init__(self, name, function, slot_id=0):
         super(AbcFunctionTrait, self).__init__(name, False, False)
         self.slot_id = slot_id
-        
+
         self.function = function
         self._function_index = None
 
@@ -170,7 +191,7 @@ class AbcFunctionTrait(AbcTrait):
         slot_id  = bitstream.read(U32)
         function = abc.methods.value_at(bitstream.read(U32))
         return cls(None, function, slot_id)
-    
+
     def serialize_inner(self):
         return s_u32(self.slot_id) + s_u32(self._function_index)
 
@@ -179,7 +200,7 @@ class AbcMethodTrait(AbcTrait):
     def __init__(self, name, method, disp_id=0, final=False, override=False):
         super(AbcMethodTrait, self).__init__(name, final, override)
         self.disp_id = disp_id
-        
+
         self.method = method
         self._method_index = None
 
@@ -192,10 +213,10 @@ class AbcMethodTrait(AbcTrait):
         disp_id = bitstream.read(U32)
         method = abc.methods.value_at(bitstream.read(U32))
         return cls(None, method, disp_id)
-    
+
     def serialize_inner(self):
         return s_u32(self.disp_id) + s_u32(self._method_index)
-    
+
 class AbcGetterTrait(AbcMethodTrait):
     KIND = TRAIT_Getter
 

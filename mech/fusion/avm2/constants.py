@@ -1,4 +1,3 @@
-
 import struct
 from mech.fusion.bitstream.bitstream import BitStreamParseMixin
 from mech.fusion.bitstream.flash_formats import UI8, U32, DOUBLE
@@ -105,7 +104,7 @@ TYPE_MULTINAME_RtqNameL           = 0x11 # o.ns::[name] - namespace and name on 
 TYPE_MULTINAME_RtqNameLA          = 0x12 # o.@ns::name
 TYPE_MULTINAME_NameL              = 0x13 # o.[name]     - implied public namespace, name on stack
 TYPE_MULTINAME_NameLA             = 0x14 # o.@[name]
-TYPE_MULTINAME_MultinameL         = 0x1B # o.[name]     - 
+TYPE_MULTINAME_MultinameL         = 0x1B # o.[name]     -
 TYPE_MULTINAME_MultinameLA        = 0x1C # o.@[name]
 TYPE_MULTINAME_TypeName           = 0x1D # o.ns::name.<generic> - used to implement Vector
 
@@ -194,7 +193,6 @@ def abc_to_py(tup, pool):
 # ======================================
 
 class Namespace(object):
-
     def __init__(self, kind, name):
         self.kind = kind
         self.name = name
@@ -202,13 +200,13 @@ class Namespace(object):
 
     def __hash__(self):
         return hash((self.name, self.kind))
-        
+
     def __eq__(self, other):
         return isinstance(other, type(self)) and self.name == other.name and self.kind == other.kind
 
     def __ne__(self, other):
         return not self == other
-        
+
     def write_to_pool(self, pool):
         self._name_index = pool.utf8_pool.index_for(self.name)
 
@@ -220,13 +218,12 @@ class Namespace(object):
     def parse(cls, bitstream, constants):
         inst = cls(bitstream.read(UI8), constants.utf8_pool.value_at(bitstream.read(U32)))
         return inst
-    
+
     def __repr__(self):
         kind = {0x16: "package", 0x08: "normal", 0x05: "private"}
         return "Namespace(name=%r, kind=%r)" % (self.name, kind.get(self.kind, self.kind))
 
 class NamespaceSet(object):
-
     def __init__(self, *namespaces):
         self.namespaces = namespaces
         self._namespace_indices = None
@@ -236,7 +233,7 @@ class NamespaceSet(object):
 
     def __hash__(self):
         return hash(tuple(self.namespaces))
-    
+
     def __eq__(self, other):
         return  isinstance(other, type(self)) and self.namespaces == other.namespaces
 
@@ -252,11 +249,11 @@ class NamespaceSet(object):
     @classmethod
     def parse(cls, bitstream, constants):
         return cls(*(constants.namespace_pool.value_at(bitstream.read(U32)) for i in xrange(bitstream.read(U32))))
-    
+
     def serialize(self):
         assert self._namespace_indices is not None, "Please call write_to_pool before serializing"
         return s_u32(len(self.namespaces)) + ''.join(s_u32(index) for index in self._namespace_indices)
-        
+
 
 NO_NAMESPACE  = Namespace(TYPE_NAMESPACE_Namespace, "")
 ANY_NAMESPACE = Namespace(TYPE_NAMESPACE_Namespace, "*")
@@ -269,8 +266,6 @@ AS3_NAMESPACE       = Namespace(TYPE_NAMESPACE_Namespace, "http://adobe.com/AS3/
 NO_NAMESPACE_SET = NamespaceSet()
 PROP_NAMESPACE_SET = NamespaceSet(PRIVATE_NAMESPACE, PACKAGE_NAMESPACE, PACKAGE_I_NAMESPACE, AS3_NAMESPACE)
 
-ANY_NAME = object()
-
 def packagedQName(ns, name):
     return QName(name, Namespace(TYPE_NAMESPACE_PackageNamespace, ns))
 
@@ -280,7 +275,7 @@ def packagedQName(ns, name):
 
 class MultinameL(object):
     KIND = TYPE_MULTINAME_MultinameL
-    
+
     def __init__(self, ns_set):
         self.ns_set = ns_set
         self._ns_set_index = None
@@ -293,7 +288,10 @@ class MultinameL(object):
 
     def __hash__(self):
         return hash((self.KIND, self.ns_set))
-    
+
+    def __repr__(self):
+        return "MultinameL(%r)" % (self.ns_set)
+
     def write_to_pool(self, pool):
         self._ns_set_index = pool.nsset_pool.index_for(self.ns_set)
 
@@ -313,7 +311,7 @@ class MultinameLA(MultinameL):
 
 class Multiname(MultinameL):
     KIND = TYPE_MULTINAME_Multiname
-    
+
     def __init__(self, name, ns_set):
         super(Multiname, self).__init__(ns_set)
         self.name = name
@@ -342,7 +340,7 @@ class Multiname(MultinameL):
     @classmethod
     def parse_inner(cls, bitstream, constants):
         return cls(constants.utf8_pool.value_at(bitstream.read(U32)), constants.nsset_pool.value_at(bitstream.read(U32)))
-    
+
     @classmethod
     def parse(cls, bitstream, constants):
         kind = bitstream.read(UI8)
@@ -362,26 +360,35 @@ class QName(object):
     KIND = TYPE_MULTINAME_QName
 
     def __new__(typ, name, ns=None):
-        if ns is None and isinstance(name, QName):
-            return name
+        if ns is None:
+            m = getattr(name, "multiname", None)
+            if name is ANY_NAME:
+                return ANY_NAME
+            if m:
+                s = m()
+                return s
         return object.__new__(typ)
-    
+
     def __init__(self, name, ns=None):
+        if getattr(self, "name", None): return
+
         self.name = name
         self.ns = ns or PACKAGE_NAMESPACE
 
         self._name_index = None
         self._ns_index = None
 
+        self._init = True
+
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.KIND == other.KIND and self.name == other.name and self.ns == other.ns
+        return isinstance(other, type(self)) and self.KIND == other.KIND and self.name == other.name and self.ns == other.ns
 
     def __ne__(self, other):
         return not self == other
 
     def __hash__(self):
         return hash((self.KIND, self.name, self.ns))
-    
+
     def write_to_pool(self, pool):
         assert self.name != ""
         if self.name == "*":
@@ -394,7 +401,7 @@ class QName(object):
     def parse_inner(cls, bitstream, constants):
         return cls(ns=constants.namespace_pool.value_at(bitstream.read(U32)),
                    name=constants.utf8_pool.value_at(bitstream.read(U32)))
-        
+
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
         assert self._ns_index is not None, "Please call write_to_pool before serializing"
@@ -410,7 +417,7 @@ class QName(object):
 
 class QNameA(QName):
     KIND = TYPE_MULTINAME_QNameA
-    
+
 class RtqNameL(object):
     KIND = TYPE_MULTINAME_RtqNameL
 
@@ -451,7 +458,7 @@ class RtqName(object):
 
     def __hash__(self):
         return hash((self.KIND, self.name))
-    
+
     def write_to_pool(self, pool):
         assert self.name != ""
         # if self.name == "*":
@@ -479,9 +486,12 @@ class TypeName(object):
     def __init__(self, name, *types):
         self.name  = name
         self.types = list(types)
-        
+
         self._name_index = None
         self._types_indices = None
+
+    def __str__(self):
+        return "%s.<%s>" % (self.name, ','.join(str(a) for a in self.types))
 
     def __eq__(self, other):
         return isinstance(other, self.__class__) and self.KIND == other.KIND and self.name == other.name and self.types == other.types
@@ -509,6 +519,8 @@ class TypeName(object):
     def multiname(self):
         return self
 
+ANY_NAME = object() # Match the default
+
 MULTINAME_KINDS = {}
 MULTINAME_KINDS[MultinameL.KIND]  = MultinameL
 MULTINAME_KINDS[MultinameLA.KIND] = MultinameLA
@@ -529,12 +541,12 @@ MULTINAME_KINDS[TypeName.KIND]    = TypeName
 class AbcConstantPool(BitStreamParseMixin):
 
     write_to = "pool"
-    
+
     def __init__(self):
         self.int_pool       = ValuePool(0, self)
         self.uint_pool      = ValuePool(0, self)
         self.double_pool    = ValuePool(float("nan"), self)
-        self.utf8_pool      = ValuePool(object(), self) # don't use "" because multinames expect "*"
+        self.utf8_pool      = ValuePool(object(), self, True) # don't use "" because multinames expect "*"
         self.namespace_pool = ValuePool(ANY_NAMESPACE, self)
         self.nsset_pool     = ValuePool(NO_NAMESPACE_SET, self)
         self.multiname_pool = ValuePool(ANY_NAME, self)
@@ -558,14 +570,14 @@ class AbcConstantPool(BitStreamParseMixin):
             return struct.pack("<d", double)
 
         def utf8(string):
-            return s_u32(len(string)) + string
-        
+            return s_u32(len(string)) + string.encode("utf8")
+
         def serializable(item):
             return item.serialize()
-        
+
         def write_pool(pool, fn):
             return s_u32(len(pool)) + ''.join(fn(i) for i in pool)
-        
+
         buffer = ""
         buffer += write_pool(self.int_pool, s_u32)
         buffer += write_pool(self.uint_pool, s_u32)

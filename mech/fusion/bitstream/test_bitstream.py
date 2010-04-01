@@ -3,7 +3,7 @@ import py.test
 import os
 
 from mech.fusion.bitstream.bitstream import BitStream
-from mech.fusion.bitstream.formats import One
+from mech.fusion.bitstream.formats import One, ByteString
 
 def test_constructor():
     bits = BitStream("10")
@@ -44,8 +44,6 @@ def test_cursor():
 
     bits.cursor = 0
     result = bits.read_bits(8)
-    print str(result)
-    print str(bits)
     assert str(result) == str(bits)
 
 def test_BitStream_specialized_format_read():
@@ -83,12 +81,11 @@ def test_BitStream_specialized_format_write():
     test = BitStream()
     test.write("SWF", ByteString)
     test.rewind()
-    print str(test)
+    print test.cursor
 
     bits = BitStream()
     bits.write(test, BitStream["<"])
     bits.rewind()
-    print str(bits)
 
     result = bits.read(ByteString[3])
     assert result == "FWS"
@@ -105,7 +102,7 @@ def test_flush():
     bits = BitStream("1111")
     bits.rewind()
     bits.flush()
-    assert str(bits) == "11111100"
+    assert str(bits) == "11110000"
     assert bits.bits_available == 0
 
     # Test when cursor != 0.
@@ -135,8 +132,40 @@ def test_skip_flush():
     assert str(bits) == "111"
     assert bits.bits_available == 3
 
-    bits = BitStream("111")
     bits.skip_to_end()
     bits.skip_flush()
     assert str(bits) == "111"
+    assert bits.bits_available == 0
+
+    bits = BitStream("11110000 111")
+    bits.skip_flush()
+    assert bits.cursor == 0
+    assert bits.bits_available == 11
+
+    bits.cursor += 1
+    bits.skip_flush()
+    assert bits.cursor == 8
+    assert bits.bits_available == 3
+
+    bits.skip_flush()
+    assert bits.cursor == 8
+    assert bits.bits_available == 3
+
+    bits = BitStream("11110000 11100011 101")
+    bits.skip_flush()
+    assert bits.cursor == 0
+    assert bits.bits_available == 19
+
+    bits.cursor += 1
+    bits.skip_flush()
+    assert bits.cursor == 8
+    assert bits.bits_available == 11
+
+    bits.skip_flush()
+    assert bits.cursor == 8
+    assert bits.bits_available == 11
+
+    bits.cursor += 1
+    bits.skip_flush()
+    assert bits.cursor == 16
     assert bits.bits_available == 3
