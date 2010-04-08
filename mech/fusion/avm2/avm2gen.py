@@ -989,8 +989,7 @@ class Avm2ilasm(object):
             self.downcast(TYPE)
 
     fast_cast = {
-        constants
-        .QName("String"):  instructions.convert_s(),
+        constants.QName("String"):  instructions.convert_s(),
         constants.QName("uint"):    instructions.convert_u(),
         constants.QName("int"):     instructions.convert_i(),
         constants.QName("Number"):  instructions.convert_d(),
