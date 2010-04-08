@@ -11,8 +11,8 @@ def serialize_u32(value):
         if i == 5:
             raise ValueError("value does not fit in a u32: %r" % (value,))
         bits = v & 0b01111111 # low 7 bits
-        if (not b and not v) or (b and v & 0x7F == 0x7F):
         v >>= 7
+        if (not b and not v) or (b and v & 0x7F == 0x7F):
             s += chr(bits)
             break
         s += chr(0b10000000 | bits)
