@@ -8,7 +8,10 @@ from mech.fusion.swf.records import RGBA, Rect
 from mech.fusion.avm2.constants import QName
 from mech.fusion.avm2.abc_ import AbcFile
 from mech.fusion.avm2.traits import AbcSlotTrait
-from mech.fusion.avm2.playerglobal import flash
+from mech.fusion.avm2 import playerglobal_lib
+playerglobal_lib.install_global()
+
+import flash
 
 swf = SwfData()
 swf.add_tag(FileAttributes())
