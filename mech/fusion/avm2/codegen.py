@@ -52,8 +52,8 @@ class _MethodContextMixin(object):
     def new_method(self, name, params=None, rettype=None, kind="method", static=False,
                    override=False, optimize=None):
         """
-        Create a new method with the name "name" and parameter list "arglist" and
-        return type "returntype".
+        Create a new method with the name "name" and parameter list "arglist"
+        and return type "returntype".
 
         The "name" parameter should be a string or an object with a multiname()
         method for converting to an ABC Multiname (QName, TypeName, Multiname,
@@ -66,9 +66,10 @@ class _MethodContextMixin(object):
 
         "returntype" should be the same kind of "type" parameter.
 
-        "kind" is the type of method. It can either be "method", "getter", or "setter". If
-        it is a getter, it must have a non-void return type and no argument list. If it is
-        a setter, it must have a void return type and must take one argument.
+        "kind" is the type of method. It can either be "method", "getter", or
+        "setter". If it is a getter, it must have a non-void return type and no
+        argument list. If it is a setter, it must have a void return type and
+        must take one argument.
 
         "static" determines whether to add the function to the static or instance
         traits of the class. For a script, this parameter will do nothing.
@@ -632,8 +633,8 @@ class CodeGenerator(object):
     def begin_method(self, name, arglist=None, returntype=None, kind="method",
                      static=False, override=False, optimize=None):
         """
-        Create a new method with the name "name" and parameter list "arglist" and
-        return type "returntype".
+        Create a new method with the name "name" and parameter list "arglist"
+        and return type "returntype".
 
         The "name" parameter should be a string or an object with a multiname()
         method for converting to an ABC Multiname (QName, TypeName, Multiname,
@@ -673,11 +674,12 @@ class CodeGenerator(object):
         being a string and "type" being an object with a multiname() method for
         specifying the type of the parameter.
 
-        "optimize" determines whether the code should go through very simple optimizations.
-        It may be helpful to turn this off for debugging.
+        "optimize" determines whether the code should go through very simple
+        optimizations. It may be helpful to turn this off for debugging.
         """
         if self.context.CONTEXT_TYPE != "class":
-            raise WrongContextError("begin_constructor", self.context.CONTEXT_TYPE)
+            raise WrongContextError("begin_constructor",
+                                    self.context.CONTEXT_TYPE)
         return self.context.make_iinit(arglist, optimize or self.optimize)
 
     def end_method(self):
@@ -732,9 +734,11 @@ class CodeGenerator(object):
         certain type.
 
         "TYPE" can either be a string, in which case it is one of "global",
-        "script", "class", "method", or the actual context type (i.e. ScriptContext).
+        "script", "class", "method", or the actual context type
+        (i.e. ScriptContext).
         """
-        while self.context.CONTEXT_TYPE != TYPE or isinstance(TYPE, type) and isinstance(self.context, TYPE):
+        while self.context.CONTEXT_TYPE != TYPE or isinstance(TYPE, type) and \
+                  isinstance(self.context, TYPE):
             self.exit_context()
 
     def exit_until(self, context):
@@ -1199,7 +1203,8 @@ class CodeGenerator(object):
 
           packagedQName("flash.display", "Sprite")
         """
-        return ContextManager((self.begin_class, (name, super_name, bases)), self.end_class)
+        return ContextManager((self.begin_class, (name, super_name, bases)),
+                              self.end_class)
 
     def Method(self, name, arglist=None, returntype=None, kind="method", static=False, optimize=None):
         """
@@ -1217,9 +1222,10 @@ class CodeGenerator(object):
 
         "returntype" should be the same kind of "type" parameter.
 
-        "kind" is the type of method. It can either be "method", "getter", or "setter". If
-        it is a getter, it must have a non-void return type and no argument list. If it is
-        a setter, it must have a void return type and must take one argument.
+        "kind" is the type of method. It can either be "method", "getter", or
+        "setter". If it is a getter, it must have a non-void return type and no
+        argument list. If it is a setter, it must have a void return type and
+        must take one argument.
 
         "static" determines whether to add the function to the static or instance
         traits of the class. For a script, this parameter will do nothing.
@@ -1240,10 +1246,11 @@ class CodeGenerator(object):
         being a string and "type" being an object with a multiname() method for
         specifying the type of the parameter.
 
-        "optimize" determines whether the code should go through very simple optimizations.
-        It may be helpful to turn this off for debugging.
+        "optimize" determines whether the code should go through very simple
+        optimizations. It may be helpful to turn this off for debugging.
         """
-        return ContextManager((self.begin_constructor, (arglist, optimize)), self.end_constructor)
+        return ContextManager((self.begin_constructor, (arglist, optimize)),
+                              self.end_constructor)
 
 class ContextManager(object):
     def __init__(self, enter, exit):
