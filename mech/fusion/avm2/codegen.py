@@ -1,12 +1,13 @@
 
-from mech.fusion.avm2 import constants, instructions, traits
+from mech.fusion.avm2 import constants, instructions, library, traits, util
 from mech.fusion.avm2.assembler import CodeAssembler
-from mech.fusion.avm2.abc import (AbcMethodInfo, AbcMethodBodyInfo,
-                                  AbcClassInfo, AbcInstanceInfo,
-                                  AbcScriptInfo, AbcException, AbcFile)
+from mech.fusion.avm2.abc_ import (AbcMethodInfo, AbcMethodBodyInfo,
+                                   AbcClassInfo, AbcInstanceInfo,
+                                   AbcScriptInfo, AbcException, AbcFile)
 from mech.fusion.avm2.interfaces import ILoadable, LoadableAdapter
 
-from zope.component import adapter
+from zope.interface import implements
+from zope.component import adapter, provideAdapter
 
 from math import isnan
 from itertools import chain
@@ -421,17 +422,18 @@ class CatchContext(object):
     def exit(self):
         return self.parent
 
-@adapter(list)
 class ListLoadable(LoadableAdapter):
     def load(self, generator):
         generator.init_array(self.value)
 
-@adapter(dict)
+provideAdapter(ListLoadable, [list], ILoadable)
+
 class DictLoadable(LoadableAdapter):
     def load(self, generator):
         generator.init_object(self.value)
 
-@adapter(bool)
+provideAdapter(DictLoadable, [dict], ILoadable)
+
 class BoolLoadable(LoadableAdapter):
     def load(self, generator):
         if self.value:
@@ -439,7 +441,8 @@ class BoolLoadable(LoadableAdapter):
         else:
             generator.push_false()
 
-@adapter(int, long)
+provideAdapter(BoolLoadable, [bool], ILoadable)
+
 class IntLoadable(LoadableAdapter):
     def load(self, generator):
         v = self.value
@@ -456,8 +459,11 @@ class IntLoadable(LoadableAdapter):
         else:
             generator.I(instructions.pushint(v))
 
-@adapter(float)
+provideAdapter(IntLoadable, [int], ILoadable)
+provideAdapter(IntLoadable, [long], ILoadable)
+
 class FloatLoadable(LoadableAdapter):
+    implements(ILoadable)
     def load(self, generator):
         v = self.value
         if isnan(v):
@@ -465,12 +471,16 @@ class FloatLoadable(LoadableAdapter):
         else:
             generator.I(instructions.pushdouble(v))
 
-@adapter(basestring)
+provideAdapter(FloatLoadable, [float], ILoadable)
+
 class BaseStringLoadable(LoadableAdapter):
+    implements(ILoadable)
     def load(self, generator):
         generator.I(instructions.pushstring(self.value))
 
-class NotAnArgument(object):
+provideAdapter(BaseStringLoadable, [basestring], ILoadable)
+
+class NotAnArgument(BaseException):
     def __init__(self, name):
         self.name = name
 
@@ -914,6 +924,8 @@ class CodeGenerator(object):
 
         for i in args:
             self.load(i)
+
+    push_const = load
 
     def push_this(self):
         """
