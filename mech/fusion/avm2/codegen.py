@@ -422,18 +422,21 @@ class CatchContext(object):
     def exit(self):
         return self.parent
 
+@adapter(list)
 class ListLoadable(LoadableAdapter):
     def load(self, generator):
         generator.init_array(self.value)
 
-provideAdapter(ListLoadable, [list], ILoadable)
+provideAdapter(ListLoadable)
 
+@adapter(dict)
 class DictLoadable(LoadableAdapter):
     def load(self, generator):
         generator.init_object(self.value)
 
-provideAdapter(DictLoadable, [dict], ILoadable)
+provideAdapter(DictLoadable)
 
+@adapter(bool)
 class BoolLoadable(LoadableAdapter):
     def load(self, generator):
         if self.value:
@@ -441,7 +444,7 @@ class BoolLoadable(LoadableAdapter):
         else:
             generator.push_false()
 
-provideAdapter(BoolLoadable, [bool], ILoadable)
+provideAdapter(BoolLoadable)
 
 class IntLoadable(LoadableAdapter):
     def load(self, generator):
@@ -462,6 +465,7 @@ class IntLoadable(LoadableAdapter):
 provideAdapter(IntLoadable, [int], ILoadable)
 provideAdapter(IntLoadable, [long], ILoadable)
 
+@adapter(float)
 class FloatLoadable(LoadableAdapter):
     implements(ILoadable)
     def load(self, generator):
@@ -471,16 +475,17 @@ class FloatLoadable(LoadableAdapter):
         else:
             generator.I(instructions.pushdouble(v))
 
-provideAdapter(FloatLoadable, [float], ILoadable)
+provideAdapter(FloatLoadable)
 
+@adapter(basestring)
 class BaseStringLoadable(LoadableAdapter):
     implements(ILoadable)
     def load(self, generator):
         generator.I(instructions.pushstring(self.value))
 
-provideAdapter(BaseStringLoadable, [basestring], ILoadable)
+provideAdapter(BaseStringLoadable)
 
-class NotAnArgument(BaseException):
+class NotAnArgumentError(Exception):
     def __init__(self, name):
         self.name = name
 
@@ -945,7 +950,7 @@ class CodeGenerator(object):
         Load the local variable "name", which has to also be an argument.
         """
         if not any(n == name for t, n in self.context.params):
-            raise NotAnArgument(name)
+            raise NotAnArgumentError(name)
         self.GL(name)
 
     def push_true(self):
