@@ -7,13 +7,10 @@ from mech.fusion.bitstream.flash_formats import UI8
 from mech.fusion.avm2.constants import py_to_abc, abc_to_py, QName
 from mech.fusion.avm2.util import serialize_u32 as s_u32
 
-TRAIT_Slot     = 0
-TRAIT_Method   = 1
-TRAIT_Getter   = 2
-TRAIT_Setter   = 3
-TRAIT_Class    = 4
-TRAIT_Function = 5
-TRAIT_Const    = 6
+from zope.interface import implements
+
+(TRAIT_Slot, TRAIT_Method, TRAIT_Getter, TRAIT_Setter,
+ TRAIT_Class, TRAIT_Function, TRAIT_Const) = range(7)
 
 class AbcTrait(object):
     """
