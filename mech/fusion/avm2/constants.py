@@ -381,8 +381,8 @@ class QName(object):
     def __new__(typ, name, ns=None):
         if ns is None:
             m = getattr(name, "multiname", None)
-            if name is ANY_NAME:
-                return ANY_NAME
+            if name is undefined:
+                return undefined
             if m:
                 s = m()
                 return s
@@ -538,8 +538,6 @@ class TypeName(object):
     def multiname(self):
         return self
 
-ANY_NAME = object() # Match the default
-
 MULTINAME_KINDS = {}
 MULTINAME_KINDS[MultinameL.KIND]  = MultinameL
 MULTINAME_KINDS[MultinameLA.KIND] = MultinameLA
@@ -569,7 +567,7 @@ class AbcConstantPool(BitStreamParseMixin):
         self.utf8_pool      = ValuePool(object(), self, True) # Don't use "" because of multinames.
         self.namespace_pool = ValuePool(ANY_NAMESPACE, self)
         self.nsset_pool     = ValuePool(NO_NAMESPACE_SET, self)
-        self.multiname_pool = ValuePool(ANY_NAME, self)
+        self.multiname_pool = ValuePool(undefined, self)
 
     def write(self, value):
         if hasattr(value, "write_to_pool"):
