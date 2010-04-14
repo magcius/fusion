@@ -1,9 +1,11 @@
+
 import struct
 
 from mech.fusion.bitstream.bitstream import BitStream
 from mech.fusion.bitstream.formats import U32, Bit, UB
 from mech.fusion.bitstream.flash_formats import UI8
 
+from mech.fusion.avm2.interfaces import ILoadable, IStorable
 from mech.fusion.avm2.constants import py_to_abc, abc_to_py, QName
 from mech.fusion.avm2.util import serialize_u32 as s_u32
 
@@ -83,18 +85,15 @@ class AbcTrait(object):
         flags.write(bool(self.metadata)) # ATTR_Metadata
         flags.write(self.is_override)    # ATTR_Override
         flags.write(self.is_final)       # ATTR_Final
-
         flags.write(self.KIND, UB[4])  # kind
 
         code += flags.serialize()
-
         code += self.serialize_inner()
 
         if self.metadata:
             code += s_u32(len(self.metadata))
             for m in self._metadata_indices:
                 code += s_u32(m)
-
         return code
 
 class AbcClassTrait(AbcTrait):
