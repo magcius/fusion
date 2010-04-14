@@ -1,6 +1,6 @@
 
 from mech.fusion.swf import swfdata as s, tags as t, records as r
-from mech.fusion.avm2 import avm2gen as g, constants as c, abc_ as a, traits
+from mech.fusion.avm2 import constants as c, abc_ as a, traits
 
 swf = s.SwfData()
 swf.add_tag(t.FileAttributes())
@@ -9,7 +9,7 @@ swf.add_tag(t.DefineEditText(r.Rect(0, 0, 600, 400), "tt",
                              "Testing script order.", color=r.RGBA(0xFFFFFF)))
 swf.add_tag(t.PlaceObject2(1, 2, name="edittext"))
 abc = t.DoABC()
-actions = g.Avm2ilasm(abc, False)
+actions = abc.create_generator(False)
 
 swf.add_tag(abc)
 swf.add_tag(t.SymbolClass({0:"ScriptTest_Script0"}))
@@ -17,14 +17,7 @@ swf.add_tag(t.ShowFrame())
 swf.add_tag(t.End())
 
 actions.context.new_script()
-cls = actions.begin_class(c.QName("ScriptTest_Script0"), c.packagedQName("flash.display", "Sprite"), [
-        c.packagedQName("flash.display", "Sprite"),
-        c.packagedQName("flash.display", "DisplayObjectContainer"),
-        c.packagedQName("flash.display", "InteractiveObject"),
-        c.packagedQName("flash.display", "DisplayObject"),
-        c.packagedQName("flash.events", "EventDispatcher"),
-        c.QName("Object"),
-        ])
+cls = actions.begin_class(c.QName("ScriptTest_Script0"), c.packagedQName("flash.display", "Sprite"))
 cls.add_instance_trait(traits.AbcSlotTrait(c.QName('edittext'), c.packagedQName("flash.text", "TextField")))
 cls.make_cinit()
 actions.call_function_constargs("trace", "ScriptTest_Script0 here")
@@ -62,4 +55,3 @@ f.close()
 f = open("example.swf", "wb")
 f.write(swf.serialize())
 f.close()
-

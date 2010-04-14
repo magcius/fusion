@@ -4,7 +4,7 @@ from mech.fusion.bitstream.flash_formats import U32
 
 from mech.fusion.avm2.util import ValuePool
 from mech.fusion.avm2.instructions import (parse_instruction, INSTRUCTIONS,
-                                           getlocal, setlocal, get_label)
+                                           getlocal, setlocal, kill, get_label)
 
 BRANCH_OPTIMIZE = {
     ("not",            "iftrue"):  "iffalse",
@@ -30,10 +30,10 @@ NO_OP_GLSL = set((
     ("getlocal3", "setlocal3"),
 ))
 
-class Avm2CodeAssembler(object):
+class CodeAssembler(object):
     def __init__(self, constants, local_names):
         self.local_names = local_names
-        self.temporaries = ValuePool()
+        self.temporaries = ValuePool(debug=True)
         for i in local_names:
             self.temporaries.index_for(i)
 
@@ -42,6 +42,7 @@ class Avm2CodeAssembler(object):
         self._stack_depth = 0
         self._scope_depth = 0
 
+        self._numlocals_max = 0
         self._stack_depth_max = 0
         self._scope_depth_max = 0
 
@@ -59,6 +60,7 @@ class Avm2CodeAssembler(object):
             if self.instructions:
                 self.instructions[-1].next = instruction
             self.instructions.append(instruction)
+            instruction.assembler_added(self)
 
     def optimize(self):
         """
@@ -67,10 +69,12 @@ class Avm2CodeAssembler(object):
         """
         for _ in xrange(2):
             jumps = {}
-            slgl_marked = set()
-            null_marked = set()
+
+            remv_inst = set()
+            remv_regs = {}
 
             prev = None
+
             # First pass - mark anything needed for the second pass.
             for curr in self.instructions:
                 if prev is None:
@@ -85,19 +89,34 @@ class Avm2CodeAssembler(object):
 
                 # Detect if there are any references to this register other than
                 # the setlocal/getlocal sequence here.
+                S = set((prev, curr))
                 if prev.name.startswith("setlocal") and \
                    curr.name.startswith("getlocal") and \
                    prev.argument == curr.argument:
-                    slgl_marked.add(curr.argument)
-                elif prev.name.startswith(("pushnull", "pushundefined")) and \
+                    remv_inst |= S
+                    remv_regs[curr.argument] = S
+
+                # PyPy-specific optimization: some opcodes have an unnecessary
+                # StoreResult at the end, so callpropvoid and some setproperty's
+                # have a pushnull and an unused register afterwards. Stop that.
+                elif prev.name in ("pushnull", "pushundefined") and \
                      curr.name.startswith("setlocal"):
-                    null_marked.add(curr.argument)
+                    remv_inst |= S
+                    remv_regs[curr.argument] = S
 
                 elif curr.name.startswith("getlocal"):
-                    if curr.argument in slgl_marked:
-                        slgl_marked.remove(curr.argument)
-                    if curr.argument in null_marked:
-                        null_marked.remove(curr.argument)
+                    if curr.argument in remv_regs:
+                        remv_inst -= remv_regs[curr.argument]
+
+                elif curr.name.startswith("setlocal"):
+                    remv_regs[curr.argument] = set()
+
+                elif curr.name == "kill":
+                    # If we're going to remove this register, then mark the kill
+                    # for deletion too.
+                    if curr.argument in remv_regs:
+                        remv_regs[curr.argument] = set()
+                        remv_inst.add(curr)
 
                 prev = curr
 
@@ -131,6 +150,12 @@ class Avm2CodeAssembler(object):
                         instructions.pop(-2)
                         jumps[prev.lblname].remove(prev)
 
+                    # returnvalue then returnv(alue|oid).
+                    elif prev.name == "returnvalue" and \
+                         curr.name in ("returnvalue", "returnvoid"):
+                        instructions.pop()
+
+                    # Doesn't work as the label opcode does a lot of heavy lifting.
                     ## # If a label isn't jumped to at all, it's outta here.
                     ## elif curr.name == "label" and (curr.lblname not in jumps or \
                     ##                                not jumps[curr.lblname]):
@@ -143,17 +168,10 @@ class Avm2CodeAssembler(object):
                         jumps[curr.lblname].extend(jumps[prev.lblname])
                         del jumps[prev.lblname]
                         instructions = instructions[:-2]
-                        print instructions
 
-                    elif prev.name.startswith("setlocal") and \
-                         curr.name.startswith("getlocal") and \
-                         curr.argument in slgl_marked:
-                        instructions = instructions[:-2]
+                    elif curr in remv_inst:
+                        instructions.pop()
 
-                    elif prev.name.startswith(("pushnull", "pushundefined")) and \
-                         curr.name.startswith("setlocal") and \
-                         curr.argument in null_marked:
-                        instructions = instructions[:-2]
                     else:
                         keep_going = False
 
@@ -173,8 +191,11 @@ class Avm2CodeAssembler(object):
             elif curr.name.startswith("getlocal"):
                 curr = getlocal(used_registers.get(curr.argument,
                                                    curr.argument))
+            elif curr.name == "kill":
+                curr = kill(used_registers.get(curr.argument, curr.argument))
             instructions += curr, newinst
 
+        self._numlocals_max = len(used_registers)
         self.instructions = instructions
 
     def add_instructions(self, instructions):
@@ -215,7 +236,10 @@ class Avm2CodeAssembler(object):
         Mark the register named "name" as set and return
         the index.
         """
-        return self.temporaries.index_for(name, True)
+        index = self.temporaries.index_for(name, True)
+        if index > self._numlocals_max:
+            self._numlocals_max = index
+        return index
 
     def get_local(self, name):
         """
@@ -307,3 +331,5 @@ class Avm2CodeAssembler(object):
         while bitstream.cursor < finish:
             asm.add_instruction(parse_instruction(bitstream, abc, constants, asm))
         return asm
+
+Avm2CodeAssembler = CodeAssembler

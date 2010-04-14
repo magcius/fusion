@@ -5,7 +5,6 @@ from mech.fusion.swf.tags import (FileAttributes, SetBackgroundColor,
                                   SymbolClass, ShowFrame, End)
 from mech.fusion.swf.records import RGBA, Rect
 
-from mech.fusion.avm2.avm2gen import Avm2ilasm
 from mech.fusion.avm2.constants import QName
 from mech.fusion.avm2.abc_ import AbcFile
 from mech.fusion.avm2.traits import AbcSlotTrait
@@ -18,7 +17,7 @@ swf.add_tag(DefineEditText(Rect(0, 0, 600, 400), "tt",
                              "Testing drawing circles.", color=RGBA(0xFFFFFF)))
 swf.add_tag(PlaceObject2(1, 2, name="edittext"))
 abc = DoABC()
-actions = Avm2ilasm(abc)
+actions = abc.create_generator()
 
 swf.add_tag(abc)
 swf.add_tag(SymbolClass({0:"Example3EntryPoint"}))

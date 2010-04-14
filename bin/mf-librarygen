@@ -3,7 +3,7 @@
 
 import os.path
 
-from mech.fusion.avm2.library import playerglobal, library
+from mech.fusion.avm2.library import gen_playerglobal, gen_library
 from optparse import OptionParser
 
 def main():
@@ -18,7 +18,7 @@ def main():
     elif options.pg:
         options.output = options.output or "playerglobal.pickle"
         print "Generating", options.output
-        playerglobal(options.output)
+        gen_playerglobal(options.output)
     elif not args:
         parser.error("no filename specified")
     elif len(args) > 1:
@@ -26,7 +26,7 @@ def main():
     else:
         options.output = options.output or os.path.splitext(os.path.basename(args[0]))[0]+".pickle"
         print "Generating", options.output
-        library(args[0], options.output)
+        gen_library(args[0], options.output)
 
 if __name__ == "__main__":
     main()

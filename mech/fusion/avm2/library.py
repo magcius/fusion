@@ -198,6 +198,14 @@ class NativePackage(object):
             return getattr(self, attr)
         raise AttributeError(attr)
 
+    def __getitem__(self, item): # for stuff with non-Python attribute name
+        if "." in item:
+            context = self
+            for a in item.split("."):
+                context = getattr(context, a)
+            return context
+        return getattr(self, item)
+
     def install_global(self, modulename_prefix=None):
         """
         This installs this package into the sys.modules dict so it
@@ -248,16 +256,24 @@ def gen_playerglobal(output, Library=Library):
     library = Library.gen_library_abc(get_playerglobal_swc().get_abc("library.swf"))
     
     # Special hack for Vector's public interface.
-    Vector = library.toplevel.flash.utils.Vector.clone()
+    Vector = library.toplevel.__AS3__.vec.Vector.clone()
     Vector.Specializable   = True
     Vector.SpecializedFast = {
         QName('int'): packagedQName('__AS3__.vec', 'Vector$int'),
         QName('uint'): packagedQName('__AS3__.vec', 'Vector$uint'),
         QName('Number'): packagedQName('__AS3__.vec', 'Vector$double'),
+        QName('Object'): packagedQName('__AS3__.vec', 'Vector$object'),
     }
-    library.types[packagedQName('flash.utils', 'Vector')] = Vector
-    library.packages['flash']['utils']['Vector'] = Vector
-    
+    library.types[packagedQName('__AS3__.vec', 'Vector')] = Vector
+    library.toplevel.__AS3__.vec._types['Vector'] = Vector
+
+    library.types[QName('Vector')] = Vector
+    library.toplevel._types['Vector'] = Vector
+
+    # And hack Object's super_name to be None.
+    Object = library.toplevel.Object
+    Object.BaseType = None
+
     library.save_pickledb(output)
 
 def gen_library(swcpath, output, Library=Library):

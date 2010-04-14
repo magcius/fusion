@@ -127,7 +127,6 @@ class SwfData(BitStreamParseMixin):
                     tags.append(tag)
                 else:
                     bitstream.cursor += rh.length * 8
-                    yield None
         else:
             while bitstream.bits_available:
                 tag = SwfTag.from_bitstream(bitstream)

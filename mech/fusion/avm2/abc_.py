@@ -85,8 +85,8 @@ class AbcFile(BitStreamParseMixin):
         if m2: m2(self.constants)
 
     def create_generator(self, make_script=True):
-        from mech.fusion.avm2.avm2gen import Avm2ilasm
-        return Avm2ilasm(self, make_script)
+        from mech.fusion.avm2.codegen import CodeGenerator
+        return CodeGenerator(self, make_script)
 
     @classmethod
     def from_bitstream(cls, bitstream):
@@ -147,9 +147,9 @@ class AbcFile(BitStreamParseMixin):
 
 class AbcMethodInfo(object):
     done = False
-    def __init__(self, name, param_types, return_type, flags=0, options=None, param_names=None):
-        self.name = name
-        self._name_index = None
+    def __init__(self, namestr, param_types, return_type, flags=0, options=None, param_names=None):
+        self.namestr = namestr
+        self._namestr_index = None
 
         self.param_types = [QName(t) for t in param_types] if param_types else []
         self._param_types_indices = None
@@ -171,7 +171,7 @@ class AbcMethodInfo(object):
         return_type = constants.multiname_pool.value_at(bitstream.read(U32))
 
         param_types = [constants.multiname_pool.value_at(bitstream.read(U32)) for i in xrange(PTL)]
-        name = constants.utf8_pool.value_at(bitstream.read(U32))
+        namestr = constants.utf8_pool.value_at(bitstream.read(U32))
 
         flags = bitstream.read(UI8)
 
@@ -186,7 +186,7 @@ class AbcMethodInfo(object):
         if flags & METHODFLAG_HasParamNames:
             param_names = [constants.utf8_pool.value_at(bitstream.read(U32)) for i in xrange(PTL)]
 
-        return cls(name, param_types, return_type, flags, options, param_names)
+        return cls(namestr, param_types, return_type, flags, options, param_names)
 
     def serialize(self):
         code = ""
@@ -195,7 +195,7 @@ class AbcMethodInfo(object):
         code += s_u32(self._return_type_index)
 
         code += ''.join(s_u32(index) for index in self._param_types_indices)
-        code += s_u32(self._name_index)
+        code += s_u32(self._namestr_index)
 
         if self.options:
             self.flags |= METHODFLAG_HasOptional
@@ -217,7 +217,7 @@ class AbcMethodInfo(object):
         return code
 
     def write_to_pool(self, pool):
-        self._name_index = pool.utf8_pool.index_for(self.name)
+        self._namestr_index = pool.utf8_pool.index_for(self.namestr)
         self._return_type_index = pool.multiname_pool.index_for(self.return_type)
 
         self._param_types_indices = [pool.multiname_pool.index_for(i) for i in self.param_types]
@@ -226,7 +226,7 @@ class AbcMethodInfo(object):
         self._options_indices = [py_to_abc(value, pool) for value in self.options]
 
     def __repr__(self):
-        return "AbcMethod(%r)" % (self.name,)
+        return "AbcMethod(%r)" % (self.namestr,)
 
 class AbcMetadataInfo(object):
     def __init__(self, name, items):
@@ -457,8 +457,7 @@ class AbcMethodBodyInfo(object):
         return cls(minfo, code, traits, exceptions)
 
     def serialize(self):
-        if not isinstance(self.code.instructions[-1],(instructions.returnvalue, instructions.returnvoid)):
-            self.code.add_instruction(instructions.returnvoid())
+        self.code.add_instruction(instructions.returnvoid())
 
         if self.optimize:
             self.code.optimize()
@@ -468,7 +467,7 @@ class AbcMethodBodyInfo(object):
         code = ""
         code += s_u32(self._method_info_index)
         code += s_u32(self.code._stack_depth_max+1) # just to be safe.
-        code += s_u32(len(self.code.temporaries))
+        code += s_u32(self.code._numlocals_max+1)
         code += s_u32(0) # FIXME: For now, init_scope_depth is always 0.
         code += s_u32(self.code._scope_depth_max)
         body = self.code.serialize()

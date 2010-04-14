@@ -42,7 +42,7 @@ def dump_swf(swfdata):
 
 def dump_pool(name, pool, indent="", default=None):
     print indent + "    %s:" % (name,)
-    print indent + "      %s[0] = %s" % (name, pool.default if default is None else default)
+    print indent + "      %s[0] = %r" % (name, pool.default if default is None else default)
     for i, obj in enumerate(pool):
         print indent + "      %s[%d] = %r" % (name, i+1, obj)
 
@@ -93,9 +93,6 @@ def dump_abc(abc, indent=""):
     dump_pool("namespaces", abc.constants.namespace_pool, indent)
     dump_pool("nssets", abc.constants.nsset_pool, indent)
     dump_pool("multinames", abc.constants.multiname_pool, indent, default="*")
-
-    for meth in abc.methods:
-        dump_method(meth, indent+"    ")
 
     print
     for i, script in enumerate(abc.scripts):

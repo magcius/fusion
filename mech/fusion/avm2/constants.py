@@ -1,9 +1,14 @@
+
 import struct
+
 from mech.fusion.bitstream.bitstream import BitStreamParseMixin
-from mech.fusion.bitstream.flash_formats import UI8, U32, DOUBLE
+from mech.fusion.bitstream.flash_formats import UI8, U32, S32, DOUBLE
 from mech.fusion.bitstream.formats import UTF8
+from mech.fusion.avm2.interfaces import ILoadable
 from mech.fusion.avm2.util import (serialize_u32 as s_u32,
                                    ValuePool, U32_MAX, S32_MAX)
+
+from zope.interface import implements
 
 # ======================================
 # Constants
@@ -102,8 +107,9 @@ TYPE_MULTINAME_RtqName            = 0x0F # o.ns::name   - namespace on stack
 TYPE_MULTINAME_RtqNameA           = 0x10 # o.@ns::name
 TYPE_MULTINAME_RtqNameL           = 0x11 # o.ns::[name] - namespace and name on stack
 TYPE_MULTINAME_RtqNameLA          = 0x12 # o.@ns::name
-TYPE_MULTINAME_NameL              = 0x13 # o.[name]     - implied public namespace, name on stack
-TYPE_MULTINAME_NameLA             = 0x14 # o.@[name]
+# NameL and NameLA no longer exist.
+# TYPE_MULTINAME_NameL              = 0x13 # o.[name]     - implied public namespace, name on stack
+# TYPE_MULTINAME_NameLA             = 0x14 # o.@[name]
 TYPE_MULTINAME_MultinameL         = 0x1B # o.[name]     -
 TYPE_MULTINAME_MultinameLA        = 0x1C # o.@[name]
 TYPE_MULTINAME_TypeName           = 0x1D # o.ns::name.<generic> - used to implement Vector
@@ -123,12 +129,20 @@ def has_RTName(multiname):
                       TYPE_MULTINAME_RtqNameLA)
 
 class undefined(object):
+    implements(ILoadable)
+    def load(self, generator):
+        generator.push_undefined()
+
     def __repr__(self):
         return "undefined"
 
 undefined = undefined()
 
 class null(object):
+    implements(ILoadable)
+    def load(self, generator):
+        generator.push_null()
+
     def __repr__(self):
         return "null"
 
@@ -188,6 +202,12 @@ def abc_to_py(tup, pool):
         return pool.multiname_pool.value_at(index)
     raise ValueError("Unknown ABC type value %d." % (TYPE,))
 
+def mn_utf8(bitstream, constants):
+    namei = bitstream.read(U32)
+    if namei == 0:
+        return "*"
+    return constants.utf8_pool.value_at(namei)
+
 # ======================================
 # Namespaces
 # ======================================
@@ -216,8 +236,7 @@ class Namespace(object):
 
     @classmethod
     def parse(cls, bitstream, constants):
-        inst = cls(bitstream.read(UI8), constants.utf8_pool.value_at(bitstream.read(U32)))
-        return inst
+        return cls(bitstream.read(UI8), constants.utf8_pool.value_at(bitstream.read(U32)))
 
     def __repr__(self):
         kind = {0x16: "package", 0x08: "normal", 0x05: "private"}
@@ -264,6 +283,7 @@ PRIVATE_NAMESPACE   = Namespace(TYPE_NAMESPACE_PrivateNamespace, "")
 AS3_NAMESPACE       = Namespace(TYPE_NAMESPACE_Namespace, "http://adobe.com/AS3/2006/builtin")
 
 NO_NAMESPACE_SET = NamespaceSet()
+PACKAGE_NSSET    = NamespaceSet(PACKAGE_NAMESPACE)
 PROP_NAMESPACE_SET = NamespaceSet(PRIVATE_NAMESPACE, PACKAGE_NAMESPACE, PACKAGE_I_NAMESPACE, AS3_NAMESPACE)
 
 def packagedQName(ns, name):
@@ -281,7 +301,7 @@ class MultinameL(object):
         self._ns_set_index = None
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.KIND == other.KIND and self.ns_set == other.ns_set
+        return isinstance(other, type(self)) and self.KIND == other.KIND and self.ns_set == other.ns_set
 
     def __ne__(self, other):
         return not self == other
@@ -339,7 +359,7 @@ class Multiname(MultinameL):
 
     @classmethod
     def parse_inner(cls, bitstream, constants):
-        return cls(constants.utf8_pool.value_at(bitstream.read(U32)), constants.nsset_pool.value_at(bitstream.read(U32)))
+        return cls(mn_utf8(bitstream, constants), constants.nsset_pool.value_at(bitstream.read(U32)))
 
     @classmethod
     def parse(cls, bitstream, constants):
@@ -354,7 +374,6 @@ class Multiname(MultinameL):
 
 class MultinameA(Multiname):
     KIND = TYPE_MULTINAME_MultinameA
-
 
 class QName(object):
     KIND = TYPE_MULTINAME_QName
@@ -400,7 +419,7 @@ class QName(object):
     @classmethod
     def parse_inner(cls, bitstream, constants):
         return cls(ns=constants.namespace_pool.value_at(bitstream.read(U32)),
-                   name=constants.utf8_pool.value_at(bitstream.read(U32)))
+                   name=mn_utf8(bitstream, constants))
 
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
@@ -484,13 +503,13 @@ class TypeName(object):
     KIND = TYPE_MULTINAME_TypeName
 
     def __init__(self, name, *types):
-        self.name  = name
-        self.types = list(types)
+        self.name  = name.multiname()
+        self.types = [T.multiname() for T in types]
 
         self._name_index = None
         self._types_indices = None
 
-    def __str__(self):
+    def __repr__(self):
         return "%s.<%s>" % (self.name, ','.join(str(a) for a in self.types))
 
     def __eq__(self, other):
@@ -526,6 +545,8 @@ MULTINAME_KINDS[MultinameL.KIND]  = MultinameL
 MULTINAME_KINDS[MultinameLA.KIND] = MultinameLA
 MULTINAME_KINDS[Multiname.KIND]   = Multiname
 MULTINAME_KINDS[MultinameA.KIND]  = MultinameA
+# MULTINAME_KINDS[NameL.KIND]       = NameL
+# MULTINAME_KINDS[NameLA.KIND]      = NameLA
 MULTINAME_KINDS[QName.KIND]       = QName
 MULTINAME_KINDS[QNameA.KIND]      = QNameA
 MULTINAME_KINDS[RtqNameL.KIND]    = RtqNameL
@@ -539,14 +560,13 @@ MULTINAME_KINDS[TypeName.KIND]    = TypeName
 # ======================================
 
 class AbcConstantPool(BitStreamParseMixin):
-
     write_to = "pool"
 
     def __init__(self):
         self.int_pool       = ValuePool(0, self)
         self.uint_pool      = ValuePool(0, self)
         self.double_pool    = ValuePool(float("nan"), self)
-        self.utf8_pool      = ValuePool(object(), self, True) # don't use "" because multinames expect "*"
+        self.utf8_pool      = ValuePool(object(), self, True) # Don't use "" because of multinames.
         self.namespace_pool = ValuePool(ANY_NAMESPACE, self)
         self.nsset_pool     = ValuePool(NO_NAMESPACE_SET, self)
         self.multiname_pool = ValuePool(ANY_NAME, self)
@@ -593,11 +613,10 @@ class AbcConstantPool(BitStreamParseMixin):
     def from_bitstream(cls, bitstream):
         pool = cls()
 
-        def u32():
-            return bitstream.read(U32)
-
-        def double():
-            return bitstream.read(DOUBLE)
+        def format(format):
+            def inner():
+                return bitstream.read(format)
+            return inner
 
         def utf8():
             return bitstream.read(UTF8[bitstream.read(U32)])
@@ -612,12 +631,21 @@ class AbcConstantPool(BitStreamParseMixin):
             for i in xrange(L-1):
                 P.index_for(fn(), allow_conflicts=True)
 
-        read_pool(pool.int_pool, u32)
-        read_pool(pool.uint_pool, u32)
-        read_pool(pool.double_pool, double)
+        read_pool(pool.int_pool, format(S32))
+        read_pool(pool.uint_pool, format(U32))
+        read_pool(pool.double_pool, format(DOUBLE))
         read_pool(pool.utf8_pool, utf8)
         read_pool(pool.namespace_pool, serializable(Namespace))
         read_pool(pool.nsset_pool, serializable(NamespaceSet))
         read_pool(pool.multiname_pool, serializable(Multiname))
 
         return pool
+
+
+
+
+
+
+
+
+

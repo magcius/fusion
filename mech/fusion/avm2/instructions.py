@@ -35,7 +35,8 @@ def fake_offset(lbl, offset):
 def get_label(name, asm):
     if name in asm.labels:
         lbl = asm.labels[name]
-        lbl.backref = True
+        if lbl.seenlabel:
+            lbl.backref = True
     else:
         lbl = asm.labels[name] = Avm2Label(asm)
         lbl.name = name
@@ -58,6 +59,9 @@ class _Avm2ShortInstruction(object):
 
     def __repr_inner__(self):
         return ""
+
+    def assembler_added(self, asm):
+        pass
 
     def assembler_pass1(self, asm):
         asm.flags |= self.flags
@@ -136,7 +140,7 @@ class _Avm2U30Instruction(_Avm2ShortInstruction):
 class _Avm2PushPoolInstruction(_Avm2ShortInstruction):
     pool = None
     def __repr_inner__(self):
-        return " arg=%r" % (self.argument,)
+        return " arg=%s (%r)" % (self._arg_index, self.argument)
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -256,7 +260,6 @@ class _Avm2LabelInstruction(_Avm2ShortInstruction):
         return " lbl=%r" % (self.lblname,)
 
     def assembler_pass1(self, asm):
-        super(_Avm2LabelInstruction, self).assembler_pass1(asm)
         if self.lblname in asm.labels:
             lbl = asm.labels[self.lblname]
             asm.stack_depth = lbl.stack_depth
@@ -264,6 +267,8 @@ class _Avm2LabelInstruction(_Avm2ShortInstruction):
         else:
             lbl = asm.labels[self.lblname] = Avm2Label(asm)
             lbl.name = self.lblname
+
+        lbl.seenlabel = True
         self.lbl = lbl
 
     def assembler_pass2(self, asm, address):
@@ -511,7 +516,7 @@ pushdouble = m(_Avm2PushPoolInstruction, 0x2F, 'pushdouble', 1, pool="double_poo
 pushint = m(_Avm2PushPoolInstruction, 0x2D, 'pushint', 1, pool="int_pool")
 pushnamespace = m(_Avm2PushPoolInstruction, 0x31, 'pushnamespace', 1, pool="namespace_pool")
 pushshort = m(_Avm2U30Instruction, 0x25, 'pushshort', 1)
-pushstring = m(_Avm2PushPoolInstruction, 0x2C, 'pushstring', pool="utf8_pool")
+pushstring = m(_Avm2PushPoolInstruction, 0x2C, 'pushstring', 1, pool="utf8_pool")
 pushuint = m(_Avm2PushPoolInstruction, 0x2E, 'pushuint', 1, pool="uint_pool")
 _getlocal = m(_Avm2U30Instruction, 0x62, 'getlocal')
 

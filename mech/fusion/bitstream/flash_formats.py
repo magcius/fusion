@@ -1,5 +1,5 @@
 
-from mech.fusion.bitstream.formats import FloatFormat, FixedFormat, U32, SignedByte, Byte, CUTF8
+from mech.fusion.bitstream.formats import FloatFormat, FixedFormat, U32, S32, SignedByte, Byte, CUTF8
 
 FLOAT16    = FloatFormat[16:"<":"FLOAT16"]
 FLOAT      = FloatFormat[32:"<":"FLOAT"]

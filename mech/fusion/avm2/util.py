@@ -6,18 +6,17 @@ U32_MAX = 2**32 - 1
 S32_MAX = 2**31 - 1
 
 def serialize_u32(value):
-    s, i, v, b = "", 0, value & 0x07FFFFFFFF, value < 0
-    while True:
-        if i == 5:
-            raise ValueError("value does not fit in a u32: %r" % (value,))
-        bits = v & 0b01111111 # low 7 bits
-        v >>= 7
-        if (not b and not v) or (b and v & 0x7F == 0x7F):
-            s += chr(bits)
+    encoded, unsigned = "", value & 0xFFFFFFFF
+    for i in xrange(5):
+        bits = unsigned & 0b01111111
+        unsigned >>= 7
+        if not unsigned:
+            encoded += chr(bits)
             break
-        s += chr(0b10000000 | bits)
-        i += 1
-    return s
+        encoded += chr(0b10000000 | bits)
+    else:
+        raise ValueError("value %d does not fit in a u32" % (value,))
+    return encoded
 
 def serialize_s24(value):
     """
@@ -30,11 +29,13 @@ def serialize_s24(value):
 
 class Avm2Label(object):
     backref = False
+    seenlabel = False
     def __init__(self, asm, address=None):
         self.asm = asm
         self._address = address
         self.stack_depth = asm._stack_depth_max
         self.scope_depth = asm._scope_depth_max
+        self.temporaries = asm.temporaries.clone()
 
     @property
     def address(self):
@@ -51,7 +52,11 @@ class Avm2Label(object):
         return "<Avm2Label (name=%d, address=%d, stack_depth=%d, scope_depth=%d)>" \
             % (self.name, self.address, self.stack_depth, self.scope_depth)
 
-empty = object()
+class empty(object):
+    def __repr__(self):
+        return "(empty)"
+
+empty = empty()
 
 class ValuePool(object):
     def __init__(self, default=None, parent=None, debug=False):
@@ -79,6 +84,20 @@ class ValuePool(object):
         for value in pool:
             self.index_for(value)
 
+    def clone(self):
+        m = ValuePool()
+        m.copy(self)
+        return m
+
+    def copy(self, pool):
+        self.parent = pool.parent
+        self.index_map = pool.index_map.copy()
+        self.pool = pool.pool[:]
+        self.free = pool.free[:]
+        self.default = pool.default
+        self.debug = pool.debug
+        self.has_default = pool.has_default
+
     def index_for(self, value, add=True, allow_conflicts=False):
         if self.has_default and (value == self.default or value is None) and not allow_conflicts:
             return 0
@@ -86,11 +105,11 @@ class ValuePool(object):
         if self.parent and getattr(self.parent, "write_to", None):
             self.parent.write(value)
 
+        if self.debug and not isinstance(value, basestring):
+            baaah
+
         if value in self.index_map and not allow_conflicts:
             return self.index_map[value]
-
-        if self.debug and not isinstance(value, basestring):
-            aaa
 
         if not add:
             raise ValueError("value not in ValuePool\n\nHave: %r, requested %r" % (self.pool, value))
@@ -117,7 +136,7 @@ class ValuePool(object):
         value = self.pool[index]
 
         if value is empty:
-            raise ValueError
+            raise ValueError("value is empty")
 
         return value
 
@@ -129,12 +148,15 @@ class ValuePool(object):
             index = len(self.pool)
             reuse = False
 
-        if self.has_default:
-            index += 1
+            if self.has_default:
+                index += 1
 
         return index, reuse
 
     def kill(self, value):
+        if not value in self.index_map:
+            raise ValueError("value not in ValuePool\n\nHave: %r, requested %r" % (self.pool, value))
+
         index = self.index_map[value]
         del self.index_map[value]
         self.pool[index] = empty

@@ -639,23 +639,18 @@ class U32(Format):
                 raise ValueError("U32 parsed beyond bounds")
             n |= bs.read(UB[7]) << 7*i
             i += 1
-        if self.signed and n & 0b01000000 << (i-1):
-            return n - 2**(i*8)
-        return n, 0
+        if self.signed and n > 0x7FFFFFFF:
+            n -= 0x100000000
+        return int(n), 0
 
     @requires_length(can_be=(None,))
     @no_endianness
     def _write(self, bs, cursor, n):
-        if n > 0:
-            while n > 0:
-                bs.write((n >> 7) > 0,     Bit)
-                bs.write((n & 0b01111111), UB[7])
-                n >>= 7
-        else:
-            while n:
-                bs.write((n >> 7) & 0xFF != 0xFF,  Bit)
-                bs.write((n & 0b01111111), UB[7])
-                n = (n >> 7) & 0xFF
+        n &= 0xFFFFFFFF
+        while n > 0:
+            bs.write((n >> 7) > 0,     Bit)
+            bs.write((n & 0b01111111), UB[7])
+            n >>= 7
 
 class S32(U32):
     signed = True

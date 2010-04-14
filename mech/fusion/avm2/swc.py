@@ -36,16 +36,12 @@ class SwcData(object):
         abc = AbcFile()
         for swf in swfs:
             for tag in swf.tags:
-                if tag:
-                    abc.merge(tag)
+                abc.merge(tag)
         return abc
 
     def get_abc(self, name="library"):
         library = self.get_swf(name, False, AbcFile)
         abc = AbcFile()
         for tag in library.tags:
-            sys.stdout.write(".")
-            sys.stdout.flush()
-            if tag:
-                abc.merge(tag)
+            abc.merge(tag)
         return abc
