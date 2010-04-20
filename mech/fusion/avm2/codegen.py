@@ -4,11 +4,12 @@ from mech.fusion.avm2.assembler import CodeAssembler
 from mech.fusion.avm2.abc_ import (AbcMethodInfo, AbcMethodBodyInfo,
                                    AbcClassInfo, AbcInstanceInfo,
                                    AbcScriptInfo, AbcException, AbcFile)
-from mech.fusion.avm2.interfaces import ILoadable, LoadableAdapter
+from mech.fusion.avm2.interfaces import ILoadable, LoadableAdapter, INode
 
 from zope.interface import implements
 from zope.component import adapter, provideAdapter
 
+from copy import copy
 from math import isnan
 from itertools import chain
 
@@ -40,17 +41,19 @@ class _MethodContextMixin(object):
     A mixin providing method factories for things like
     classes and scripts.
     """
-    def new_method_info(self, name, params, rettype):
+    def new_method_info(self, name, params, rettype, varargs, defaults):
         """
         An internal function for generating an AbcMethodInfo
-        with the given name, parameters, and return type.
+        with the given name, parameters, and return type, "...rest"
+        variable names and default values.
         """
         return AbcMethodInfo(name, [self.gen._get_type(t) for t, n in params],
-                             self.gen._get_type(rettype),
-                             param_names=[n for t, n in params])
+               self.gen._get_type(rettype), param_names=[n for t, n in params],
+               varargs=varargs, options=defaults)
 
-    def new_method(self, name, params=None, rettype=None, kind="method", static=False,
-                   override=False, optimize=None):
+    def new_method(self, name, params=None, rettype=None, kind="method",
+                   static=False, override=False, varargs=None, defaults=None,
+                   optimize=None):
         """
         Create a new method with the name "name" and parameter list "arglist"
         and return type "returntype".
@@ -71,27 +74,38 @@ class _MethodContextMixin(object):
         argument list. If it is a setter, it must have a void return type and
         must take one argument.
 
-        "static" determines whether to add the function to the static or instance
-        traits of the class. For a script, this parameter will do nothing.
+        "static" determines whether to add the function to the static or
+        instance traits of the class. For a script, this parameter will do
+        nothing.
 
-        "override" marks the the method as overridden, which is required for Tamarin,
-        even for native Flash Player classes.
+        "override" marks the the method as overridden, which is required for
+        Tamarin, even for native Flash Player classes.
 
-        "optimize" determines whether the code should undergo simple optimizations.
-        It may be useful to turn this off for debugging.
+        "varargs" is the name of the "...rest" or *args argument.
+
+        "optimize" determines whether the code should undergo simple
+        optimizations. It may be useful to turn this off for debugging.
+
+        "defaults" are the values for the default parameters.
         """
         params = params or []
         name = self.gen._get_type(name)
-        meth = self.new_method_info(str(name), params, rettype or constants.QName("void"))
-        KIND = dict(method=traits.AbcMethodTrait,
-                    getter=traits.AbcGetterTrait,
+        meth = self.new_method_info(str(name), params,
+                    rettype or constants.QName("void"), varargs, defaults)
+
+        KIND = dict(method=traits.AbcMethodTrait, getter=traits.AbcGetterTrait,
                     setter=traits.AbcSetterTrait)
-        trait = KIND.get(kind, kind)(name, meth, override=override or self.overridden(static, name))
+
+        trait = KIND.get(kind, traits.AbcMethodTrait)(name, meth,
+                         override=override or self.overridden(static, name))
+
         if static:
             self.add_static_trait(trait)
         else:
             self.add_instance_trait(trait)
-        ctx = MethodContext(self.gen, meth, self, params, optimize=optimize)
+        ctx = MethodContext(self.gen, meth, self, params,
+                            optimize=optimize or self.gen.optimize)
+        ctx.trait = trait
         self.gen.enter_context(ctx)
         return ctx
 
@@ -120,7 +134,7 @@ class ScriptContext(_MethodContextMixin):
         for generating code on that method.
         """
         if not self.init:
-            self.init = AbcMethodInfo("", [], constants.ANY_NAME)
+            self.init = AbcMethodInfo("", [], constants.undefined)
             self.init.ctx = MethodContext(self.gen, self.init, self, [],
                                           optimize=optimize or self.gen.optimize)
         self.gen.enter_context(self.init.ctx)
@@ -229,7 +243,7 @@ class ClassContext(_MethodContextMixin):
             ctx = self.gen.get_class_context(ctx.super_name)
         return False
 
-    def make_cinit(self, optimize=None):
+    def make_cinit(self, varargs=None, defaults=None, optimize=None):
         """
         Create a cinit (class initializer) method used to set up static
         traits and variables, and enter the correct context to generate
@@ -240,13 +254,14 @@ class ClassContext(_MethodContextMixin):
         is run.
         """
         if not self.cinit:
-            self.cinit = AbcMethodInfo("", [], constants.ANY_NAME)
+            self.cinit = AbcMethodInfo("", [], constants.undefined,
+                                       varargs=varargs, options=defaults)
             self.cinit.ctx = MethodContext(self.gen, self.cinit, self, [],
                                    optimize=optimize or self.gen.optimize)
         self.gen.enter_context(self.cinit.ctx)
         return self.cinit.ctx
 
-    def make_iinit(self, params=None, optimize=None):
+    def make_iinit(self, params=None, varargs=None, defaults=None, optimize=None):
         """
         Create a iinit (instance initializer) method used to set up instance
         variables, and enter the correct context to generate code on it.
@@ -260,7 +275,8 @@ class ClassContext(_MethodContextMixin):
             if params:
                 raise ValueError("parameters cannot be redefined")
         else:
-            self.iinit = self.new_method_info("", params, constants.QName("void"))
+            self.iinit = self.new_method_info("", params, constants.QName("void"),
+                                              varargs=varargs, defaults=defaults)
             self.iinit.ctx = MethodContext(self.gen, self.iinit, self, [],
                                    optimize=optimize or self.gen.optimize)
             self.iinit.ctx.constructor = True
@@ -308,10 +324,16 @@ class MethodContext(_MethodContextMixin):
     scope_nest   = 0
     constructor  = False
 
-    def __init__(self, gen, method, parent, params, stdprologue=True, optimize=None):
-        self.gen, self.method, self.parent, self.optimize = gen, method, parent, optimize
-        param_names = [n for t, n in params]
-        self.asm = CodeAssembler(gen.constants, ['this']+param_names)
+    def __init__(self, gen, method, parent, params,
+                 stdprologue=True, optimize=None):
+        self.gen, self.method = gen, method
+        self.parent, self.optimize = parent, optimize
+        self.params = params
+        if params:
+            self.param_types, self.param_names = map(list, zip(*params))
+        else:
+            self.param_types, self.param_names = [], []
+        self.asm = CodeAssembler(gen.constants, ['this']+self.param_names)
         self.label_counters = {}
         self.acv_traits = []
         self.exceptions = []
@@ -352,7 +374,7 @@ class MethodContext(_MethodContextMixin):
         in by the bogus addexcinfo, begintry, and endtry "instructions".
         """
         exc = AbcException(-1, -1, -1, param_type, "")
-        self.asm.add_instruction(instructIons.addexcinfo(self, exc))
+        self.asm.add_instruction(instructions.addexcinfo(self, exc))
         self.exceptions.append(exc)
         return len(self.exceptions)-1
 
@@ -532,6 +554,9 @@ class CodeGenerator(object):
         self.constants = self.abc.constants
         self.context = GlobalContext(self)
         self.optimize = optimize
+
+        self.pending_nodes = set()
+
         if make_script:
             self.script0 = self.context.new_script()
 
@@ -551,7 +576,7 @@ class CodeGenerator(object):
         a native playerglobal class.
         """
         if library.type_exists(name):
-            TYPE = library.get_type(name, False).clone()
+            TYPE = copy(library.get_type(name))
             TYPE.super_name = TYPE.BaseType
             TYPE.name       = TYPE.FullName
             return TYPE
@@ -631,7 +656,8 @@ class CodeGenerator(object):
         raise WrongContextError("end_class", self.context.CONTEXT_TYPE)
 
     def begin_method(self, name, arglist=None, returntype=None, kind="method",
-                     static=False, override=False, optimize=None):
+                     static=False, override=False, varargs=None, defaults=None,
+                     optimize=None):
         """
         Create a new method with the name "name" and parameter list "arglist"
         and return type "returntype".
@@ -652,8 +678,13 @@ class CodeGenerator(object):
         argument list. If it is a setter, it must have a void return type and
         must take one argument.
 
-        "static" determines whether to add the function to the static or instance
-        traits of the class. For a script, this parameter will do nothing.
+        "static" determines whether to add the function to the static or
+        instance traits of the class. For a script, this parameter will do
+        nothing.
+
+        "varargs" should be the name of the "...rest" or *args argument.
+
+        "defaults" are the values of the default parameters.
 
         "optimize" determines whether the code should undergo very simple
         optimizations. It may be useful to turn this off for debugging.
@@ -662,13 +693,14 @@ class CodeGenerator(object):
         """
         if self.context.CONTEXT_TYPE not in ("class", "script"):
             raise WrongContextError("begin_method", self.context.CONTEXT_TYPE)
-        return self.context.new_method(name, arglist, returntype, kind, static, override,
-                                       optimize or self.optimize)
+        return self.context.new_method(name, arglist, returntype, kind, static,
+                                       override, varargs, defaults, optimize)
 
-    def begin_constructor(self, arglist=None, optimize=None):
+    def begin_constructor(self, arglist=None, varargs=None, defaults=None,
+                          optimize=None):
         """
-        Create the constructor method of the current class with the parameter list
-        "arglist", also called the "instance initializer".
+        Create the constructor method of the current class with the parameter
+        list "arglist", also called the "instance initializer".
 
         "arglist" should be an iterable of (name, type) pairs, with the "name"
         being a string and "type" being an object with a multiname() method for
@@ -680,7 +712,7 @@ class CodeGenerator(object):
         if self.context.CONTEXT_TYPE != "class":
             raise WrongContextError("begin_constructor",
                                     self.context.CONTEXT_TYPE)
-        return self.context.make_iinit(arglist, optimize or self.optimize)
+        return self.context.make_iinit(arglist, varargs, defaults, optimize)
 
     def end_method(self):
         """
@@ -706,13 +738,23 @@ class CodeGenerator(object):
 
     def finish(self):
         """
-        Finalize this generator, by exiting all contexts.
+        Finalize this generator, by rendering all nodes and exiting all
+        contexts.
 
         If you don't finalize before serializing, some code may be missing
         from the final result.
         """
-        while self.context:
-            self.exit_context()
+        self.exit_until_type("script")
+        done = set()
+        while self.pending_nodes:
+            node = self.pending_nodes.pop()
+            for dep in node.dependencies():
+                if dep not in done:
+                    dep.render(self)
+                    done.add(dep)
+            node.render(self)
+            done.add(node)
+        self.exit_context()
 
     def enter_context(self, ctx):
         """
@@ -953,7 +995,7 @@ class CodeGenerator(object):
         """
         Load the local variable "name", which has to also be an argument.
         """
-        if not any(n == name for t, n in self.context.params):
+        if not name in self.context.param_names:
             raise NotAnArgumentError(name)
         self.GL(name)
 
@@ -1183,6 +1225,9 @@ class CodeGenerator(object):
         self.KL(self.context.local)
         self.exit_context()
 
+    def add_node(self, node):
+        self.pending_nodes.add(INode(node))
+
     def Class(self, name, super_name=None, bases=None):
         """
         Return a context manager that can be used with the with statement
@@ -1206,7 +1251,8 @@ class CodeGenerator(object):
         return ContextManager((self.begin_class, (name, super_name, bases)),
                               self.end_class)
 
-    def Method(self, name, arglist=None, returntype=None, kind="method", static=False, optimize=None):
+    def Method(self, name, arglist=None, returntype=None, kind="method",
+               static=False, optimize=None, varargs=None, defaults=None):
         """
         Return a context manager that can be used with the with statement
         that calls begin_method and end_method.
@@ -1230,14 +1276,21 @@ class CodeGenerator(object):
         "static" determines whether to add the function to the static or instance
         traits of the class. For a script, this parameter will do nothing.
 
-        "optimize" determines whether the code should go through very simple optimizations.
-        It may be helpful to turn this off for debugging.
+        "varargs" should be the name of the "...rest" or *args argument.
+
+        "defaults" are the types of the default parameters.
+
+        "optimize" determines whether the code should go through very simple
+        optimizations. It may be helpful to turn this off for debugging.
 
         To make the constructor method of a class, please use "begin_constructor".
         """
-        return ContextManager((self.begin_method, (name, arglist, returntype, kind, static, optimize)), self.end_method)
+        return ContextManager((self.begin_method, (name, arglist, returntype,
+                              kind, static, optimize, varargs, defaults)),
+                              self.end_method)
 
-    def Constructor(self, arglist=None, optimize=None):
+    def Constructor(self, arglist=None, varargs=None,
+                    defaults=None, optimize=None):
         """
         Return a context manager that can be used with the with statement
         that calls begin_method and end_method.
@@ -1249,8 +1302,8 @@ class CodeGenerator(object):
         "optimize" determines whether the code should go through very simple
         optimizations. It may be helpful to turn this off for debugging.
         """
-        return ContextManager((self.begin_constructor, (arglist, optimize)),
-                              self.end_constructor)
+        return ContextManager((self.begin_constructor, (arglist, varargs,
+                               defaults, optimize)), self.end_constructor)
 
 class ContextManager(object):
     def __init__(self, enter, exit):

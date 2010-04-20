@@ -7,6 +7,7 @@ from mech.fusion.bitstream.flash_formats import UI8, UI16, U32
 from mech.fusion.avm2.constants import (AbcConstantPool,
                                         METHODFLAG_HasOptional,
                                         METHODFLAG_HasParamNames,
+                                        METHODFLAG_NeedRest,
                                         py_to_abc, abc_to_py, QName)
 
 from mech.fusion.avm2 import instructions, traits as TRAITS
@@ -147,7 +148,7 @@ class AbcFile(BitStreamParseMixin):
 
 class AbcMethodInfo(object):
     done = False
-    def __init__(self, namestr, param_types, return_type, flags=0, options=None, param_names=None):
+    def __init__(self, namestr, param_types, return_type, flags=0, options=None, param_names=None, varargs=None):
         self.namestr = namestr
         self._namestr_index = None
 
@@ -161,6 +162,13 @@ class AbcMethodInfo(object):
         self._return_type_index = None
 
         self.flags = flags
+        self.varargs = varargs
+
+        if varargs:
+            if varargs is True:
+                asdf
+            self.param_types.append(QName("Array"))
+            self.param_names.append(QName(varargs))
 
         self.options = options or []
         self._options_indices = None
@@ -186,7 +194,9 @@ class AbcMethodInfo(object):
         if flags & METHODFLAG_HasParamNames:
             param_names = [constants.utf8_pool.value_at(bitstream.read(U32)) for i in xrange(PTL)]
 
-        return cls(namestr, param_types, return_type, flags, options, param_names)
+        varargs = bool(flags & METHODFLAG_NeedRest)
+
+        return cls(namestr, param_types, return_type, flags, options, param_names, varargs)
 
     def serialize(self):
         code = ""
@@ -202,6 +212,9 @@ class AbcMethodInfo(object):
 
         if self.param_names:
             self.flags |= METHODFLAG_HasParamNames
+
+        if self.varargs:
+            self.flags |= METHODFLAG_NeedRest
 
         code += chr(self.flags & 0xFF)
 

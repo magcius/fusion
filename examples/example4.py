@@ -7,9 +7,11 @@ from mech.fusion.swf.records import RGBA, Rect
 
 from mech.fusion.avm2.constants import QName
 from mech.fusion.avm2.abc_ import AbcFile
+from mech.fusion.avm2.node import Slot, export_method, convert_package
 from mech.fusion.avm2.traits import AbcSlotTrait
+
 from mech.fusion.avm2 import playerglobal
-flash = playerglobal.flash
+flash = convert_package(playerglobal.flash)
 
 swf = SwfData()
 swf.add_tag(FileAttributes())
@@ -18,33 +20,38 @@ swf.add_tag(DefineEditText(Rect(0, 0, 600, 400), "tt",
                              "Testing drawing circles.", color=RGBA(0xFFFFFF)))
 swf.add_tag(PlaceObject2(1, 2, name="edittext"))
 abc = DoABC()
-actions = abc.create_generator()
+generator = abc.create_generator()
 
 swf.add_tag(abc)
 swf.add_tag(SymbolClass({0:"Example3EntryPoint"}))
 swf.add_tag(ShowFrame())
 swf.add_tag(End())
 
-with actions.Class("Example3EntryPoint", flash.display.Sprite) as cls:
-    cls.add_instance_trait(AbcSlotTrait('edittext', flash.text.TextField))
-    with actions.Constructor():
-        actions.push_this()
-        actions.get_field("graphics")
-        actions.dup()
-        actions.dup()
-        actions.dup()
-        actions.call_method_constargs("lineStyle", 3, void=True)
-        actions.call_method_constargs("beginFill", 0xFF0000, void=True)
-        actions.call_method_constargs("drawCircle", 10, 20, 30, void=True)
-        actions.call_method_constargs("endFill", void=True)
+class Example3EntryPoint(flash.display.Sprite):
+    edittext = Slot(flash.text.TextField)
+    def __iinit__(self, asm):
+        asm.push_this()
+        asm.get_field("graphics")
+        asm.dup()
+        asm.dup()
+        asm.call_method_constargs("lineStyle", 3, void=True)
+        asm.call_method_constargs("beginFill", 0xFF0000, void=True)
+        self.draw_circle(asm, 10, 20, 30)
+        asm.call_method_constargs("endFill", void=True)
 
-actions.finish()
+    @export_method(["int", "int", "int"], "void")
+    def draw_circle(self, asm, x, y, radius):
+        asm.push_this()
+        asm.get_field("graphics")
+        asm.call_method_constargs("drawCircle", x, y, radius, void=True)
 
-f = open("example3.abc", "wb")
+generator.add_node(Example3EntryPoint)
+generator.finish()
+
+f = open("example4.abc", "wb")
 f.write(AbcFile.serialize(abc))
 f.close()
 
-f = open("example3.swf", "wb")
+f = open("example4.swf", "wb")
 f.write(swf.serialize())
 f.close()
-

@@ -20,18 +20,6 @@ class ClassDesc(object):
     Specialized      = None
     SpecializedFast  = {}
 
-    def clone(self):
-        TYPE = type(self)
-        desc = TYPE()
-        for k, v in self.__dict__.iteritems():
-            if k.startswith("_"):
-                continue
-            try:
-                setattr(desc, k, v)
-            except AttributeError:
-                continue
-        return desc
-
     @property
     def ShortName(self):
         return self.FullName.name
@@ -44,7 +32,7 @@ class ClassDesc(object):
         return self.__dict__ == other.__dict__
 
     def __hash__(self):
-        raise TypeError
+        return hash(self.FullName)
 
     def __str__(self):
         return "<ClassDesc for %s>" % (self.multiname(),)

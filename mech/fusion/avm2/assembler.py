@@ -121,9 +121,10 @@ class CodeAssembler(object):
                 prev = curr
 
             institer = iter(self.instructions)
-            instructions = [institer.next(), institer.next()]
+            instructions = [institer.next()]
             # Second pass
             for newinst in institer:
+                instructions.append(newinst)
                 keep_going = True
                 while keep_going:
                     curr, prev = instructions[-1], instructions[-2]
@@ -151,7 +152,7 @@ class CodeAssembler(object):
                         jumps[prev.lblname].remove(prev)
 
                     # returnvalue then returnv(alue|oid).
-                    elif prev.name == "returnvalue" and \
+                    elif prev.name in ("returnvalue", "returnvoid") and \
                          curr.name in ("returnvalue", "returnvoid"):
                         instructions.pop()
 
@@ -174,8 +175,6 @@ class CodeAssembler(object):
 
                     else:
                         keep_going = False
-
-                instructions.append(newinst)
 
             self.instructions = instructions
 
