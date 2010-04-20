@@ -110,6 +110,12 @@ class ClassNodeMeta(type):
             cls.instance_traits.remove(self.__cinit__.ctx.trait)
         generator.end_class()
 
+class ClassNode(object):
+    """
+    A base class for class nodes.
+    """
+    __metaclass__ = ClassNodeMeta
+
 class FunctionNode(object):
     implements(INode)
     owner = None
