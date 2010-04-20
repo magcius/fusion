@@ -238,18 +238,25 @@ def getter(fn):
     """
     Decorator to mark a method as a "getter".
     """
-    if getattr(fn, "node", None):
-        fn.node.trait_type = "getter"
-    fn.trait_type = "getter"
-    return fn
+    def inner(type):
+        if getattr(fn, "node", None):
+            fn.node.trait_type = "getter"
+            fn.node.exported = [], type
+        fn.trait_type = "getter"
+        fn.exported = [], type
+        return fn
+    return inner
 
 def setter(fn):
     """
     Decorator to mark a method as a "setter".
     """
-    if getattr(fn, "node", None):
-        fn.node.trait_type = "setter"
-    fn.trait_type = "setter"
+    def inner(type):
+        if getattr(fn, "node", None):
+            fn.node.trait_type = "setter"
+            fn.node.exported = [type], QName("void")
+        fn.trait_type = "setter"
+        fn.exported = [type], QName("void")
     return fn
 
 def static(fn):
