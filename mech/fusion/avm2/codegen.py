@@ -13,15 +13,78 @@ from copy import copy
 from math import isnan
 from itertools import chain
 
+NAME_PARAMETER = """
+:param name: should be a string or an object%s with a multiname()
+             method for converting to an ABC Multiname (QName,
+             TypeName, Multiname, etc). A common use is to use a
+             QName with the ns being a private, protected or public
+             namespace for access protection.
+""".strip()
+
+PARAMS_PARAMETER = """
+:param params: should be an iterable of (type, name) pairs, with the
+               "name"  being a string and "type" being an object with a
+               multiname() method for specifying the type of the parameter.
+""".strip()
+
+VARDEF_PARAMETER = """
+:param varargs: The name of the "...rest" or \*args argument.
+
+:param defaults: The values for the default parameters.
+""".strip()
+
+OPTIMIZE_PARAMETER = """
+:param optimize: Determines whether the code should undergo simple
+                optimizations. It may be useful to turn this off
+                for debugging.
+""".strip()
+
+METHOD_CREATOR = """
+Create a new method with the name "name" and parameter list "arglist"
+and return type "returntype".
+
+%s
+
+%s
+
+:param returntype: should be the same kind of "type" parameter
+                   describing the return type of the method.
+
+:param kind: The kind of method. It can either be "method", "getter", or
+             "setter". If it is a getter, it must have a non-void return type
+             and no argument list. If it is a setter, it must have a
+             void return type and must take one argument.
+
+:param static: Determines whether to add the function to the static or
+               instance traits of the class. For a script, this parameter
+               will do nothing.
+
+:param override: marks the the method as overridden, which is required for
+                 Tamarin, even for native Flash Player classes. In most cases
+                 this should be set automatically.
+
+%s
+
+%s
+
+:return: The MethodContext object created.
+""" % (NAME_PARAMETER % (" describing the name of the method",),
+PARAMS_PARAMETER,
+VARDEF_PARAMETER,
+OPTIMIZE_PARAMETER,)
+
 class WrongContextError(BaseException):
-    def __init__(self, got, expected):
-        self.got, self.expected = got, expected
+    def __init__(self, method, current):
+        self.method, self.current = method, current
 
     def __str__(self):
         return ("You called %r while the current context was"
-                " a %s context." % (self.got, self.expected))
+                " a %s context." % (self.method, self.current))
 
 class GlobalContext(object):
+    """
+    A global context that can only create scripts.
+    """
     CONTEXT_TYPE = "global"
     parent = None
 
@@ -54,40 +117,6 @@ class _MethodContextMixin(object):
     def new_method(self, name, params=None, rettype=None, kind="method",
                    static=False, override=False, varargs=None, defaults=None,
                    optimize=None):
-        """
-        Create a new method with the name "name" and parameter list "arglist"
-        and return type "returntype".
-
-        The "name" parameter should be a string or an object with a multiname()
-        method for converting to an ABC Multiname (QName, TypeName, Multiname,
-        Name, etc). A common use is to use a QName with the ns being a private,
-        protected or public namespace for access protection.
-
-        "arglist" should be an iterable of (type, name) pairs, with the "name"
-        being a string and "type" being an object with a multiname() method for
-        specifying the type of the parameter.
-
-        "returntype" should be the same kind of "type" parameter.
-
-        "kind" is the type of method. It can either be "method", "getter", or
-        "setter". If it is a getter, it must have a non-void return type and no
-        argument list. If it is a setter, it must have a void return type and
-        must take one argument.
-
-        "static" determines whether to add the function to the static or
-        instance traits of the class. For a script, this parameter will do
-        nothing.
-
-        "override" marks the the method as overridden, which is required for
-        Tamarin, even for native Flash Player classes.
-
-        "varargs" is the name of the "...rest" or *args argument.
-
-        "optimize" determines whether the code should undergo simple
-        optimizations. It may be useful to turn this off for debugging.
-
-        "defaults" are the values for the default parameters.
-        """
         params = params or []
         name = self.gen._get_type(name)
         meth = self.new_method_info(str(name), params,
@@ -109,6 +138,8 @@ class _MethodContextMixin(object):
         self.gen.enter_context(ctx)
         return ctx
 
+    new_method.__doc__ = METHOD_CREATOR
+
 class ScriptContext(_MethodContextMixin):
     CONTEXT_TYPE = "script"
 
@@ -125,6 +156,12 @@ class ScriptContext(_MethodContextMixin):
         """
         Determines whether a method name "name" should be
         marked with the "override" flag.
+
+        :param static: Whether the method is static.
+        :param name: The name of the method.
+
+        :return: Whether the method should be marked with
+                 the override flag.
         """
         return False
 
@@ -141,16 +178,6 @@ class ScriptContext(_MethodContextMixin):
         return self.init.ctx
 
     def new_class(self, name, super_name=None, bases=None):
-        """
-        Create a new class and enter the context for that class.
-
-        This will generate both the AbcInstance and the AbcClass.
-
-        The "name" parameter should be an object with a multiname() method for
-        converting to an ABC Multiname (QName, TypeName, Multiname, Name, etc).
-        A common use is to use a QName with the ns being a private, protected or
-        public namespace for access protection.
-        """
         # allow hardcoded bases
         if name in self.pending_classes:
             # XXX
@@ -162,6 +189,21 @@ class ScriptContext(_MethodContextMixin):
         self.pending_classes_order.append(name)
         self.gen.enter_context(ctx)
         return ctx
+
+    new_class.__doc__ = """
+    Create a new class and enter the context for that class.
+
+    This will generate both the AbcInstance and the AbcClass.
+
+    %s
+
+    :param super_name: The same type of object describing the base type of the
+                       class. If left blank or None is provided the class will
+                       extend "Object".
+
+    :param bases: A list of base classes that need to be on the scope stack. If
+                  this is a stdlib class, this shouldn't need to be provided.
+    """ % (NAME_PARAMETER % (" describing the name of the class",),)
 
     def add_trait(self, trait):
         """
@@ -233,6 +275,12 @@ class ClassContext(_MethodContextMixin):
         """
         Determines whether a method name "name" should be mared with the
         "override" flag.
+
+        :param static: Whether the method is static.
+        :param name: The name of the method.
+
+        :return: Whether the method should be marked with
+                the override flag.
         """
         ctx = self.gen.get_class_context(self.name)
         while ctx:
@@ -243,33 +291,29 @@ class ClassContext(_MethodContextMixin):
             ctx = self.gen.get_class_context(ctx.super_name)
         return False
 
-    def make_cinit(self, varargs=None, defaults=None, optimize=None):
-        """
-        Create a cinit (class initializer) method used to set up static
-        traits and variables, and enter the correct context to generate
-        code on it.
-
-        cinits are usually called when the first instance of a class is
-        created, although it is sometimes called when the "newclass" opcode
-        is run.
-        """
+    def make_cinit(self, optimize=None):
         if not self.cinit:
-            self.cinit = AbcMethodInfo("", [], constants.undefined,
-                                       varargs=varargs, options=defaults)
+            self.cinit = AbcMethodInfo("", [], constants.undefined)
             self.cinit.ctx = MethodContext(self.gen, self.cinit, self, [],
                                    optimize=optimize or self.gen.optimize)
         self.gen.enter_context(self.cinit.ctx)
         return self.cinit.ctx
 
-    def make_iinit(self, params=None, varargs=None, defaults=None, optimize=None):
-        """
-        Create a iinit (instance initializer) method used to set up instance
-        variables, and enter the correct context to generate code on it.
+    make_cinit.__doc__ = """
+    Create a cinit (class initializer) method used to set up static
+    traits and variables, and enter the correct context to generate
+    code on it.
 
-        iinits are always called when an instance of a class is created using
-        the "new" operator in ECMAScript, which translates into the
-        "constructprop" opcode in ABC.
-        """
+    cinits are usually called when the first instance of a class is
+    created, although it is sometimes called when the "newclass" opcode
+    is run.
+
+    %s
+
+    :return: The MethodContext object created.
+    """ % (OPTIMIZE_PARAMETER,)
+
+    def make_iinit(self, params=None, varargs=None, defaults=None, optimize=None):
         params = params or ()
         if self.iinit:
             if params:
@@ -286,6 +330,23 @@ class ClassContext(_MethodContextMixin):
         if not self.iinit.done:
             self.gen.push_this()
             self.gen.emit("constructsuper", 0)
+
+    make_iinit.__doc__ = """
+    Create a iinit (instance initializer) method used to set up instance
+    variables, and enter the correct context to generate code on it.
+
+    iinits are always called when an instance of a class is created using
+    the "new" operator in ECMAScript, which translates into the
+    "constructprop" opcode in ABC.
+
+    %s
+
+    %s
+
+    %s
+
+    :return: The MethodContext object created.
+    """ % (PARAMS_PARAMETER, VARDEF_PARAMETER, OPTIMIZE_PARAMETER)
 
     def add_instance_trait(self, trait):
         """
@@ -387,7 +448,7 @@ class MethodContext(_MethodContextMixin):
     @property
     def next_free_local(self):
         """
-        The next free local variable (register).
+        Return the next free local variable (register).
         """
         return self.asm.next_free_local
 
@@ -402,7 +463,7 @@ class MethodContext(_MethodContextMixin):
     def kill_local(self, name):
         """
         Symbollically set a local as "empty" and return the index of
-        the freed local. Thisdoes not produce a "kill" opcode,
+        the freed local. This does not produce a "kill" opcode,
         please use the generator interface for this.
         """
         return self.asm.kill_local(name)
@@ -410,6 +471,8 @@ class MethodContext(_MethodContextMixin):
     def get_local(self, name):
         """
         Get the index for the local/register identified with "name".
+        This does not produce a "getlocal" opcode, please use the
+        generator interface for this.
         """
         return self.asm.get_local(name)
 
@@ -591,7 +654,9 @@ class CodeGenerator(object):
     def SL(self, name):
         """
         Pop a value off the stack and set it in the local
-        occupied to "name"
+        occupied to "name".
+
+        Stands for "set local"
         """
         index = self.context.set_local(name)
         self.I(instructions.setlocal(index))
@@ -600,6 +665,8 @@ class CodeGenerator(object):
     def GL(self, name):
         """
         Get the local occupied to "name" and push it to the stack.
+
+        Stands for "get local"
         """
         index = self.context.get_local(name)
         self.I(instructions.getlocal(index))
@@ -611,6 +678,8 @@ class CodeGenerator(object):
 
         The argument "empty" will set the local as empty and ready for reuse.
         Only set this to True if you are completely sure it is safe.
+
+        Stands for "kill local"
         """
         if empty:
             index = self.context.kill_local
@@ -621,6 +690,8 @@ class CodeGenerator(object):
     def HL(self, name):
         """
         Return True if there is a local by the name of "name".
+
+        Stands for "has local"
         """
         return self.context.has_local(name)
 
@@ -640,7 +711,7 @@ class CodeGenerator(object):
         Multiname, Name, etc). A common use is to use a QName with the ns being
         a PackageNamespace for packaging classes as found in AS3 and Java. This
         use case is so common that the constants module has a special function
-        for making these types of QNames: packagedQName, as used like:
+        for making these types of QNames, packagedQName, as used like::
 
           packagedQName("flash.display", "Sprite")
         """
@@ -658,61 +729,28 @@ class CodeGenerator(object):
     def begin_method(self, name, arglist=None, returntype=None, kind="method",
                      static=False, override=False, varargs=None, defaults=None,
                      optimize=None):
-        """
-        Create a new method with the name "name" and parameter list "arglist"
-        and return type "returntype".
-
-        The "name" parameter should be a string or an object with a multiname()
-        method for converting to an ABC Multiname (QName, TypeName, Multiname,
-        Name, etc). A common use is to use a QName with the ns being a private,
-        protected or public namespace for access protection.
-
-        "arglist" should be an iterable of (type, name) pairs, with the "name"
-        being a string and "type" being an object with a multiname() method for
-        specifying the type of the parameter.
-
-        "returntype" should be the same kind of "type" parameter.
-
-        "kind" is the type of method. It can either be "method", "getter", or
-        "setter". If it is a getter, it must have a non-void return type and no
-        argument list. If it is a setter, it must have a void return type and
-        must take one argument.
-
-        "static" determines whether to add the function to the static or
-        instance traits of the class. For a script, this parameter will do
-        nothing.
-
-        "varargs" should be the name of the "...rest" or *args argument.
-
-        "defaults" are the values of the default parameters.
-
-        "optimize" determines whether the code should undergo very simple
-        optimizations. It may be useful to turn this off for debugging.
-
-        To make the constructor method of a class, use "begin_constructor".
-        """
         if self.context.CONTEXT_TYPE not in ("class", "script"):
             raise WrongContextError("begin_method", self.context.CONTEXT_TYPE)
         return self.context.new_method(name, arglist, returntype, kind, static,
                                        override, varargs, defaults, optimize)
 
-    def begin_constructor(self, arglist=None, varargs=None, defaults=None,
+    begin_method.__doc__ = METHOD_CREATOR
+
+    def begin_constructor(self, params=None, varargs=None, defaults=None,
                           optimize=None):
-        """
-        Create the constructor method of the current class with the parameter
-        list "arglist", also called the "instance initializer".
-
-        "arglist" should be an iterable of (name, type) pairs, with the "name"
-        being a string and "type" being an object with a multiname() method for
-        specifying the type of the parameter.
-
-        "optimize" determines whether the code should go through very simple
-        optimizations. It may be helpful to turn this off for debugging.
-        """
         if self.context.CONTEXT_TYPE != "class":
             raise WrongContextError("begin_constructor",
                                     self.context.CONTEXT_TYPE)
         return self.context.make_iinit(arglist, varargs, defaults, optimize)
+
+    begin_constructor.__doc__ = """
+    Create the constructor method of the current class with the parameter
+    list "arglist", also called the "instance initializer"
+
+    %s
+
+    %s
+    """ % (PARAMS_PARAMETER, OPTIMIZE_PARAMETER)
 
     def end_method(self):
         """
@@ -949,7 +987,7 @@ class CodeGenerator(object):
         """
         self.I(instructions.returnvalue())
 
-    def store_var(self, name, TYPE=None):
+    def store_var(self, name):
         """
         Stores a local variable.
 
@@ -981,7 +1019,7 @@ class CodeGenerator(object):
     def push_this(self):
         """
         Push the "this" object onto the stack. In all known cases, this will
-        be the local of index 0.
+        be the local of index 0. Equivalent to GL("this").
         """
         self.GL("this")
 
@@ -1212,7 +1250,7 @@ class CodeGenerator(object):
 
     def push_exception(self, nest=None):
         """
-        If we are in a catch block, attempt to push the exception.
+        Attempt to push the current exception.
         """
         self.I(instructions.getscopeobject(nest or self.context.scope_nest))
         self.I(instructions.getslot(1))
@@ -1226,84 +1264,41 @@ class CodeGenerator(object):
         self.exit_context()
 
     def add_node(self, node):
+        """
+        Add a node to the pending nodes of this code generator.
+        """
         self.pending_nodes.add(INode(node))
 
     def Class(self, name, super_name=None, bases=None):
-        """
-        Return a context manager that can be used with the with statement
-        that calls begin_class and end_class.
-
-        If you are inheriting a Flash Player class, currently you need to
-        specify all of the baseclasses that should be on the scope stack,
-        excluding "Object", through a list of objects with a multiname()
-        method which returns a appropriate QName (QName implements this itself).
-        This restriction should go away soon, hopefully.
-
-        The "name" and "super_name" parameters should be an object with a
-        multiname() method for converting to an ABC Multiname (QName, TypeName,
-        Multiname, Name, etc). A common use is to use a QName with the ns being
-        a PackageNamespace for packaging classes as found in AS3 and Java. This
-        use case is so common that the constants module has a special function
-        for making these types of QNames: packagedQName, as used like:
-
-          packagedQName("flash.display", "Sprite")
-        """
         return ContextManager((self.begin_class, (name, super_name, bases)),
                               self.end_class)
 
+    Class.__doc__ = """
+    Return a context manager that can be used with the with statement
+    that calls begin_class and end_class.
+    """ + begin_class.__doc__
+
     def Method(self, name, arglist=None, returntype=None, kind="method",
                static=False, optimize=None, varargs=None, defaults=None):
-        """
-        Return a context manager that can be used with the with statement
-        that calls begin_method and end_method.
-
-        The "name" parameter should be a string or an object with a multiname()
-        method for converting to an ABC Multiname (QName, TypeName, Multiname,
-        Name, etc). A common use is to use a QName with the ns being a private,
-        protected or public namespace for access protection.
-
-        "arglist" should be an iterable of (type, name) pairs, with the "name"
-        being a string and "type" being an object with a multiname() method for
-        specifying the type of the parameter.
-
-        "returntype" should be the same kind of "type" parameter.
-
-        "kind" is the type of method. It can either be "method", "getter", or
-        "setter". If it is a getter, it must have a non-void return type and no
-        argument list. If it is a setter, it must have a void return type and
-        must take one argument.
-
-        "static" determines whether to add the function to the static or instance
-        traits of the class. For a script, this parameter will do nothing.
-
-        "varargs" should be the name of the "...rest" or *args argument.
-
-        "defaults" are the types of the default parameters.
-
-        "optimize" determines whether the code should go through very simple
-        optimizations. It may be helpful to turn this off for debugging.
-
-        To make the constructor method of a class, please use "begin_constructor".
-        """
         return ContextManager((self.begin_method, (name, arglist, returntype,
                               kind, static, optimize, varargs, defaults)),
                               self.end_method)
 
-    def Constructor(self, arglist=None, varargs=None,
-                    defaults=None, optimize=None):
-        """
+    Method.__doc__ = """
         Return a context manager that can be used with the with statement
         that calls begin_method and end_method.
+    """ + begin_method.__doc__
 
-        "arglist" should be an iterable of (name, type) pairs, with the "name"
-        being a string and "type" being an object with a multiname() method for
-        specifying the type of the parameter.
-
-        "optimize" determines whether the code should go through very simple
-        optimizations. It may be helpful to turn this off for debugging.
-        """
+    def Constructor(self, arglist=None, varargs=None, defaults=None,
+                    optimize=None):
         return ContextManager((self.begin_constructor, (arglist, varargs,
                                defaults, optimize)), self.end_constructor)
+
+    Constructor.__doc__ = """
+    Return a context manager that can be used with the with statement
+    that calls begin_constructor and end_constructor.
+    """ + begin_constructor.__doc__
+
 
 class ContextManager(object):
     def __init__(self, enter, exit):
