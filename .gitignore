@@ -1,6 +1,6 @@
 #*#
 *~
-.svn*
+*.svn*
 .rope*
 .hg*
 .bzr*
