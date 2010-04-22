@@ -103,9 +103,9 @@ def dump_abc(abc, indent=""):
         dump_traits(script.traits, indent+"    ")
         print indent + "}"
 
-def main(argv):
-    if len(argv) == 2:
-        filename = argv[1]
+def main():
+    if len(sys.argv) == 2:
+        filename = sys.argv[1]
     else:
         error('no filename passed')
 
@@ -125,4 +125,4 @@ def main(argv):
         error('cannot parse a %s file' % (ext,))
 
 if __name__ == "__main__":
-    main(sys.argv)
+    main()

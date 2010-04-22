@@ -1,14 +1,30 @@
 
+from setuptools import setup, find_packages
 
-from distutils.core import setup
+from mech import fusion
 
-setup(name='mecheye-fusion',
-      version='0.1.8',
-      description='SWF export/parse library',
-      author='JP "magcius" St. Pierre, Josh Lory, Jon "Jonanin" Morton',
-      author_email='jstpierre@mecheye.net',
-      url='http://github.com/mecheye/mecheye-fusion',
-      scripts=['bin/mf-swfdump', 'bin/mf-librarygen'],
-      packages=['mech','mech.fusion','mech.fusion.swf',
-                'mech.fusion.avm1','mech.fusion.avm2',
-                'mech.fusion.bitstream'])
+CONFIG = dict(
+    # Package Metadata
+    name =              'mecheye-fusion',
+    description =       'SWF creator/parse library',
+    version =           fusion.__released__,
+    author =            fusion.__author__,
+    author_email =      fusion.__email__,
+    url =               fusion.__url__,
+    license =           fusion.__license__,
+    keywords =          'swf avm1 avm2 tamarin mecheye mech fusion bitstream',
+
+    # Dependencies
+    install_requires = ['zope.interface',
+                        'zope.component',
+                        'distribute'],
+
+    # Installation info
+    packages =          find_packages(),
+    entry_points = dict(
+        console_scripts=['mf-swfdump = mech.fusion.swf.swfdump:main',
+                         'mf-extractabc = mech.fusion.avm2.extractabc:main',
+                         'mf-librarygen = mech.fusion.avm2.library:librarygen_main',])
+)
+
+setup(**CONFIG)

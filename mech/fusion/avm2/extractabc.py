@@ -23,9 +23,9 @@ def error(message):
     print >> sys.stderr, __doc__
     sys.exit(2)
 
-def main(argv):
-    if len(argv) == 2:
-        filename = argv[1]
+def main():
+    if len(sys.argv) == 2:
+        filename = sys.argv[1]
     else:
         error('no filename passed')
 
@@ -49,3 +49,6 @@ def main(argv):
     out.write(data)
     out.close()
     print "wrote %s.abc, %s" % (nex, sizeof_fmt(len(data)))
+
+if __name__ == '__main__':
+    main()

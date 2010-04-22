@@ -314,3 +314,26 @@ def type_exists(TYPE):
     the currently installed libraries.
     """
     return QName(TYPE) in AllTypes
+
+def librarygen_main():
+    from optparse import OptionParser
+    parser = OptionParser(usage="usage: %prog [-o DESTINATION] [-p | FILENAME]")
+    parser.add_option("-p", "--playerglobal", action="store_true", dest="pg",
+                      default=False, help="download and parse the playerglobal"
+                      " file instead of a local file.")
+    parser.add_option("-o", "--output", action="store", dest="output", default=None)
+    options, args = parser.parse_args()
+    if options.pg and args:
+        parser.error("cannot use both --playerglobal and a FILENAME")
+    elif options.pg:
+        options.output = options.output or "playerglobal.pickle"
+        print "Generating", options.output
+        gen_playerglobal(options.output)
+    elif not args:
+        parser.error("no filename specified")
+    elif len(args) > 1:
+        parser.error("too many args")
+    else:
+        options.output = options.output or os.path.splitext(os.path.basename(args[0]))[0]+".pickle"
+        print "Generating", options.output
+        gen_library(args[0], options.output)
