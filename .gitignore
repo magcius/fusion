@@ -5,6 +5,7 @@
 .hg*
 .bzr*
 .pida*
+*.egg-info*
 *.pyc
 *.abc
 *.swf
