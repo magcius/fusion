@@ -1,23 +1,30 @@
 
+import operator
+
 from mech.fusion.bitstream.bitstream import BitStream
-from mech.fusion.bitstream.interfaces import IStruct
+from mech.fusion.bitstream.interfaces import IStruct, IFormat
 from mech.fusion.bitstream.formats import UB, SB, FB, Bit
-from mech.fusion.bitstream.flash_formats import SI32, UI8, UI16, UI24, UI32
-from mech.fusion.bitstream.structs import Struct, NBits, Field, Local, Fields
+from mech.fusion.bitstream.flash_formats import SI32, UI8, UI16, UI24, UI32, FIXED8
+from mech.fusion.bitstream.structs import Struct, NBits, Field, Local, Fields, Enum
 from mech.fusion.util import nbits, nbits_signed, clamp
 
 from math import sqrt
 
 from zope.interface import implements
 
+def style_list_index(lst, element):
+    try:
+        return lst.index(element) + 1
+    except IndexError:
+        return 0
+
 def serialize_style_list(lst):
     bits = BitStream()
-
-    if len(lst) <= 0xFF:
-        bits.write_int_value(len(lst), 8)
+    if len(lst) < 0xFF:
+        bits.write(len(lst), UI8)
     else:
-        bits.write_int_value(0xFF, 8)
-        bits.write_int_value(len(lst), 16, endianness="<")
+        bits.write(0xFF, UI8)
+        bits.write(len(lst), UI16)
 
     for style in lst:
         bits += style
@@ -26,23 +33,21 @@ def serialize_style_list(lst):
 
 def parse_style_list(bits):
     bits = BitStream()
-    lst_len = bits.read_int_value(8)
+    lst_len = bits.read(UI8)
     if lst_len == 0xFF:
-        lst_len = bits.read_int_value(16, endianness="<")
+        lst_len = bits.read(UI16)
 
     L = []
     for i in xrange(lst_len):
-        TYPE = bits.read_int_value(8)
-        L.append(FillStyle.REVERSE_INDEX[TYPE].parse(bits))
+        TYPE = bits.read(UI8)
+        L.append(FillStyleMeta.REVERSE_INDEX[TYPE].from_bitstream(bits))
     return L
 
 class RecordHeader(object):
     """
     RECORDHEADER struct, the header that signifies SWF tags.
     """
-
     implements(IStruct)
-    
     def __init__(self, type, length):
         self.type = type
         self.length = length
@@ -76,22 +81,8 @@ class _EndShapeRecord(Struct):
     """
     Don't worry about me ;)
     """
-    def as_bitstream(self):
-        """        Serializes this record, according to the following format.
-
-        ====== =========
-        Format Parameter
-        ====== =========
-        U[6]   always 0
-        ====== =========
-        """
-        bitstream = BitStream()
-        bitstream.zero_fill(6)
-        return bitstream
-
-    @classmethod
-    def from_bitstream(cls, bits):
-        bits.cursor += 6
+    def create_fields(self):
+        yield Ignore[6]
 
 EndShapeRecord = _EndShapeRecord()
 
@@ -101,14 +92,20 @@ class Rect(Struct):
     """
     def __init__(self, XMin=0, YMin=0, XMax=0, YMax=0):
         super(Rect, self).__init__(locals())
-    
+
     def create_fields(self):
         yield NBits[5]
         yield Fields("XMin XMax YMin YMax", SB[NBits]) * 20
 
+    def union(self, other):
+        return type(self)(min(self.XMin, other.XMin),
+                          min(self.YMin, other.YMin),
+                          max(self.XMax, other.XMax),
+                          max(self.YMax, other.YMax),)
+
 class XY(Struct):
     """
-    XY usually stores a position in the SWF format.
+    XY usually stores a position or point in the SWF format.
     """
     def __init__(self, X=0, Y=0):
         super(XY, self).__init__(locals())
@@ -121,17 +118,27 @@ class RGB(Struct):
     """
     RGB stores a color in the SWF format.
     """
-    def __init__(self, color=0):
+    has_alpha = False
+    def __init__(self, color):
         super(RGB, self).__init__(dict(color=color & 0xFFFFFF))
 
     def create_fields(self):
         yield Field("color", UI24)
+        if self.has_alpha:
+            yield Field("alpha", UI8)
+
+    def __eq__(self, other):
+        equality = self.color == other.color
+        if self.has_alpha:
+            equality = equality and self.alpha == other.alpha
+        return equality
 
 class RGBA(RGB):
     """
     RGBA is an RGB object plus alpha.
     """
-    def __init__(self, color=0, alpha=1.0):
+    has_alpha = True
+    def __init__(self, color, alpha=1.0):
         """
         Constructor.
 
@@ -141,39 +148,13 @@ class RGBA(RGB):
         super(RGBA, self).__init__(color)
         self.alpha = alpha
 
-    def as_bitstream(self):
-        """
-        ====== ===========
-        Format Parameter
-        ====== ===========
-        U[8]   red value
-        U[8]   green value
-        U[8]   blue value
-        U[8]   alpha value
-        ====== ===========
-        """
-        bits = RGB.as_bitstream(self)
-        bits.skip_to_end()
-
-        bits.write(int(self.alpha * 0xFF), UI8)
-
-        return bits
-
-    @classmethod
-    def from_bitstream(cls, bitstream):
-        from mech.fusion.swf.tags import DefineShape
-        rgb = RGB.from_bitstream(bitstream)
-        color = rgb.color
-        alpha = bitstream.read(UI8) / 255.
-        return RGBA(color, alpha)
-
 class CXForm(Struct):
     """
     CXForm = ColorTransform
     """
     has_alpha = False
     def __init__(self, rmul=1, gmul=1, bmul=1, radd=0, gadd=0, badd=0):
-        super(RGB, self).__init__(dict(amul=1, aadd=0, **locals()))
+        super(CXForm, self).__init__(dict(amul=1, aadd=0, **locals()))
 
     def create_fields(self):
         if self.writing:
@@ -186,7 +167,7 @@ class CXForm(Struct):
         yield Local("HasAddTerms", Bit)
         yield Local("HasMulTerms", Bit)
         yield NBits[4]
-        
+
         if self.get_local("HasMulTerms", True):
             yield Fields("rmul gmul bmul", UB[NBits]) * 256
             if self.has_alpha:
@@ -199,9 +180,10 @@ class CXForm(Struct):
 
 class CXFormWithAlpha(CXForm):
     has_alpha = True
-    implements(IStruct)
     def __init__(self, rmul=1, gmul=1, bmul=1, amul=1, radd=0, gadd=0, badd=0, aadd=0):
-        Struct.__init__(self, locals())
+        super(CXFormWithAlpha, self).__init__(self, rmul, gmul, bmul, radd, gadd, badd)
+        self.amul = amul
+        self.aadd = aadd
 
 class Matrix(Struct):
     def __init__(self, a=1, b=0, c=0, d=1, tx=0, ty=0):
@@ -210,7 +192,7 @@ class Matrix(Struct):
     def create_fields(self):
         if self.writing:
             self.set_local("HasScale", (Field("a") != 1) & (Field("d") != 1))
-        
+
         yield Local("HasScale", Bit)
         if self.get_local("HasScale", True):
             yield NBits[5]
@@ -228,22 +210,22 @@ class Matrix(Struct):
         yield Fields("tx ty", SB[NBits]) * 20
 
 class Shape(object):
-
     def __init__(self):
         self.shapes = []
-        
+
         self.edge_bounds = Rect()
         self.shape_bounds = Rect()
-        
+
         self.has_scaling = False
         self.has_non_scaling = False
-        
+
         self.bounds_calculated = False
 
     def add_shape_record(self, shape):
         self.shapes.append(shape)
+        shape.parent = self
         self.bounds_calculated = False
-    
+
     def add_shape(self, shape):
         self.shapes += shape.shapes
         self.bounds_calculated = False
@@ -255,19 +237,18 @@ class Shape(object):
         ================= ============
         Format            Parameter
         ================= ============
-        
+
         SHAPERECORD[...]  the shape records
-        U[24]             always 0
+        UB[24]            always 0
         ================= ============
         """
         if not self.bounds_calculated:
             self.calculate_bounds()
-        
+
         if EndShapeRecord not in self.shapes:
             self.shapes.append(EndShapeRecord)
 
         bits = BitStream()
-        
         bits += self.serialize_style()
         for record in self.shapes:
             bits += record
@@ -281,7 +262,7 @@ class Shape(object):
         bits = BitStream()
         bits.zero_fill(8) # NumFillBits and NumLineBits
         return bits
-    
+
     def calculate_bounds(self):
         if self.bounds_calculated:
             return
@@ -299,11 +280,12 @@ class Shape(object):
         self.bounds_calculated = True
 
 class ShapeWithStyle(Shape):
-
     def __init__(self, fills=None, strokes=None):
         super(ShapeWithStyle, self).__init__()
         self.fills = fills or []
+        self.fillbits = 0
         self.strokes = strokes or []
+        self.linebits = 0
 
     def add_fill_style(self, style):
         style.parent = self.fills
@@ -312,69 +294,62 @@ class ShapeWithStyle(Shape):
     def add_line_style(self, style):
         style.parent = self.strokes
         self.strokes.append(style)
-        
+
     def add_shape(self, shape):
-        Shape.add_shape(self, shape)
+        super(ShapeWithStyle, self).add_shape(self, shape)
         try:
             self.fills += shape.fills
             self.strokes += shape.strokes
         except AttributeError:
             pass
-    
+
     def serialize_style(self):
         bits = BitStream()
         bits += serialize_style_list(self.fills)
         bits += serialize_style_list(self.strokes)
-        bits.write_int_value(nbits(len(self.fills)), 4)
-        bits.write_int_value(nbits(len(self.strokes)), 4)
+        self.fillbits = nbits(len(self.fills))
+        self.linebits = nbits(len(self.strokes))
+        bits.write_int_value(self.fillbits, 4)
+        bits.write_int_value(self.linebits, 4)
         return bits
-    
-class LineStyle(object):
 
+class LineStyle(Struct):
     caps = "round"
-    
     def __init__(self, width=1, color=0, alpha=1.0):
-        self.width = width
-        self.color = RGBA(color, alpha)
+        super(LineStyle, self).__init__(dict(width=width,
+                                             color=RGBA(color, alpha)))
 
     @property
     def index(self):
-        return self.parent.find(self)
-    
-    def as_bitstream(self):
-        bits = BitStream()
-        bits.write_int_value(self.width * 20, 16, endianness="<")
-        bits += self.color
-        return bits
+        return self.parent.find(self) + 1
 
-    def from_bitstream(self, bits):
-        self.width = bits.read_int_value(16, endianness="<")
-        self.color = RGBA.from_bitstream(bits)
+    def create_fields(self):
+        yield Field("width", UI16) * 20
+        yield Field("color", RGBA)
 
 class LineStyle2(LineStyle):
-
+    CAPS   = dict(round=0, none=1, square=2)
+    JOINTS = dict(round=0, bevel=1, miter=2)
     def __init__(self, width=1, fillstyle=None, pixel_hinting=False, scale_mode=None, caps="round", joints="round", miter_limit=3):
-
-        color, alpha, self.fillstyle = 0, 1.0, None
-        
+        super(LineStyle2, self).__init__(self, width, 0, 1.0)
+        # This is begging to be rewritten with zope.interface.
         if isinstance(fillstyle, RGBA):
-            color = fillstyle.color
-            alpha = fillstyle.alpha
+            self.color = fillstyle.color
+            self.alpha = fillstyle.alpha
         elif isinstance(fillstyle, RGB):
-            color = fillstyle.color
+            self.color = fillstyle.color
         elif isinstance(fillstyle, int):
             if fillstyle > 0xFFFFFF:
-                color = fillstyle & 0xFFFFFF
-                alpha = fillstyle >> 6 & 0xFF
+                self.color = fillstyle & 0xFFFFFF
+                self.alpha = fillstyle >> 6 & 0xFF
             else:
-                color = fillstyle
+                self.color = fillstyle
         elif isinstance(fillstyle, FillStyleSolidFill):
-            color = fillstyle.color.color
-            alpha = fillstyle.color.alpha
+            self.color = fillstyle.color.color
+            self.alpha = fillstyle.color.alpha
         elif isinstance(fillstyle, FillStyle):
             self.fillstyle = fillstyle
-        
-        super(LineStyle2, self).__init__(self, width, color, alpha)
+
         self.pixel_hinting = pixel_hinting
         self.scale_mode = scale_mode
 
@@ -383,43 +358,33 @@ class LineStyle2(LineStyle):
 
         self.miter_limit = miter_limit
 
-    def as_bitstream(self):
+    def create_fields(self):
+        yield Field("width", UI16) * 20
+        yield Enum(Field("caps",   UB[2]), self.CAPS,   default=0)
+        yield Enum(Field("joints", UB[2]), self.JOINTS, default=0)
 
-        h_scale = (self.scale_mode == "normal" or self.scale_mode == "horizontal")
-        v_scale = (self.scale_mode == "normal" or self.scale_mode == "vertical")
-        
-        bits = BitStream()
-        bits.write_int_value(self.width * 20, 16, endianness="<")
+        if self.writing:
+            self.set_local("HasMiterJoint", self.joints == "miter")
+            self.set_local("HasFillStyle", self.fillstyle is not None)
+            self.set_local("HasHScale", self.scale_mode in ("normal", "horizontal"))
+            self.set_local("HasVScale", self.scale_mode in ("normal", "vertical"))
 
-        caps = dict(round=0, none=1, square=2).get(self.caps, 0)
-        joints = dict(round=0, bevel=1, miter=2).get(self.joints, 0)
-        
-        bits.write_int_value(caps, 2)
-        bits.write_int_value(joints, 2)
-        bits.write_bit(self.fillstyle is not None)
-        bits.write_bit(h_scale)
-        bits.write_bit(v_scale)
-        bits.write_bit(self.pixel_hinting)
+        yield Local("HasFillStyle", Bit)
+        yield Local("HasHScale",    Bit)
+        yield Local("HasVScale",    Bit)
 
-        if joints == 2:
-            bits.write_fixed_value(self.miter_limit, 16, endianness="<")
+        if self.get_local("HasFillStyle", True):
+            yield Field("fillstyle", FillStyle)
 
-        if self.fillstyle:
-            bits += self.fillstyle
-        else:
-            bits += self.color
-
-        return bits
-
-    ## def from_bitstream(self, bits):
-    ##     self.width = bits.read_int_value(16, endianness="<")
+        if not self.get_local("HasFillStyle", False):
+            yield Field("color", RGBA)
 
     def cap_style_logic(self, style, last, delta):
         # Half thickness (radius of round cap; diameter is thickness)
         off = style.width / 2.0
         dx, dy = delta
         lx, ly = last
-        
+
         if style.caps == "round":
             r = Rect()
             r.XMin = cmp(dx, 0) * off
@@ -427,9 +392,8 @@ class LineStyle2(LineStyle):
             r.XMax = r.XMin + dx
             r.YMax = r.XMax + dy
             return r
-        
+
         if style.caps == "square":
-            
             # Account for the length of the caps.
             dellen = sqrt(dx*dx + dy*dy)  # Delta length
             norm = (dellen+off*2)/dellen  # Extra length
@@ -439,7 +403,7 @@ class LineStyle2(LineStyle):
             norm = off/dellen             # Offset amount
             sqx *= norm                   # Position offsets.
             sqy *= norm
-            
+
             # And offset the position.
             lx -= sqx
             ly -= sqy
@@ -452,7 +416,7 @@ class LineStyle2(LineStyle):
 
         # Left-hand normal to vector delta relative to (0, 0)
         p2x, p2y = (-p1x, -p1y)
-        
+
         # Right-hand normal to vector delta relative to delta.
         p3x, p3y = (p1x + dx, p1y + dy)
 
@@ -465,101 +429,86 @@ class LineStyle2(LineStyle):
             min(p1y, p2y, p3y, p4y) + ly,
             max(p1y, p2y, p3y, p4y) + ly)
 
-class FillStyle(object):
-
-    TYPE = -1
+class FillStyleMeta(type):
     REVERSE_INDEX = {}
 
-    def __init__(self):
-        FillStyle.REVERSE_INDEX[self.TYPE] = self
-    
+    def __init__(cls, name, bases, dct):
+        FillStyleMeta.REVERSE_INDEX[dct['TYPE']] = cls
+
+class FillStyle(Struct):
+    __metaclass__ = FillStyleMeta
     @property
     def index(self):
-        return self.parent.find(self)
-    
-    def as_bitstream(self):
-        bits = BitStream()
-        bits.write_int_value(self.TYPE, 8)
-        bits += self.as_bitstream_inner()
-        return bits
+        return self.parent.index(self)
 
-    def as_bitstream_inner(self):
-        pass
-    
+    def create_fields(self):
+        yield Field("TYPE", UI8)
+        for field in self.create_fields_inner():
+            yield field
+
+    def create_fields_inner(self):
+        return []
+
 class FillStyleSolidFill(FillStyle):
-    
     TYPE = 0
-    
-    def __init_(self, color, alpha=1.0):
-        self.color = RGBA(color, alpha)
+    def __init_(self, color=0, alpha=1.0):
+        super(FillStyleSolidFill, self).__init__(dict(color=RGBA(color, alpha)))
 
-    def as_bitstream_inner(self):
-        return self.color.as_bitstream()
+    def create_fields_inner(self):
+        yield Field("color", RGBA)
 
-class GradRecord(object):
-
+class GradRecord(Struct):
     def __init__(self, ratio=0, color=0, alpha=1.0):
-        self.ratio = ratio
-        self.color = RGBA(color, alpha)
+        super(GradRecord, self).__init__(dict(ratio=raio, color=RGBA(color, alpha)))
 
-    def as_bitstream(self):
-        bits = BitStream()
-        bits.write_int_value(self.ratio, 8)
-        bits += self.color
-        return bits
+    def create_fields(self):
+        yield Field("ratio", UI8)
+        yield Field("color", RGBA)
 
-    @classmethod
-    def from_bitstream(cls, bits):
-        ratio = bits.read_int_value(8)
-        color = RGBA.from_bitstream(bits)
-        color, alpha = color.color, color.alpha
-        return cls(ratio, color, alpha)
+    def __cmp__(self, other):
+        return cmp(self.ratio, other.ratio)
 
-class Gradient(object):
+    def __eq__(self, other):
+        return self.ratio == other.ratio and self.color == other.color
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __lt__(self, other):
+        return self.ratio < other.ratio
+
+    def __le__(self, other):
+        return self.ratio <= other.ratio
+
+    def __gt__(self, other):
+        return self.ratio > other.ratio
+
+    def __ge__(self, other):
+        return self.ratio >= other.ratio
+
+class Gradient(Struct):
     has_focal = False
-    def __init__(self, grads=[], spread="pad", interpolation="rgb"):
-        import operator
-        grads.sort(key=operator.attrgetter("ratio"))
-        self.grads = grads
-        self.spread = spread
-        self.interpolation = interpolation
-        self.focalpoint = 0
 
-    def as_bitstream(self):
-        spread = dict(pad=0, reflect=1, repeat=2).get(self.spread, 0)
-        interpolation = dict(rgb=0, linear=1).get(self.interpolation, 0)
+    SPREAD = dict(pad=0, reflect=1, repeat=2)
+    INTERPOLATION = dict(rgb=0, linear=1)
 
-        bits = BitStream()
-        bits.write_int_value(spread, 2)
-        bits.write_int_value(interpolation, 2)
+    def __init__(self, grads, spread="pad", interpolation="rgb"):
+        super(Gradient, self).__init__(dict(grads=sorted(grads or []),
+            spread=spread, interpolation=interpolation, focalpoint=0))
 
-        bits.write_int_value(len(self.grads), 4)
-        for grad in self.grads:
-            bits += grad
+    def create_fields(self):
+        yield Enum(Field("spread", UB[2]), self.SPREAD, default=0)
+        yield Enum(Field("interpolation", UB[2]), self.INTERPOLATION, default=0)
+
+        if self.writing:
+            self.set_local("NumGrads", len(self.grads))
+
+        yield Local("NumGrads", UB[4])
+        yield Field("grads", GradRecord[self.get_local("NumGrads", 1)])
 
         if self.has_focal:
-            bits.write_fixed_value(self.focalpoint, 16, endianness="<")
+            yield Field("focalpoint", FIXED8)
 
-        return bits
-
-    @classmethod
-    def from_bitstream(cls, bits):
-        spread = ["pad", "reflect", "repeat"][bits.read_int_value(2)]
-        interpolation = ["rgb", "linear"][bits.read_int_value(2)]
-        
-        grads = []
-        
-        lst_len = bits.read_int_value(4)
-        for i in xrange(lst_len):
-            grad = GradRecord.from_bitstream(bits)
-            grads.append(grad)
-
-        if cls.has_focal:
-            focalpoint = bits.read_fixed_value(16, endianness="<")
-            return cls(grads, spread, interpolation, focalpoint)
-
-        return cls(grads, spread, interpolation)
-        
     @classmethod
     def from_begin_gradient_fill(cls, colors, alphas, ratios, spread, interpolation, focalpoint):
         grads = [GradRecord(*t) for t in zip(ratios, colors, alphas)]
@@ -574,56 +523,44 @@ class FocalGradient(Gradient):
 class FillStyleLinearGradientFill(FillStyle):
     TYPE = 0x10
     def __init__(self, matrix, gradient):
+        super(FillStyleLinearGradientFill).__init__(locals())
         self.matrix = matrix
         self.gradient = gradient
 
-    def as_bitstream_inner(self):
-        return self.matrix.serialize() + self.gradient.serialize()
+    def create_fields_inner(self):
+        yield Field("matrix", Matrix)
+        yield Field("gradient", Gradient)
 
-class StraightEdgeRecord(object):
-
+class StraightEdgeRecord(Struct):
     def __init__(self, delta_x, delta_y):
-        self.delta_x = delta_x
-        self.delta_y = delta_y
+        super(StraightEdgeRecord).__init__(delta_x=delta_x, delta_y=delta_y)
         self.bounds_calculated = False
 
-    def as_bitstream(self):
-            
-        bits = BitStream()
-        
-        if self.delta_x == 0 and self.delta_y == 0:
-            return bits
+    def create_fields(self):
+        if self.writing:
+            GeneralLineFlag = self.delta_x == 0 or self.delta_y == 0
+            self.set_local("GeneralLineFlag", GeneralLineFlag)
+            self.set_local("VerticalLineFlag", self.delta_x == 0)
 
-        bits.write_bit(True) # TypeFlag
-        bits.write_bit(True) # StraightFlag
+        yield IFormat(True) # TypeFlag
+        yield IFormat(True) # StraightFlag
 
-        X = self.delta_x * 20
-        Y = self.delta_y * 20
+        yield NBits[4] + 2
+        yield Local("GeneralLineFlag", Bit)
 
-        NBits = nbits(X, Y)
+        if self.get_local("GeneralLineFlag", True):
+            yield Fields("delta_x delta_y", SB[NBits]) * 20
 
-        if NBits > 15:
-            raise ValueError("Number of bits per value field cannot exceed 15")
-        
-        bits.write_int_value(NBits, 4)
-        NBits += 2
-        if X == 0:
-            # Vertical Line
-            bits.write_bit(False) # GeneralLineFlag
-            bits.write_bit(True)  # VerticalLineFlag
-            bits.write_int_value(Y, NBits)
-        elif Y == 0:
-            # Horizontal Line
-            bits.write_bit(False) # GeneralLineFlag
-            bits.write_bit(True)  # HorizontalLineFlag
-            bits.write_int_value(X, NBits)
-        else:
-            # General Line
-            bits.write_bit(True) # GeneralLineFlag
-            bits.write_int_value(X, NBits)
-            bits.write_int_value(Y, NBits)
+        if not self.get_local("GeneralLineFlag", False):
+            yield Local("VerticalLineFlag", Bit)
 
-        return bits
+            if self.get_local("VerticalLineFlag", True):
+                yield Field("delta_y", SB[NBits]) * 20
+                self.delta_x = 0
+
+            if not self.get_local("VerticalLineFlag", False):
+                yield Field("delta_x", SB[NBits]) * 20
+                self.delta_y = 0
 
     def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
         rect = Rect(last[0], last[1], self.delta_x, self.delta_y)
@@ -633,69 +570,46 @@ class StraightEdgeRecord(object):
                               last, (self.delta_x, self.delta_y)))),
                 (False, False, style))
 
-
-class CurvedEdgeRecord(object):
-
+class CurvedEdgeRecord(Struct):
     def __init__(self, controlx, controly, anchorx, anchory):
-        self.controlx = controlx
-        self.controly = controly
-        self.anchorx = anchorx
-        self.anchory = anchory
+        super(CurvedEdgeRecord, self).__init__(locals())
 
-    def as_bitstream(self):
-            
-        bits = BitStream()
+    def create_fields(self):
+        yield IFormat(True) # TypeFlag
+        yield IFormat(False) # StraightFlag
 
-        bits.write_bit(True)  # TypeFlag
-        bits.write_bit(False) # StraightFlag
+        yield NBits[4] + 2
+        yield Fields("controlx controly anchorx anchory", SB[NBits]) * 20
 
-        cX = self.controlx * 20
-        cY = self.controly * 20
-        aX = self.anchorx  * 20
-        aY = self.anchory  * 20
-        
-        NBits = nbits(cX, cY, aX, aY)
-
-        if NBits > 15:
-            raise ValueError("Number of bits per value field cannot exceed 15")
-
-        bits.write_int_value(NBits, 4)
-        NBits += 2
-        bits.write_int_value(cX, NBits)
-        bits.write_int_value(cY, NBits)
-        bits.write_int_value(aX, NBits)
-        bits.write_int_value(aY, NBits)
-        return bits
-    
     def _get_x(self, t):
-        return self.controlx * 2 * (1-t) * t + self.anchorx * t * t
+        return self.controlx*2*(1-t)*t + self.anchorx*t*t
 
     def _get_y(self, t):
-        return self.controly * 2 * (1-t) * t + self.anchory * t * t
+        return self.controly*2*(1-t)*t + self.anchory*t*t
 
     def _get_p(self, t):
         return (self._get_x(t), self._get_y(t))
-    
-    def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
-        union = Rect(0, 0, 0, 0)
 
+    def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
         """
         CurvedEdgeRecord Bounds
         Formulas somewhat based on
         http://code.google.com/p/bezier/source/browse/trunk/bezier/src/flash/geom/Bezier.as
         Maths here may be incorrect
-        
+
         extremumX = last.x - 2 * control.x + anchor.x
-        extremumX = last.x - 2 * ( controlDeltaX - last.x ) + anchorDeltaX - last.x
-        extremumX = (last.x - last.x) - 2 * ( controlDeltaX - last.x ) + anchorDeltaX
-        extremumX = -2 * ( controlDeltaX - last.x ) + anchorDeltaX
-        
+        extremumX = last.x - 2 * (controlDeltaX + last.x) + anchorDeltaX - last.x
+        extremumX = (last.x - last.x) - 2 * (controlDeltaX + last.x) + anchorDeltaX
+        extremumX = -2*(controlDeltaX + last.x) + anchorDeltaX
+
         For the case of last.[xy] = 0, we can use the formula below.
         """
 
         x = -2 * self.controlx + self.anchorx
         t = -self.controlx / x
         p = self._get_x(t)
+
+        union = Rect(0, 0, 0, 0)
 
         if t <= 0 or t >= 1:
             union.XMin = last[0] + min(self.anchorx, 0)
@@ -741,62 +655,118 @@ class CurvedEdgeRecord(object):
                  edge_bounds.union(union, start_cap_rect, end_cap_rect)),
                 (False, False, style))
 
-class StyleChangeRecord(object):
-
+class StyleChangeRecord(Struct):
     def __init__(self, delta_x, delta_y, linestyle=None,
                  fillstyle0=None, fillstyle1=None,
                  fillstyles=None, linestyles=None):
+        super(StyleChangeRecord, self).__init__(locals())
+
+    def create_fields(self):
+        if self.writing:
+            from mech.fusion.swf.tags import DefineShape
+            new_styles = (DefineShape._current_variant > 1) and (self.linestyles or self.fillstyles)
+            self.set_local("HasNewStyles", new_styles)
+            if new_styles:
+                self.fillstyles = self.fillstyles or []
+                self.linestlyes = self.linestyles or []
+                self.set_local("FillStyleCount", len(self.fillstyles))
+                self.set_local("FillStyleBits", nbits(len(self.fillstyles)))
+                self.set_local("LineStyleCount", len(self.linestyles))
+                self.set_local("LineStyleBits", nbits(len(self.linestyles)))
+            self.set_local("HasLineStyle", bool(self.linestyle))
+            self.set_local("LineStyleIndex", style_list_index(self.parent.strokes, self.linestyle))
+            self.set_local("HasFillStyle1", bool(self.fillstyle1))
+            self.set_local("FillStyle1Index", style_list_index(self.parent.fills, self.fillstyle1))
+            self.set_local("HasFillStyle0", bool(self.fillstyle0))
+            self.set_local("FillStyle0Index", style_list_index(self.parent.fills, self.fillstyle0))
+            self.set_local("HasMoveTo", self.delta_x and self.delta_y)
+
+        yield IFormat(False) # TypeFlag
+        yield Local("HasNewStyles")
+        yield Local("HasLineStyle")
+        yield Local("HasFillStyle1")
+        yield Local("HasFillStyle0")
+        yield Local("HasMoveTo")
+
+        if self.get_local("HasMoveTo", True):
+            yield NBits[5]
+            yield Fields("delta_x delta_y", SB[NBits]) * 20
+
+        if self.get_local("HasFillStyle0", True):
+            yield Local("FillStyle0Index", UB[self.parent.fillbits])
+            if self.reading:
+                self.fillstyle0 = self.parent.fills[self.get_local("FillStyle0Index")]
+
+        if self.get_local("HasFillStyle1", True):
+            yield Local("FillStyle1Index", UB[self.parent.fillbits])
+            if self.reading:
+                self.fillstyle1 = self.parent.fills[self.get_local("FillStyle1Index")]
+
+        if self.get_local("HasLineStyle", True):
+            yield Local("LineStyleIndex", UB[self.parent.linebits])
+            if self.reading:
+                self.linestyle = self.parent.fills[self.get_local("LineStyleIndex")]
+
+        if self.get_local("HasNewStyles", True):
+            yield Local("FillStyleCount", UI8) & 0xFF
+            if self.get_local("FillStyleCount", 0xFF) & 0xFF == 0xFF:
+                    yield Local("FillStyleCount", UI16)
+            yield Field("fillstyles", FillStyle[self.get_local("FillStyleCount")])
+            self.parent.fills = self.fillstyles
+
+            yield Local("LineStyleCount", UI8) & 0xFF
+            if self.get_local("LineStyleCount", 0xFF) & 0xFF == 0xFF:
+                yield Local("LineStyleCount", UI16)
+            yield Field("linestyles", FillStyle[self.get_local("FillStyleCount")])
+            self.parent.strokes = self.linestyles
+
+            yield Local("FillStyleBits", UB[4])
+            yield Local("LineStyleBits", UB[4])
+            self.parent.fillbits = self.get_local("FillStyleBits")
+            self.parent.linebits = self.get_local("LineStyleBits")
+
+    ## def as_bitstream(self):
+    ##     bits = BitStream()
+    ##     if self.fillstyle0 is not None and self.fillstyle1 is not None and \
+    ##            self.fillstyle0.parent != self.fillstyle1.parent:
+    ##         raise ValueError("fillstyle0 and fillstyle1 do not have the same parent!")
         
-        self.delta_x = delta_x
-        self.delta_y = delta_y
-        self.linestyle = linestyle
-        self.fillstyle0 = fillstyle0
-        self.fillstyle1 = fillstyle1
-        self.fillstyles = fillstyles
-        self.linestyles = linestyles
+    ##     fsi0 = 0 if self.fillstyle0 is None else self.fillstyle0.index
+    ##     fsi1 = 0 if self.fillstyle1 is None else self.fillstyle1.index
+    ##     lsi  = 0 if self.linestyle  is None else self.linestyle.index
 
-    def as_bitstream(self):
-        bits = BitStream()
-        if self.fillstyle0 is not None and self.fillstyle1 is not None and \
-               self.fillstyle0.parent != self.fillstyle1.parent:
-            raise ValueError("fillstyle0 and fillstyle1 do not have the same parent!")
+    ##     fbit = 0 if self.fillstyle0 is None else nbits(len(self.fillstyle0.parent))
+    ##     lbit = 0 if self.linestyle  is None else nbits(len(self.linestyle.parent))
         
-        fsi0 = 0 if self.fillstyle0 is None else self.fillstyle0.index
-        fsi1 = 0 if self.fillstyle1 is None else self.fillstyle1.index
-        lsi  = 0 if self.linestyle  is None else self.linestyle.index
-
-        fbit = 0 if self.fillstyle0 is None else nbits(len(self.fillstyle0.parent))
-        lbit = 0 if self.linestyle  is None else nbits(len(self.linestyle.parent))
+    ##     from mech.fusion.swf.tags import DefineShape
         
-        from mech.fusion.swf.tags import DefineShape
+    ##     new_styles = ((DefineShape._current_variant > 1) and
+    ##                  ((self.linestyles != None and len(self.linestyles) > 0) or
+    ##                   (self.fillstyles != None and len(self.fillstyles) > 0)))
+
+    ##     bits.write_bit(False)       # TypeFlag
+    ##     bits.write_bit(new_styles)  # StateNewStyles
+    ##     bits.write_bit(lsi  > 0)    # StateLineStyle
+    ##     bits.write_bit(fsi0 > 0)    # StateFillStyle0
+    ##     bits.write_bit(fsi1 > 0)    # StateFillStyle1
+
+    ##     move_flag = self.delta_x != 0 or self.delta_y != 0
+
+    ##     if move_flag:
+    ##         bits += XY(self.delta_x, self.delta_y)
+
+    ##     if fsi0 > 0:  bits.write_int_value(fsi0, fbit) # FillStyle0
+    ##     if fsi1 > 0:  bits.write_int_value(fsi1, fbit) # FillStyle1
+    ##     if lsi  > 0:  bits.write_int_value(lsi,  lbit) # LineStyle
         
-        new_styles = ((DefineShape._current_variant > 1) and
-                     ((self.linestyles != None and len(self.linestyles) > 0) or
-                      (self.fillstyles != None and len(self.fillstyles) > 0)))
+    ##     if new_styles:
+    ##         bits += serialize_style_list(self.fillstyles) # FillStyles
+    ##         bits += serialize_style_list(self.linestyles) # LineStyles
 
-        bits.write_bit(False)       # TypeFlag
-        bits.write_bit(new_styles)  # StateNewStyles
-        bits.write_bit(lsi  > 0)    # StateLineStyle
-        bits.write_bit(fsi0 > 0)    # StateFillStyle0
-        bits.write_bit(fsi1 > 0)    # StateFillStyle1
+    ##         bits.write_int_value(nbits(len(self.fillstyles)), 4) # FillBits
+    ##         bits.write_int_value(nbits(len(self.linestyles)), 4) # LineBits
 
-        move_flag = self.delta_x != 0 or self.delta_y != 0
-
-        if move_flag:
-            bits += XY(self.delta_x, self.delta_y)
-
-        if fsi0 > 0:  bits.write_int_value(fsi0, fbit) # FillStyle0
-        if fsi1 > 0:  bits.write_int_value(fsi1, fbit) # FillStyle1
-        if lsi  > 0:  bits.write_int_value(lsi,  lbit) # LineStyle
-        
-        if new_styles:
-            bits += serialize_style_list(self.fillstyles) # FillStyles
-            bits += serialize_style_list(self.linestyles) # LineStyles
-
-            bits.write_int_value(nbits(len(self.fillstyles)), 4) # FillBits
-            bits.write_int_value(nbits(len(self.linestyles)), 4) # LineBits
-
-        return bits
+    ##     return bits
 
     ## def from_bitstream(self, bits):
     ##     StateNewStyles  = bits.read_bit()

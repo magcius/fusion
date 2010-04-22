@@ -170,7 +170,9 @@ class FieldTemp(object):
     __lt__  = binary_atomizer("lt")
     __gt__  = binary_atomizer("gt")
 
-    ## __cmp__ = binary_atomizer("cmp")
+    __and__ = binary_atomizer("and") # bitwise and
+    __or__  = binary_atomizer("or")  # bitwise or
+    __xor__ = binary_atomizer("xor") # bitwise xor
 
     __nonzero__ = unary_atomizer("nonzero")
 
@@ -214,7 +216,7 @@ class FieldTempArray(Field):
     var_name = None
     default = []
     def __init__(self, fields, format):
-        if isinstance(fields, str):
+        if isinstance(fields, basestring):
             self.fields = fields.split()
         else:
             self.fields = fields
@@ -317,16 +319,23 @@ class NBits(object):
     def __str__(self):
         return "NBits[%d]" % (self.length,)
 
-def DictionaryMap(field, map):
-    reverse_map = {}
-    for k, v in map.iteritems():
-        reverse_map[v] = k
-    def map_filter_read(key, struct):
-        return map[key]
-    def map_filter_write(key, struct):
-        return reverse_map[key]
-    field.filter_read .append(map_filter_read)
-    field.filter_write.append(map_filter_write)
+def Enum(field, enum, **kwargs):
+    enum  = enum.copy()
+    renum = {}
+    for k, v in enum.iteritems():
+        renum[v] = k
+    if "default" in kwargs:
+        def map_filter_r(key, struct):
+            return renum.get(key, kwargs["default"])
+        def map_filter_w(key, struct):
+            return enum.get(key, kwargs["default"])
+    else:
+        def map_filter_r(key, struct):
+            return renum[key]
+        def map_filter_w(key, struct):
+            return enum[key]
+    field.filter_read .append(map_filter_r)
+    field.filter_write.append(map_filter_w)
     return field
 
 def Map(field, read, write):
@@ -431,7 +440,7 @@ class Struct(StructMixin):
 
     @classmethod
     def from_bitstream(cls, bitstream):
-        instance = cls()
+        instance = cls.__new__(cls)
         instance._TEMP_FIELDS = {}
         statements = {}
         for statement in instance.create_fields():

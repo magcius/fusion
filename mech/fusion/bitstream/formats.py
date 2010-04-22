@@ -10,7 +10,7 @@ from mech.fusion.bitstream.interfaces import IStructEvaluateable
 
 from types import NoneType
 
-from zope.interface import implements, classImplements
+from zope.interface import implements, classImplements, implementer
 from zope.component import provideAdapter, adapter
 
 # Fast lookup for write/read_string.
@@ -56,21 +56,6 @@ def nbits(num, *args):
     if all(a == 0 for a in (num,)+args):
         return 0
     return max(len(bin(abs(a))) for a in (num,) + args) - 2
-
-## def format_cache(TYPE):
-##     """
-##     A class decorator that caches Formats and prevents them
-##     from being created again.
-##     """
-##     _cache = {}
-##     def cached_init(data):
-##         if data in _cache:
-##             return _cache[data]
-##         obj = TYPE(data)
-##         _cache[data] = obj
-##         return obj
-##     cached_init.__name__ = TYPE.__name__ + "$cache"
-##     return cached_init
 
 # New API for the BitStream, suggested by Jon Morton
 
@@ -129,24 +114,35 @@ class FormatMeta(type):
     def __str__(self):
         return "<FormatMeta '%s'>" % (self.__name__,)
 
+@adapter(NoneType)
+@implementer(IFormatData)
 def none_as_formatdata(none):
     return FormatData(None, None, None)
 
+provideAdapter(none_as_formatdata)
+
+@adapter(slice)
+@implementer(IFormatData)
 def slice_as_formatdata(slice):
     return FormatData(slice.start, slice.stop, slice.step)
 
-def length_as_formatdata(length):
-    return FormatData(IFormatLength(length), None, None)
+provideAdapter(slice_as_formatdata)
 
+@adapter(IFormatLength)
+@implementer(IFormatData)
+def length_as_formatdata(length):
+    return FormatData(length, None, None)
+
+provideAdapter(length_as_formatdata)
+
+@adapter(str)
+@implementer(IFormatData)
 def string_as_formatdata(string):
     if string in "<>":
         return FormatData(None, string, None)
     raise TypeError("cannot adapt string %r to IFormatData" % (string,))
 
-provideAdapter(none_as_formatdata,   [NoneType],      IFormatData)
-provideAdapter(slice_as_formatdata,  [slice],         IFormatData)
-provideAdapter(length_as_formatdata, [IFormatLength], IFormatData)
-provideAdapter(string_as_formatdata, [str],           IFormatData)
+provideAdapter(string_as_formatdata)
 
 @adapter(FormatMeta)
 class FormatMetaAdaptor(object):
@@ -252,7 +248,6 @@ class FormatArray(object):
         return "%s[%s]" % (self.format, self.repeat)
 
 class Bit(Format):
-    
     """
     One bit, either True or False.
     """

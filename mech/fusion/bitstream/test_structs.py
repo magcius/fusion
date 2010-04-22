@@ -9,8 +9,8 @@ from mech.fusion.bitstream.structs import Field, Local
 
 from zope.interface import implementedBy
 
-rect_data   = Rect(XMin=20, YMin=80, XMax=600, YMax=800).as_bitstream()
-rect_data.rewind()
+# rect_data = "01110" + "%s"*4 % tuple(("0"*(15-len(s))+s for s in (bin(s*20)[2:] for s in (20, 80, 600, 800))))
+rect_data = "01110000000110010000000011001000000010111011100000011111010000000"
 
 class TestRect(Struct):
     def __init__(self, XMin=0, YMin=0, XMax=0, YMax=0):
@@ -22,9 +22,7 @@ class TestRect(Struct):
 
 def test_rect_write():
     rect = TestRect(20, 80, 600, 800)
-    print rect_data
-    print rect.as_bitstream()
-    assert rect.as_bitstream() == rect_data
+    assert str(rect.as_bitstream()) == rect_data
     
 def test_rect_read():
     rect = TestRect.from_bitstream(rect_data)
