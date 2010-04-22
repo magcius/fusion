@@ -40,11 +40,11 @@ with actions.Class("Example3EntryPoint", flash.display.Sprite) as cls:
 
 actions.finish()
 
-f = open("example3.abc", "wb")
+f = open("library_example.abc", "wb")
 f.write(AbcFile.serialize(abc))
 f.close()
 
-f = open("example3.swf", "wb")
+f = open("library_example.swf", "wb")
 f.write(swf.serialize())
 f.close()
 

@@ -48,10 +48,10 @@ class Example3EntryPoint(flash.display.Sprite):
 generator.add_node(Example3EntryPoint)
 generator.finish()
 
-f = open("example4.abc", "wb")
+f = open("node_api_example.abc", "wb")
 f.write(AbcFile.serialize(abc))
 f.close()
 
-f = open("example4.swf", "wb")
+f = open("node_api_example.swf", "wb")
 f.write(swf.serialize())
 f.close()

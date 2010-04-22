@@ -23,3 +23,5 @@ with open("example2.abc", "wb") as f:
 
 abc = AbcFile.from_filename("example2.abc")
 dump_abc(abc)
+
+a
