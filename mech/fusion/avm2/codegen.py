@@ -1005,11 +1005,12 @@ class CodeGenerator(object):
         If an argument has a multiname method, a "getlex" is done
         on the result of calling the multiname.
         """
-        m = getattr(v, "multiname", None)
-        if m:
-            self.I(instructions.getlex(m()))
-        else:
+        if ILoadable.providedBy(v):
             ILoadable(v).load(self)
+        else:
+            m = getattr(v, "multiname", None)
+            if m:
+                self.I(instructions.getlex(m()))
 
         for i in args:
             self.load(i)
