@@ -359,6 +359,9 @@ class Byte(Format):
             return n, length*8
 
     def _write(self, bs, cursor, bytes):
+        if isinstance(bytes, float):
+            bytes = int(bytes)
+
         if isinstance(bytes, (int, long)):
             if bytes in xrange(256) and self.length in (1, None):
                 bs[cursor:cursor+8] = BYTE_TO_BITS[bytes]
