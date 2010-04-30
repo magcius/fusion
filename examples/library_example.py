@@ -21,11 +21,11 @@ abc = DoABC()
 actions = abc.create_generator()
 
 swf.add_tag(abc)
-swf.add_tag(SymbolClass({0:"Example3EntryPoint"}))
+swf.add_tag(SymbolClass({0:"LibraryExampleEntryPoint"}))
 swf.add_tag(ShowFrame())
 swf.add_tag(End())
 
-with actions.Class("Example3EntryPoint", flash.display.Sprite) as cls:
+with actions.Class("LibraryExampleEntryPoint", flash.display.Sprite) as cls:
     cls.add_instance_trait(AbcSlotTrait('edittext', flash.text.TextField))
     with actions.Constructor():
         actions.push_this()
@@ -45,6 +45,7 @@ f.write(AbcFile.serialize(abc))
 f.close()
 
 f = open("library_example.swf", "wb")
+
 f.write(swf.serialize())
 f.close()
 

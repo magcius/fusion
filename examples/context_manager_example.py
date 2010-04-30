@@ -5,6 +5,7 @@ from mech.fusion.avm2.constants import packagedQName
 
 abc = AbcFile()
 gen = abc.create_generator()
+
 with gen.Class(packagedQName("foo.bar", "WhatUpHomies")):
     with gen.Constructor():
         gen.load("I'm on a ")
@@ -18,10 +19,9 @@ with gen.Class(packagedQName("foo.bar", "WhatUpHomies")):
         gen.load("boat")
         gen.return_value()
 gen.finish()
-with open("example2.abc", "wb") as f:
+
+with open("context_manager_example.abc", "wb") as f:
     f.write(abc.serialize())
 
-abc = AbcFile.from_filename("example2.abc")
+abc = AbcFile.from_filename("context_manager_example.abc")
 dump_abc(abc)
-
-a
