@@ -6,16 +6,16 @@ U32_MAX = 2**32 - 1
 S32_MAX = 2**31 - 1
 
 def serialize_u32(value):
-    encoded, unsigned = "", value & 0xFFFFFFFF
+    if value >= 2**35 or value <= -2**34:
+        raise ValueError("value %d does not fit in a u32" % (value,))
+    encoded, value = "", value & 0xFFFFFFFF
     for i in xrange(5):
-        bits = unsigned & 0b01111111
-        unsigned >>= 7
-        if not unsigned:
+        bits = value & 0b01111111
+        value >>= 7
+        if not value:
             encoded += chr(bits)
             break
         encoded += chr(0b10000000 | bits)
-    else:
-        raise ValueError("value %d does not fit in a u32" % (value,))
     return encoded
 
 def serialize_s24(value):
