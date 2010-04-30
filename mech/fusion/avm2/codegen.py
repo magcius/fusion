@@ -736,7 +736,7 @@ class CodeGenerator(object):
 
     begin_method.__doc__ = METHOD_CREATOR
 
-    def begin_constructor(self, params=None, varargs=None, defaults=None,
+    def begin_constructor(self, arglist=None, params=None, varargs=None, defaults=None,
                           optimize=None):
         if self.context.CONTEXT_TYPE != "class":
             raise WrongContextError("begin_constructor",
