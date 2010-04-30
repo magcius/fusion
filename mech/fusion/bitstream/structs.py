@@ -200,7 +200,7 @@ class Field(FieldTemp):
         return getattr(struct, self.name)
 
     def __str__(self):
-        return "Field(%r)" % (self.name,)
+        return "Field(%r, %r)" % (self.name, self.format)
     
 class Local(FieldTemp):
     def _struct_set(self, struct, value):
@@ -210,7 +210,7 @@ class Local(FieldTemp):
         return struct.get_local(self.name)
 
     def __str__(self):
-        return "Local(%r)" % (self.name,)
+        return "Local(%r, %r)" % (self.name, self.format)
 
 class FieldTempArray(Field):
     var_name = None
