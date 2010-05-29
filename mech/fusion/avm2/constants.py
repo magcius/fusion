@@ -128,25 +128,31 @@ def has_RTName(multiname):
                       TYPE_MULTINAME_RtqNameL,
                       TYPE_MULTINAME_RtqNameLA)
 
-class undefined(object):
+class _undefined(object):
     implements(ILoadable)
     def load(self, generator):
         generator.push_undefined()
 
+    def __eq__(self, other):
+        return type(self) == type(other)
+
     def __repr__(self):
         return "undefined"
 
-undefined = undefined()
+undefined = _undefined()
 
-class null(object):
+class _null(object):
     implements(ILoadable)
     def load(self, generator):
         generator.push_null()
 
+    def __eq__(self, other):
+        return type(self) == type(other)
+
     def __repr__(self):
         return "null"
 
-null = null()
+null = _null()
 
 def py_to_abc(value, pool):
     if value is True:
