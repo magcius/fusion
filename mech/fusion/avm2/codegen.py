@@ -617,6 +617,7 @@ class CodeGenerator(object):
         self.constants = self.abc.constants
         self.context = GlobalContext(self)
         self.optimize = optimize
+        self.current_node = None
 
         self.pending_nodes = set()
 
@@ -788,10 +789,13 @@ class CodeGenerator(object):
             node = self.pending_nodes.pop()
             for dep in node.dependencies():
                 if dep not in done:
+                    self.current_node = dep
                     dep.render(self)
                     done.add(dep)
+            self.current_node = node
             node.render(self)
             done.add(node)
+        self.current_node = None
         self.exit_context()
 
     def enter_context(self, ctx):
@@ -998,22 +1002,20 @@ class CodeGenerator(object):
         """
         self.SL(name)
 
-    def load(self, v, *args):
+    def load(self, *args):
         """
         Load arguments onto the stack.
 
         If an argument has a multiname method, a "getlex" is done
         on the result of calling the multiname.
         """
-        if ILoadable.providedBy(v):
-            ILoadable(v).load(self)
-        else:
-            m = getattr(v, "multiname", None)
-            if m:
-                self.I(instructions.getlex(m()))
-
-        for i in args:
-            self.load(i)
+        for v in args:
+            try:
+                ILoadable(v).load(self)
+            except TypeError:
+                m = getattr(v, "multiname", None)
+                if m:
+                    self.I(instructions.getlex(m()))
 
     push_const = load
 
@@ -1095,9 +1097,9 @@ class CodeGenerator(object):
         1. Pushes a Vector applytype'd with TYPE to the top of the stack
         2. Returns a TypeName of Vector with the given TYPE.
         """
-        from mech.fusion.avm2 import playerglobal_lib
+        from mech.fusion.avm2 import playerglobal
         TYPE = self._get_type(TYPE)
-        Vector = playerglobal_lib.toplevel.__AS3__.vec.Vector
+        Vector = playerglobal.__AS3__.vec.Vector
         if TYPE in Vector.SpecializedFast:
             fast = Vector.SpecializedFast[TYPE]
             self.load(fast)
