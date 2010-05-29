@@ -164,9 +164,7 @@ class AbcMethodInfo(object):
         self.flags = flags
         self.varargs = varargs
 
-        if varargs:
-            if varargs is True:
-                asdf
+        if varargs and varargs is not True:
             self.param_types.append(QName("Array"))
             self.param_names.append(QName(varargs))
 
@@ -450,8 +448,8 @@ class AbcMethodBodyInfo(object):
 
         self.optimize = optimize
 
-        self.traits = traits or []
-        self.exceptions = exceptions or []
+        self.traits = traits
+        self.exceptions = exceptions
 
     @classmethod
     def parse(cls, bitstream, abc, constants):
@@ -488,11 +486,11 @@ class AbcMethodBodyInfo(object):
         code += body
 
         code += s_u32(len(self.exceptions))
-        for exc in self.exceptions:
+        for exc in self.exceptions or []:
             code += exc.serialize()
 
         code += s_u32(len(self.traits))
-        for trait in self.traits:
+        for trait in self.traits or []:
             code += trait.serialize()
 
         return code
