@@ -10,6 +10,7 @@
 *.abc
 *.swf
 *_flymake*
+*_build*
 MANIFEST
 build
 dist
