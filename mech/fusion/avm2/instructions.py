@@ -371,6 +371,7 @@ del _make_avm2
 
 class _Avm2BogusInstruction(_Avm2ShortInstruction):
     opcode = -1
+    name = "BOGUS"
     def serialize(self):
         return ""
 

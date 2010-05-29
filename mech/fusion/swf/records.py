@@ -2,21 +2,15 @@
 import operator
 
 from mech.fusion.bitstream.bitstream import BitStream
-from mech.fusion.bitstream.interfaces import IStruct, IFormat
-from mech.fusion.bitstream.formats import UB, SB, FB, Bit
+from mech.fusion.bitstream.interfaces import IStruct, IFormat, IStructEvaluateable
+from mech.fusion.bitstream.formats import UB, SB, FB, Bit, Ignore, Zero, One
 from mech.fusion.bitstream.flash_formats import SI32, UI8, UI16, UI24, UI32, FIXED8
-from mech.fusion.bitstream.structs import Struct, NBits, Field, Local, Fields, Enum
+from mech.fusion.bitstream.structs import Struct, NBits, Field, Local, Fields, Enum, byte_aligned
 from mech.fusion.util import nbits, nbits_signed, clamp
 
 from math import sqrt
 
-from zope.interface import implements
-
-def style_list_index(lst, element):
-    try:
-        return lst.index(element) + 1
-    except IndexError:
-        return 0
+from zope.interface import implements, classProvides
 
 def serialize_style_list(lst):
     bits = BitStream()
@@ -31,17 +25,17 @@ def serialize_style_list(lst):
 
     return bits
 
-def parse_style_list(bits):
-    bits = BitStream()
-    lst_len = bits.read(UI8)
-    if lst_len == 0xFF:
-        lst_len = bits.read(UI16)
+## def parse_style_list(bits):
+##     bits = BitStream()
+##     lst_len = bits.read(UI8)
+##     if lst_len == 0xFF:
+##         lst_len = bits.read(UI16)
 
-    L = []
-    for i in xrange(lst_len):
-        TYPE = bits.read(UI8)
-        L.append(FillStyleMeta.REVERSE_INDEX[TYPE].from_bitstream(bits))
-    return L
+##     L = []
+##     for i in xrange(lst_len):
+##         TYPE = bits.read(UI8)
+##         L.append(Fill[TYPE].from_bitstream(bits))
+##     return L
 
 class RecordHeader(object):
     """
@@ -78,32 +72,36 @@ class RecordHeader(object):
         return cls(type, length)
 
 class _EndShapeRecord(Struct):
+    classProvides(IFormat, IStructEvaluateable)
     """
     Don't worry about me ;)
     """
     def create_fields(self):
-        yield Ignore[6]
+        yield Zero[6]
 
 EndShapeRecord = _EndShapeRecord()
 
 class Rect(Struct):
+    classProvides(IFormat, IStructEvaluateable)
     """
     Rect usually stores bounds or size in the SWF format.
     """
     def __init__(self, XMin=0, YMin=0, XMax=0, YMax=0):
         super(Rect, self).__init__(locals())
 
+    @byte_aligned
     def create_fields(self):
         yield NBits[5]
         yield Fields("XMin XMax YMin YMax", SB[NBits]) * 20
 
-    def union(self, other):
-        return type(self)(min(self.XMin, other.XMin),
-                          min(self.YMin, other.YMin),
-                          max(self.XMax, other.XMax),
-                          max(self.YMax, other.YMax),)
+    def union(self, *args):
+        return type(self)(min(self.XMin, *[a.XMin for a in args]),
+                          min(self.YMin, *[a.YMin for a in args]),
+                          max(self.XMax, *[a.XMax for a in args]),
+                          max(self.YMax, *[a.YMax for a in args]),)
 
 class XY(Struct):
+    classProvides(IFormat, IStructEvaluateable)
     """
     XY usually stores a position or point in the SWF format.
     """
@@ -115,6 +113,7 @@ class XY(Struct):
         yield Fields("X Y", SB[NBits])
 
 class RGB(Struct):
+    classProvides(IFormat, IStructEvaluateable)
     """
     RGB stores a color in the SWF format.
     """
@@ -134,6 +133,7 @@ class RGB(Struct):
         return equality
 
 class RGBA(RGB):
+    classProvides(IFormat, IStructEvaluateable)
     """
     RGBA is an RGB object plus alpha.
     """
@@ -149,6 +149,7 @@ class RGBA(RGB):
         self.alpha = alpha
 
 class CXForm(Struct):
+    classProvides(IFormat, IStructEvaluateable)
     """
     CXForm = ColorTransform
     """
@@ -186,6 +187,7 @@ class CXFormWithAlpha(CXForm):
         self.aadd = aadd
 
 class Matrix(Struct):
+    classProvides(IFormat, IStructEvaluateable)
     def __init__(self, a=1, b=0, c=0, d=1, tx=0, ty=0):
         super(Matrix, self).__init__(locals())
 
@@ -210,6 +212,7 @@ class Matrix(Struct):
         yield Fields("tx ty", SB[NBits]) * 20
 
 class Shape(object):
+    implements(IStruct)
     def __init__(self):
         self.shapes = []
 
@@ -224,10 +227,7 @@ class Shape(object):
     def add_shape_record(self, shape):
         self.shapes.append(shape)
         shape.parent = self
-        self.bounds_calculated = False
-
-    def add_shape(self, shape):
-        self.shapes += shape.shapes
+        shape.record_added()
         self.bounds_calculated = False
 
     def as_bitstream(self):
@@ -250,6 +250,7 @@ class Shape(object):
 
         bits = BitStream()
         bits += self.serialize_style()
+        import traceback
         for record in self.shapes:
             bits += record
 
@@ -288,12 +289,14 @@ class ShapeWithStyle(Shape):
         self.linebits = 0
 
     def add_fill_style(self, style):
-        style.parent = self.fills
-        self.fills.append(style)
+        if style and style not in self.fills:
+            style.parent = self.fills
+            self.fills.append(style)
 
     def add_line_style(self, style):
-        style.parent = self.strokes
-        self.strokes.append(style)
+        if style and style not in self.strokes:
+            style.parent = self.strokes
+            self.strokes.append(style)
 
     def add_shape(self, shape):
         super(ShapeWithStyle, self).add_shape(self, shape)
@@ -307,32 +310,49 @@ class ShapeWithStyle(Shape):
         bits = BitStream()
         bits += serialize_style_list(self.fills)
         bits += serialize_style_list(self.strokes)
+        print bits
         self.fillbits = nbits(len(self.fills))
         self.linebits = nbits(len(self.strokes))
-        bits.write_int_value(self.fillbits, 4)
-        bits.write_int_value(self.linebits, 4)
+        bits.write(self.fillbits, UB[4])
+        bits.write(self.linebits, UB[4])
         return bits
 
 class LineStyle(Struct):
-    caps = "round"
+    classProvides(IFormat, IStructEvaluateable)
     def __init__(self, width=1, color=0, alpha=1.0):
-        super(LineStyle, self).__init__(dict(width=width,
-                                             color=RGBA(color, alpha)))
+        super(LineStyle, self).__init__(
+              dict(width=width, color=RGBA(color, alpha),
+                   has_h_scale=False, has_v_scale=False))
 
     @property
     def index(self):
-        return self.parent.find(self) + 1
+        try:
+            return self.parent.index(self) + 1
+        except ValueError:
+            return 0
 
     def create_fields(self):
         yield Field("width", UI16) * 20
         yield Field("color", RGBA)
 
+    def cap_style_logic(self, last, delta):
+        off = self.width / 2.0
+        dx, dy = delta
+        r = Rect()
+        r.XMin = cmp(dx, 0) * off
+        r.YMin = cmp(dy, 0) * off
+        r.XMax = r.XMin + dx
+        r.YMax = r.XMax + dy
+        return r
+
 class LineStyle2(LineStyle):
+    classProvides(IFormat, IStructEvaluateable)
     CAPS   = dict(round=0, none=1, square=2)
     JOINTS = dict(round=0, bevel=1, miter=2)
     def __init__(self, width=1, fillstyle=None, pixel_hinting=False, scale_mode=None, caps="round", joints="round", miter_limit=3):
-        super(LineStyle2, self).__init__(self, width, 0, 1.0)
+        super(LineStyle2, self).__init__(width, 0, 1.0)
         # This is begging to be rewritten with zope.interface.
+        self.color, self.alpha, self.fillstyle = 0, 1, None
         if isinstance(fillstyle, RGBA):
             self.color = fillstyle.color
             self.alpha = fillstyle.alpha
@@ -353,10 +373,20 @@ class LineStyle2(LineStyle):
         self.pixel_hinting = pixel_hinting
         self.scale_mode = scale_mode
 
+        self.has_h_scale = self.scale_mode in ("normal", "horizontal")
+        self.has_v_scale = self.scale_mode in ("normal", "vertical")
+
         self.caps = caps
         self.joints = joints
 
         self.miter_limit = miter_limit
+
+    @property
+    def index(self):
+        try:
+            return self.parent.index(self) + 1
+        except ValueError:
+            return 0
 
     def create_fields(self):
         yield Field("width", UI16) * 20
@@ -364,36 +394,38 @@ class LineStyle2(LineStyle):
         yield Enum(Field("joints", UB[2]), self.JOINTS, default=0)
 
         if self.writing:
-            self.set_local("HasMiterJoint", self.joints == "miter")
             self.set_local("HasFillStyle", self.fillstyle is not None)
-            self.set_local("HasHScale", self.scale_mode in ("normal", "horizontal"))
-            self.set_local("HasVScale", self.scale_mode in ("normal", "vertical"))
+            self.set_local("NoHScale", not self.has_h_scale)
+            self.set_local("NoVScale", not self.has_v_scale)
 
-        yield Local("HasFillStyle", Bit)
-        yield Local("HasHScale",    Bit)
-        yield Local("HasVScale",    Bit)
+        yield Local("HasFillStyle" , Bit)
+        yield Local("NoHScale",      Bit)
+        yield Local("NoVScale",      Bit)
+        yield Field("pixel_hinting", Bit)
+        yield Zero[5] # Reserved
+        yield One     # TODO: NoClose
+        yield Enum(Field("caps",   UB[2]), self.CAPS,   default=0) # TODO: EndCapStyle
 
         if self.get_local("HasFillStyle", True):
             yield Field("fillstyle", FillStyle)
 
-        if not self.get_local("HasFillStyle", False):
-            yield Field("color", RGBA)
+        if self.joints == "miter":
+            yield Field("miter_limit", UI16)
 
-    def cap_style_logic(self, style, last, delta):
+        if not self.get_local("HasFillStyle", False):
+            yield Field("color", UI24)
+            yield Field("alpha", UI8) * 255
+
+    def cap_style_logic(self, last, delta):
         # Half thickness (radius of round cap; diameter is thickness)
-        off = style.width / 2.0
+        off = self.width / 2.0
         dx, dy = delta
         lx, ly = last
 
-        if style.caps == "round":
-            r = Rect()
-            r.XMin = cmp(dx, 0) * off
-            r.YMin = cmp(dy, 0) * off
-            r.XMax = r.XMin + dx
-            r.YMax = r.XMax + dy
-            return r
+        if self.caps == "round":
+            return super(LineStyle2, self).cap_style_logic(last, delta)
 
-        if style.caps == "square":
+        if self.caps == "square":
             # Account for the length of the caps.
             dellen = sqrt(dx*dx + dy*dy)  # Delta length
             norm = (dellen+off*2)/dellen  # Extra length
@@ -429,18 +461,12 @@ class LineStyle2(LineStyle):
             min(p1y, p2y, p3y, p4y) + ly,
             max(p1y, p2y, p3y, p4y) + ly)
 
-class FillStyleMeta(type):
-    REVERSE_INDEX = {}
-
-    def __init__(cls, name, bases, dct):
-        FillStyleMeta.REVERSE_INDEX[dct['TYPE']] = cls
-
 class FillStyle(Struct):
-    __metaclass__ = FillStyleMeta
     TYPE = -1
+    classProvides(IFormat, IStructEvaluateable)
     @property
     def index(self):
-        return self.parent.index(self)
+        return self.parent.find(self) + 1
 
     def create_fields(self):
         yield Field("TYPE", UI8)
@@ -533,10 +559,15 @@ class FillStyleLinearGradientFill(FillStyle):
         yield Field("gradient", Gradient)
 
 class StraightEdgeRecord(Struct):
+    classProvides(IFormat, IStructEvaluateable)
     def __init__(self, delta_x, delta_y):
-        super(StraightEdgeRecord).__init__(delta_x=delta_x, delta_y=delta_y)
+        super(StraightEdgeRecord, self).__init__(locals())
         self.bounds_calculated = False
 
+    def record_added(self):
+        pass
+
+    @byte_aligned
     def create_fields(self):
         if self.writing:
             GeneralLineFlag = self.delta_x == 0 or self.delta_y == 0
@@ -557,24 +588,28 @@ class StraightEdgeRecord(Struct):
 
             if self.get_local("VerticalLineFlag", True):
                 yield Field("delta_y", SB[NBits]) * 20
-                self.delta_x = 0
 
             if not self.get_local("VerticalLineFlag", False):
                 yield Field("delta_x", SB[NBits]) * 20
-                self.delta_y = 0
 
     def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
         rect = Rect(last[0], last[1], self.delta_x, self.delta_y)
+        if style:
+            edge_bounds = edge_bounds.union(style.cap_style_logic(last,
+                (self.delta_x, self.delta_y)))
         return ((self.delta_x, self.delta_y),
-                (shape_bounds.union(rect),
-                 edge_bounds.union(LineStyle2.cap_style_logic(style,
-                              last, (self.delta_x, self.delta_y)))),
+                (shape_bounds.union(rect), edge_bounds),
                 (False, False, style))
 
 class CurvedEdgeRecord(Struct):
+    classProvides(IFormat, IStructEvaluateable)
     def __init__(self, controlx, controly, anchorx, anchory):
         super(CurvedEdgeRecord, self).__init__(locals())
 
+    def record_added(self):
+        pass
+
+    @byte_aligned
     def create_fields(self):
         yield IFormat(True) # TypeFlag
         yield IFormat(False) # StraightFlag
@@ -648,8 +683,8 @@ class CurvedEdgeRecord(Struct):
         
         slope1 = self._get_p(0.01)
         slope2 = (self.anchorx - self._get_x(0.99), self.anchory - self._get_y(0.99))
-        end_cap_rect   = LineStyle2.cap_style_logic(style, last, slope2)
-        start_cap_rect = LineStyle2.cap_style_logic(style, last, slope1)
+        end_cap_rect   = style.cap_style_logic(last, slope2)
+        start_cap_rect = style.cap_style_logic(last, slope1)
 
         return ((self.anchorx, self.anchory),
                 (shape_bounds.union(union),
@@ -657,37 +692,48 @@ class CurvedEdgeRecord(Struct):
                 (False, False, style))
 
 class StyleChangeRecord(Struct):
+    classProvides(IFormat, IStructEvaluateable)
     def __init__(self, delta_x, delta_y, linestyle=None,
                  fillstyle0=None, fillstyle1=None,
                  fillstyles=None, linestyles=None):
         super(StyleChangeRecord, self).__init__(locals())
 
+    def record_added(self):
+        self.parent.add_line_style(self.linestyle)
+        self.parent.add_fill_style(self.fillstyle0)
+        self.parent.add_fill_style(self.fillstyle1)
+
+    # @byte_aligned
     def create_fields(self):
         if self.writing:
             from mech.fusion.swf.tags import DefineShape
-            new_styles = (DefineShape._current_variant > 1) and (self.linestyles or self.fillstyles)
+            new_styles = (DefineShape._current_variant > 1) and bool(self.linestyles or self.fillstyles)
+
             self.set_local("HasNewStyles", new_styles)
-            if new_styles:
-                self.fillstyles = self.fillstyles or []
-                self.linestlyes = self.linestyles or []
-                self.set_local("FillStyleCount", len(self.fillstyles))
-                self.set_local("FillStyleBits", nbits(len(self.fillstyles)))
-                self.set_local("LineStyleCount", len(self.linestyles))
-                self.set_local("LineStyleBits", nbits(len(self.linestyles)))
+            self.fillstyles = self.fillstyles or []
+            self.linestlyes = self.linestyles or []
+
+            self.set_local("FillStyleCount", len(self.fillstyles or []))
+            self.set_local("FillStyleBits", nbits(len(self.fillstyles or [])))
+            self.set_local("LineStyleCount", len(self.linestyles or []))
+            self.set_local("LineStyleBits", nbits(len(self.linestyles or [])))
+
             self.set_local("HasLineStyle", bool(self.linestyle))
-            self.set_local("LineStyleIndex", style_list_index(self.parent.strokes, self.linestyle))
+            self.set_local("LineStyleIndex", self.linestyle.index if self.linestyle else 0)
+
             self.set_local("HasFillStyle1", bool(self.fillstyle1))
-            self.set_local("FillStyle1Index", style_list_index(self.parent.fills, self.fillstyle1))
+            self.set_local("FillStyle1Index", self.fillstyle1.index if self.fillstyle1 else 0)
+
             self.set_local("HasFillStyle0", bool(self.fillstyle0))
-            self.set_local("FillStyle0Index", style_list_index(self.parent.fills, self.fillstyle0))
-            self.set_local("HasMoveTo", self.delta_x and self.delta_y)
+            self.set_local("FillStyle0Index", self.fillstyle0.index if self.fillstyle0 else 0)
+            self.set_local("HasMoveTo", bool(self.delta_x or self.delta_y))
 
         yield IFormat(False) # TypeFlag
-        yield Local("HasNewStyles")
-        yield Local("HasLineStyle")
-        yield Local("HasFillStyle1")
-        yield Local("HasFillStyle0")
-        yield Local("HasMoveTo")
+        yield Local("HasNewStyles", Bit)
+        yield Local("HasLineStyle", Bit)
+        yield Local("HasFillStyle1", Bit)
+        yield Local("HasFillStyle0", Bit)
+        yield Local("HasMoveTo", Bit)
 
         if self.get_local("HasMoveTo", True):
             yield NBits[5]
@@ -702,7 +748,7 @@ class StyleChangeRecord(Struct):
             yield Local("FillStyle1Index", UB[self.parent.fillbits])
             if self.reading:
                 self.fillstyle1 = self.parent.fills[self.get_local("FillStyle1Index")]
-
+                
         if self.get_local("HasLineStyle", True):
             yield Local("LineStyleIndex", UB[self.parent.linebits])
             if self.reading:
@@ -711,20 +757,33 @@ class StyleChangeRecord(Struct):
         if self.get_local("HasNewStyles", True):
             yield Local("FillStyleCount", UI8) & 0xFF
             if self.get_local("FillStyleCount", 0xFF) & 0xFF == 0xFF:
-                    yield Local("FillStyleCount", UI16)
-            yield Field("fillstyles", FillStyle[self.get_local("FillStyleCount")])
-            self.parent.fills = self.fillstyles
+                yield Local("FillStyleCount", UI16)
+            yield Field("fillstyles", FillStyle)
 
             yield Local("LineStyleCount", UI8) & 0xFF
             if self.get_local("LineStyleCount", 0xFF) & 0xFF == 0xFF:
                 yield Local("LineStyleCount", UI16)
-            yield Field("linestyles", FillStyle[self.get_local("FillStyleCount")])
-            self.parent.strokes = self.linestyles
+            # TODO: SWF version
+            yield Field("linestyles", LineStyle2)
 
             yield Local("FillStyleBits", UB[4])
             yield Local("LineStyleBits", UB[4])
-            self.parent.fillbits = self.get_local("FillStyleBits")
-            self.parent.linebits = self.get_local("LineStyleBits")
+
+            if self.writing:
+                self.parent.fills   = self.fillstyles or []
+                self.parent.strokes = self.linestyles or []
+
+    def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
+        x, y = last
+        to_union = Rect(x, y, x + self.delta_x, y + self.delta_y)
+        has_h_scale, has_v_scale = 0, 0
+        if self.linestyle:
+            has_h_scale, has_v_scale = self.linestyle.has_h_scale, self.linestyle.has_v_scale
+            style = self.linestyle
+        return ((self.delta_x, self.delta_y),
+                (shape_bounds.union(to_union),
+                 edge_bounds.union(to_union)),
+                (has_h_scale, has_v_scale, style))
 
     ## def as_bitstream(self):
     ##     bits = BitStream()

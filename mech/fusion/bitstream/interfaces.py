@@ -47,7 +47,7 @@ class IBitStream(Interface):
         """
         Iterate over the bits in the stream.
         """
-    
+
 class IFormat(Interface):
     def _read(bitstream, cursor):
         """

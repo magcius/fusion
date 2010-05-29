@@ -270,12 +270,13 @@ def gen_playerglobal(output, Library=Library):
     # Special hack for Vector's public interface.
     Vector = copy(library.toplevel.__AS3__.vec.Vector)
     Vector.Specializable   = True
-    Vector.SpecializedFast = {
-        QName('int'): packagedQName('__AS3__.vec', 'Vector$int'),
-        QName('uint'): packagedQName('__AS3__.vec', 'Vector$uint'),
-        QName('Number'): packagedQName('__AS3__.vec', 'Vector$double'),
-        QName('Object'): packagedQName('__AS3__.vec', 'Vector$object'),
-    }
+    # It seems these aren't open to the public :(
+    ## Vector.SpecializedFast = {
+    ##     QName('int'): packagedQName('__AS3__.vec', 'Vector$int'),
+    ##     QName('uint'): packagedQName('__AS3__.vec', 'Vector$uint'),
+    ##     QName('Number'): packagedQName('__AS3__.vec', 'Vector$double'),
+    ##     QName('Object'): packagedQName('__AS3__.vec', 'Vector$object'),
+    ## }
     library.types[packagedQName('__AS3__.vec', 'Vector')] = Vector
     library.toplevel.__AS3__.vec._types['Vector'] = Vector
 

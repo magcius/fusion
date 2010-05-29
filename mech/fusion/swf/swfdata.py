@@ -6,19 +6,20 @@ from mech.fusion.bitstream.formats import ByteString
 from mech.fusion.bitstream.flash_formats import UI8, UI16, UI32, FIXED8
 from mech.fusion.bitstream.bitstream import BitStream, BitStreamParseMixin
 from mech.fusion.swf.records import Rect, RecordHeader
+from mech.fusion.swf.interfaces import ISwfPart
 from mech.fusion.swf.tags import REVERSE_INDEX, ShowFrame, SwfTag
+from mech.fusion.swf.core import SwfMovieClip
 
-class SwfData(BitStreamParseMixin):
+class SwfData(BitStreamParseMixin, SwfMovieClip):
     def __init__(self, width=600, height=400, fps=24, compress=False, version=10):
+        BitStreamParseMixin.__init__(self)
+        SwfMovieClip.__init__(self, self)
         self.width = width
         self.height = height
         self.fps = fps
         self.compress = compress
         self.version = version
-        self.frame_count = 0
-        self.next_character_id = 1
-
-        self.tags = []
+        self._next_character_id = 0
 
     def collect_type(self, TYPE):
         """
@@ -44,35 +45,15 @@ class SwfData(BitStreamParseMixin):
     def __getitem__(self, i):
         return self.tags[i]
 
-    def __iadd__(self, other):
-        if hasattr(other, "TAG_TYPE"):
-            self.add_tag(other)
-        else:
-            self.add_tags(other)
-        return self
+    def __iadd__(self, part):
+        self.add_part(part)
 
-    def add_tag(self, tag):
+    def add_part(self, part):
         """
-        Add a tag.
+        Add a SwfPart, which may consist of
+        one or more tags.
         """
-        if self.version >= tag.TAG_MIN_VERSION:
-            if hasattr(tag, "characterid") and tag.characterid == None:
-                tag.characterid = self.next_character_id
-                self.next_character_id += 1
-            if tag.TAG_TYPE == ShowFrame.TAG_TYPE:
-                self.frame_count += 1
-            self.tags.append(tag)
-        return tag
-
-    def add_tags(self, tag_container):
-        """
-        Add tags to this SWF.
-        """
-        if hasattr(tag_container, "tags"):
-            tag_container = tag_container.tags
-
-        for tag in tag_container:
-            self.add_tag(tag)
+        ISwfPart(part).add_to(self)
 
     def serialize(self):
         """
@@ -80,7 +61,7 @@ class SwfData(BitStreamParseMixin):
         """
         header = self._gen_header()
         data = self._gen_data_stub()
-        data += ''.join(tag.serialize() for tag in self.tags)
+        data += super(SwfData, self).serialize()
 
         header[2] = struct.pack("<L", 8 + len(data)) # FileSize
         if self.compress:
@@ -88,6 +69,15 @@ class SwfData(BitStreamParseMixin):
             data = zlib.compress(data)
             
         return "".join(header + [data])
+
+    def _gen_header(self):
+        return ["CWS" if self.compress else "FWS", struct.pack("<B", self.version), "\0\0\0\0"]
+
+    def _gen_data_stub(self):
+        rect = Rect(XMax=self.width, YMax=self.height).as_bitstream()
+        rect = rect.serialize()
+        return rect + struct.pack("<BBH", int((self.fps - int(self.fps)) * 0x100),
+                                  self.fps, self.num_frames)
 
     @classmethod
     def from_bitstream(cls, bitstream, tags_as_list=False, only_parse_type=None):
@@ -133,13 +123,3 @@ class SwfData(BitStreamParseMixin):
                 yield tag
                 tags.append(tag)
         self.tags = tags
-
-    def _gen_header(self):
-        return ["CWS" if self.compress else "FWS", struct.pack("<B", self.version), "\0\0\0\0"]
-
-    def _gen_data_stub(self):
-        rect = Rect(XMax=self.width, YMax=self.height).as_bitstream()
-        rect = rect.serialize()
-        return rect + struct.pack("<BBH", int((self.fps - int(self.fps)) * 0x100),
-                                  self.fps, self.frame_count)
-

@@ -144,7 +144,6 @@ def string_as_formatdata(string):
 
 provideAdapter(string_as_formatdata)
 
-@adapter(FormatMeta)
 class FormatMetaAdaptor(object):
     
     implements(IFormat, IStructEvaluateable)
@@ -167,7 +166,7 @@ class FormatMetaAdaptor(object):
     def _evaluate(self, struct):
         return self
 
-provideAdapter(FormatMetaAdaptor, None, IFormat)
+provideAdapter(FormatMetaAdaptor, [FormatMeta], IFormat)
 
 class Format(object):
     """
@@ -528,6 +527,7 @@ class UB(Format):
 
     def _write(self, bs, cursor, argument):
         length = self.length
+        argument = int(argument)
         nb = nbits(argument)
         if length is None:
             length = nbits(argument)
@@ -552,7 +552,7 @@ class UB(Format):
 
     @staticmethod
     def _nbits(*args):
-        return nbits(*args)
+        return nbits(*(int(a) for a in args))
 
 class SB(Format):
     """
@@ -588,7 +588,7 @@ class SB(Format):
 
     @staticmethod
     def _nbits(*args):
-        return nbits_signed(*args)
+        return nbits_signed(*(int(a) for a in args))
 
 class FB(Format):
     """

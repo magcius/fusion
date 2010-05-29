@@ -105,9 +105,6 @@ class ValuePool(object):
         if self.parent and getattr(self.parent, "write_to", None):
             self.parent.write(value)
 
-        if self.debug and not isinstance(value, basestring):
-            print value
-
         if value in self.index_map and not allow_conflicts:
             return self.index_map[value]
 

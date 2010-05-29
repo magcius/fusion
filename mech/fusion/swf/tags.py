@@ -1,21 +1,26 @@
 
-from zope.interface import implements, classProvides
+import sys
 
+from zope.interface import implements, classProvides
+from zope.component import provideAdapter
+
+from mech.fusion.bitstream.bitstream import BitStream
 from mech.fusion.bitstream.interfaces import IStruct, IStructClass
 from mech.fusion.bitstream.formats import CString, Bit, Zero, ByteString
 from mech.fusion.bitstream.flash_formats import SI16, UI16, UI32
+
+from mech.fusion.swf.interfaces import ISwfPart
 from mech.fusion.swf.records import (RecordHeader, ShapeWithStyle,
                                      Matrix, CXForm, RGB, Rect)
+
 from mech.fusion.avm1.actions import Block
-from mech.fusion.util import BitStream
 from mech.fusion.avm2.abc_ import AbcFile
 
-from collections import defaultdict
+class SwfTagTooNew(Exception):
+    pass
 
-class complexdefaultdict(defaultdict):
-    def __missing__(self, key):
-        self[key] = self.default_factory(key)
-        return self[key]
+class SwfTagNotAllowed(Exception):
+    pass
 
 class UnknownSwfTag(object):
     """
@@ -92,7 +97,7 @@ class UnknownSwfTag(object):
         "EnableDebugger2",      # 64
         "ScriptLimits",         # 65
         "SetTabIndex",          # 66
-        "DefineShape4",         # 67
+        "67 (invalid)",         # 67
         "DefineMorphShape2",    # 68
         "FileAttributes",       # 69
         "PlaceObject3",         # 70
@@ -108,7 +113,7 @@ class UnknownSwfTag(object):
         "80 (invalid)",         # 80
         "81 (invalid)",         # 81
         "DoABC",                # 82
-        "83 (invalid)"          # 83
+        "DefineShape4"          # 83
     ]
     def __init__(self, tag):
         self.tag = tag
@@ -120,14 +125,6 @@ class UnknownSwfTag(object):
     def parse_inner(self, bitstream):
         return self
 
-REVERSE_INDEX = complexdefaultdict(UnknownSwfTag)
-
-class SwfTagMeta(type):
-    def __init__(cls, name, bases, dct):
-        if name != 'SwfTag' and 'TAG_TYPE' in dct:
-            REVERSE_INDEX[dct['TAG_TYPE']] = cls
-            REVERSE_INDEX[name] = cls
-
 class SwfTag(object):
     """
     The base class for defining SWF tags.
@@ -136,13 +133,17 @@ class SwfTag(object):
     instead use one of its subclasses.
     """
 
-    implements(IStruct)
+    implements(IStruct, ISwfPart)
     classProvides(IStructClass)
-
-    __metaclass__ = SwfTagMeta
 
     TAG_TYPE = -1
     TAG_MIN_VERSION = -1
+
+    def add_to(self, data):
+        if data.version < self.TAG_MIN_VERSION:
+            raise SwfTagTooNew("%r requires a minimum version of %d. Your SWF v"
+                "ersion is %d" % (self, self.TAG_MIN_VERSION, data.version))
+        data.add_raw_tag(self)
 
     def serialize_data(self):
         """
@@ -160,7 +161,7 @@ class SwfTag(object):
 
     def __repr_inner__(self):
         return ""
-    
+
     def serialize(self):
         """
         Return a bytestring containing the appropriate structures of the tag.
@@ -235,8 +236,6 @@ class DoAction(SwfTag, Block):
         ============  ===========
         """
         return Block.serialize(self)
-
-    
 
 class DoABC(SwfTag, AbcFile):
     TAG_TYPE = 82
@@ -368,6 +367,11 @@ class DefineShape(SwfTag):
         self.shapes = ShapeWithStyle() if shapes is None else shapes
         self.characterid = characterid
 
+    def add_to(self, data):
+        super(DefineShape, self).add_to(data)
+        self.characterid = self.shapes.characterid = data.next_character_id
+        data.next_character_id += 1
+
     def serialize_data(self):
         self.shapes.calculate_bounds()
         DefineShape._current_variant = self.TAG_VARIANT
@@ -399,27 +403,50 @@ class DefineShape4(DefineShape):
     def serialize_data(self):
         self.shapes.calculate_bounds()
         DefineShape._current_variant = self.TAG_VARIANT
-        
+
         bits = BitStream()
-        bits.write_int_value(self.characterid, 16, endianness="<") # Shape ID
-        
+        bits.write(self.characterid, UI16) # Shape ID
+
         bits += self.shapes.shape_bounds # ShapeBounds Rect
         bits += self.shapes.edge_bounds  # EdgeBounds Rect
-        
-        bits.zero_fill(6) # Reserved
 
-        bits.write_bit(self.shapes.has_scaling)     # UsesNonScalingStrokes
-        bits.write_bit(self.shapes.has_non_scaling) # UsesScalingStrokes
-        
+        bits.write(Zero[6]) # Reserved
+
+        bits.write(self.shapes.has_scaling)     # UsesNonScalingStrokes
+        bits.write(self.shapes.has_non_scaling) # UsesScalingStrokes
+
         bits += self.shapes # ShapeWithStyle
         
         DefineShape._current_variant = None
 
         return bits.serialize()
 
+class DefineSprite(SwfTag):
+    TAG_TYPE = 39
+    TAG_MIN_VERSION = 3
+
+    def __init__(self, movieclip):
+        self.mc = movieclip
+
+    def add_to(self, data):
+        super(DefineSprite, self).add_to(data)
+        self.characterid = self.mc.shapes.characterid = data.next_character_id
+        data.next_character_id += 1
+
+    def serialize_data(self):
+        bits = BitStream()
+        bits.write(self.characterid, UI16)
+        bits.write(self.mc.num_frames, UI16)
+
+        return bits.serialize + self.mc.serialize()
+
 class ShowFrame(SwfTag):
     TAG_TYPE = 1
     TAG_MIN_VERSION = 1
+
+    def add_to(self, data):
+        super(ShowFrame, self).add_to(data)
+        data.num_frames += 1
 
     @classmethod
     def parse_inner(cls, bitstream):
@@ -465,22 +492,23 @@ class FileAttributes(SwfTag):
         fa.useNetwork  = bits.read(Bit)
         bits.cursor += 24
         return fa
-    
+
 class PlaceObject(SwfTag):
-    
     TAG_TYPE = 4
     TAG_MIN_VERSION = 1
 
-    def __init__(self, shapeid, depth, transform=None, colortransform=None):
-        self.shapeid = shapeid
+    def __init__(self, shape, depth, transform=None, colortransform=None):
+        self.shapeid = shape
+        if getattr(shape, "characterid", None) is not None:
+            self.shapeid = shape.characterid
         self.depth = depth
         self.transform = transform or Matrix()
         self.colortransform = colortransform or CXForm()
 
     def serialize_data(self):
         bits = BitStream()
-        bits.write_int_value(self.shapeid, 16, endianness="<")
-        bits.write_int_value(self.depth, 16, endianness="<")
+        bits.write(self.shapeid, UI16)
+        bits.write(self.depth, UI16)
         
         bits += self.transform
         bits += self.colortransform
@@ -488,12 +516,13 @@ class PlaceObject(SwfTag):
         return bits.serialize()
 
 class PlaceObject2(PlaceObject):
-
     TAG_TYPE = 26
     TAG_MIN_VERSION = 3
 
-    def __init__(self, shapeid, depth, name=None, transform=None, colortransform=None):
-        self.shapeid = shapeid
+    def __init__(self, shape, depth, name=None, transform=None, colortransform=None):
+        self.shapeid = shape
+        if getattr(shape, "characterid", None) is not None:
+            self.shapeid = shape.characterid
         self.depth = depth
         self.name = name
         self.transform = transform
@@ -501,20 +530,20 @@ class PlaceObject2(PlaceObject):
     
     def serialize_data(self):
         bits = BitStream()
-        bits.write_bit(False) # HasClipActions
-        bits.write_bit(False) # HasClipDepth
-        bits.write_bit(self.name is not None) # HasName
-        bits.write_bit(False) # HasRatio
-        bits.write_bit(self.colortransform is not None)
-        bits.write_bit(self.transform is not None)
-        bits.write_bit(True)  # HasCharacter
-        bits.write_bit(False) # FlagMove
+        bits.write(False) # HasClipActions
+        bits.write(False) # HasClipDepth
+        bits.write(self.name is not None) # HasName
+        bits.write(False) # HasRatio
+        bits.write(self.colortransform is not None)
+        bits.write(self.transform is not None)
+        bits.write(True)  # HasCharacter
+        bits.write(False) # FlagMove
         
-        bits.write_int_value(self.depth, 16, endianness="<")
-        bits.write_int_value(self.shapeid, 16, endianness="<")
+        bits.write(self.depth, UI16)
+        bits.write(self.shapeid, UI16)
         
         if self.name is not None:
-            bits.write_cstring(self.name)
+            bits.write(self.name, CString)
         
         if self.transform is not None:
             bits += self.transform
@@ -594,7 +623,7 @@ class DefineEditText(SwfTag):
 
         if HasColor:     Color     = RGB.from_bitstream(bits)
         if HasMaxLength: MaxLength = bits.read(UI16)
-        if HasLayout:    Layout    = NonExistant.parse(bits)
+        # if HasLayout:    Layout    = NonExistant.parse(bits)
 
         Variable         = bits.read(CString)
         if HasText: Text = bits.read(CString)
@@ -606,6 +635,11 @@ class DefineEditText(SwfTag):
         inst.wasstatic = WasStatic
         inst.outlines  = HasOutlines
         return inst
+
+    def add_to(self, data):
+        super(DefineEditText, self).add_to(data)
+        self.characterid = data.next_character_id
+        data.next_character_id += 1
 
     def serialize_data(self):
         bits = BitStream()
@@ -670,3 +704,14 @@ class End(SwfTag):
     def parse_inner(cls, bits):
         bits.cursor += 16
         return cls()
+
+class UnknownSwfTagMap(dict):
+    def __missing__(self, key):
+        self[key] = UnknownSwfTag(key)
+        return self[key]
+
+REVERSE_INDEX = UnknownSwfTagMap()
+
+for clazz in SwfTag.__subclasses__():
+    REVERSE_INDEX[clazz.__name__] = clazz
+    REVERSE_INDEX[clazz.TAG_TYPE] = clazz

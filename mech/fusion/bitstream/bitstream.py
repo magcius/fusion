@@ -182,7 +182,7 @@ class BitStreamMixin(object):
 
     def __iadd__(self, bits):
         self.skip_to_end()
-        self.write(IBitStream(bits))
+        self.write(bits)
         return self
 
     def decompress(self):
@@ -216,6 +216,8 @@ class BitStreamMixin(object):
 
 class BitStream(BitStreamMixin):
     implements(IBitStream)
+
+    byte_aligned = False
     
     def __init__(self, bits=[]):
         """
@@ -274,7 +276,7 @@ def list_to_bitstream(bits):
         return BitStream(bits)
     if all(bit in xrange(256) for bit in bits):
         bits = BitStream()
-        bits.write(bits, Byte)
+        bits.write(bits, F.Byte)
         return bits
     raise ValueError("Uncertain how to adapt this list into an"
                      "IFormat. Please check your input.")
@@ -344,14 +346,18 @@ class BitStreamDataFormat(object):
     def _write(self, bs, cursor, argument):
         argument = IBitStream(argument)
         length = len(argument) if self.length is None else self.length
-        if self.endianness == "<":
-            if length & 7:
-                raise ValueError("You must have a length of a multiple of 8"
-                                 " in order to write with endianness")
-            bs.write(argument.read(F.ByteString[length//8]), F.ByteString["<"])
-        else:
-            bs[cursor:cursor+length] = argument.read(F.BitsList[length])
+        try:
+            if self.endianness == "<":
+                if length & 7:
+                    raise ValueError("You must have a length of a multiple of 8"
+                                     " in order to write with endianness")
+                bs.write(argument.read(F.ByteString[length//8]), F.ByteString["<"])
+            else:
+                bs[cursor:cursor+length] = argument.read(F.BitsList[length])
             return length
+        finally:
+            if argument.byte_aligned:
+                bs.flush()
 
 class BitStreamParseMixin(object):
     @classmethod
