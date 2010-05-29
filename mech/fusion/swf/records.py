@@ -125,7 +125,7 @@ class RGB(Struct):
     def create_fields(self):
         yield Field("color", UI24)
         if self.has_alpha:
-            yield Field("alpha", UI8)
+            yield Field("alpha", UI8) * 255
 
     def __eq__(self, other):
         equality = self.color == other.color
@@ -437,6 +437,7 @@ class FillStyleMeta(type):
 
 class FillStyle(Struct):
     __metaclass__ = FillStyleMeta
+    TYPE = -1
     @property
     def index(self):
         return self.parent.index(self)
