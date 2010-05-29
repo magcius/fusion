@@ -2,8 +2,11 @@
 from mech.fusion.swf.tags import ShapeWithStyle
 from mech.fusion.swf.records import StyleChangeRecord, CurvedEdgeRecord, StraightEdgeRecord
 
-class Circle(object):
+class SWFShape(object):
+    def __init__(self):
+        self.graphics = GraphicsWrapper()
 
+class Circle(object):
     def __init__(self, x, y, radius, linestyle, fillstyle0, fillstyle1):
         self.x = x
         self.y = y
