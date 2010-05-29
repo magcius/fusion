@@ -130,8 +130,12 @@ class CodeAssembler(object):
                     curr, prev = instructions[-1], instructions[-2]
                     test = prev.name, curr.name
 
+                    # Prevent errors with jumps and lone labels.
+                    if curr.name == "label" and curr.lblname not in jumps:
+                        instructions = instructions[:-1]
+
                     # Branch optimizations geared for PyPy.
-                    if test in BRANCH_OPTIMIZE:
+                    elif test in BRANCH_OPTIMIZE:
                         instructions = instructions[:-2]
                         new = INSTRUCTIONS[BRANCH_OPTIMIZE[test]](curr.lblname)
                         jumps[curr.lblname].remove(curr)
