@@ -569,7 +569,7 @@ class StraightEdgeRecord(Struct):
     # @byte_aligned
     def create_fields(self):
         if self.writing:
-            GeneralLineFlag = self.delta_x == 0 or self.delta_y == 0
+            GeneralLineFlag = not (self.delta_x == 0 or self.delta_y == 0)
             self.set_local("GeneralLineFlag", GeneralLineFlag)
             self.set_local("VerticalLineFlag", self.delta_x == 0)
 
