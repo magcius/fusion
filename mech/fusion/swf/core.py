@@ -10,12 +10,19 @@ from mech.fusion.swf.records import (StraightEdgeRecord, CurvedEdgeRecord,
 class SwfGraphicsEmulation(object):
     def __init__(self, owner):
         self.owner = owner
+        self.last_x = 0
+        self.last_y = 0
+
+    def get_delta(self, new_x, new_y):
+        delta = new_x - self.last_x, new_y - self.last_y
+        self.last_x, self.last_y = newx, newy
+        return delta
 
     def moveTo(self, x, y):
-        self.owner.add_shape_record(StyleChangeRecord(x, y))
+        self.owner.add_shape_record(StyleChangeRecord(*self.get_delta(x, y)))
 
     def lineTo(self, x, y):
-        self.owner.add_shape_record(StraightEdgeRecord(x, y))
+        self.owner.add_shape_record(StraightEdgeRecord(*self.get_delta(x, y)))
 
     def lineStyle(self, width, color=0, alpha=1, pixel_hinting=False,
                   scale_mode="normal", caps=None, joints=None, miter_limit=3):

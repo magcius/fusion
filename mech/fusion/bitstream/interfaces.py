@@ -3,6 +3,8 @@ from zope.interface import Interface, Attribute
 from zope.component import provideAdapter
 
 class IBitStream(Interface):
+    byte_aligned = Attribute("Whether this BitStream should be"
+                             " read/written on a byte boundary")
     
     def read(format):
         """
@@ -29,6 +31,8 @@ class IBitStream(Interface):
     def __getitem__(index):
         """
         Get and return the bit at value.
+
+        Index may be a slice.
         """
     
     def __setitem__(index, value):

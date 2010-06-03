@@ -567,7 +567,7 @@ class StraightEdgeRecord(Struct):
     def record_added(self):
         pass
 
-    @byte_aligned
+    # @byte_aligned
     def create_fields(self):
         if self.writing:
             GeneralLineFlag = self.delta_x == 0 or self.delta_y == 0
@@ -577,7 +577,7 @@ class StraightEdgeRecord(Struct):
         yield IFormat(True) # TypeFlag
         yield IFormat(True) # StraightFlag
 
-        yield NBits[4] + 2
+        yield NBits[4] - 2
         yield Local("GeneralLineFlag", Bit)
 
         if self.get_local("GeneralLineFlag", True):
@@ -609,7 +609,7 @@ class CurvedEdgeRecord(Struct):
     def record_added(self):
         pass
 
-    @byte_aligned
+    # @byte_aligned
     def create_fields(self):
         yield IFormat(True) # TypeFlag
         yield IFormat(False) # StraightFlag
