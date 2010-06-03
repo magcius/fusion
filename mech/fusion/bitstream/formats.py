@@ -38,24 +38,33 @@ def nbits_fixed(num, *args):
         return 0
     return nbits_signed(*(int(a*float(0x10000)) for a in (num,) + args))
 
-def nbits_signed(num, *args):
+def nbits_signed(*args):
     """
-    Returns nbits + 1, for the sign bit. Please use this instead of adding one
-    manually.
+    Returns the number of bits in the max of all the arguments, if interpreted
+    as a signed number. This is significantly more difficult than the absolute
+    value case.
     """
-    if all(a == 0 for a in (num,)+args):
-        return 0
-    return nbits(num, *args) + 1
+    nbits = set()
+    for num in args:
+        if num == 0:
+            nbits.add(0)
+        elif num == -1:
+            nbits.add(2)
+        elif num > 0:
+            nbits.add(len(bin(num)) - 1)
+        elif num < 0:
+            nbits.add(len(bin(num+1)) - 2)
+    return max(nbits)
 
-def nbits(num, *args):
+def nbits(*args):
     """
     Returns the number of bits in the max of all the arguments.
     """
     # according to StackOverflow, using the string
     # length is faster than everything else
-    if all(a == 0 for a in (num,)+args):
+    if all(a == 0 for a in args):
         return 0
-    return max(len(bin(abs(a))) for a in (num,) + args) - 2
+    return max(len(bin(abs(a))) for a in args) - 2
 
 # New API for the BitStream, suggested by Jon Morton
 
@@ -473,8 +482,6 @@ class CUTF8(Format):
 class UB(Format):
     """
     Unsigned Bits, most significant bit first.
-
-    .. seealso:
     
     When writing, if length is None, the log base 2 of the value is
     taken.
@@ -574,17 +581,20 @@ class SB(Format):
         signed = bs.read(Bit)
         n = bs.read(UB[self.length-1])
         if signed:
-            return -n, 0
+            return n - 1 << self.length, 0
         return n, 0
     
     def _write(self, bs, cursor, argument):
         length = self.length
         if length == 0:
             return 0
-        elif length is not None:
-            length -= 1
-        bs.write(argument < 0,  Bit)
-        bs.write(abs(argument), UB[length])
+
+        if argument > 0:
+            if length is not None:
+                length -= 1
+            bs.write(Zero)
+
+        bs.write(argument, UB[length])
 
     @staticmethod
     def _nbits(*args):

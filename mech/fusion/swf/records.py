@@ -99,6 +99,11 @@ class Rect(Struct):
                           min(self.YMin, *[a.YMin for a in args]),
                           max(self.XMax, *[a.XMax for a in args]),
                           max(self.YMax, *[a.YMax for a in args]),)
+    def sort(self):
+        return type(self)(min(self.XMin, self.XMax),
+                          min(self.YMin, self.YMax),
+                          max(self.XMin, self.XMax),
+                          max(self.YMin, self.YMax))
 
 class XY(Struct):
     classProvides(IFormat, IStructEvaluateable)
@@ -341,8 +346,8 @@ class LineStyle(Struct):
         r.XMin = cmp(dx, 0) * off
         r.YMin = cmp(dy, 0) * off
         r.XMax = r.XMin + dx
-        r.YMax = r.XMax + dy
-        return r
+        r.YMax = r.YMin + dy
+        return r.sort()
 
 class LineStyle2(LineStyle):
     classProvides(IFormat, IStructEvaluateable)
@@ -458,7 +463,7 @@ class LineStyle2(LineStyle):
             min(p1x, p2x, p3x, p4x) + lx,
             max(p1x, p2x, p3x, p4x) + lx,
             min(p1y, p2y, p3y, p4y) + ly,
-            max(p1y, p2y, p3y, p4y) + ly)
+            max(p1y, p2y, p3y, p4y) + ly).sort()
 
 class FillStyle(Struct):
     TYPE = -1
@@ -592,7 +597,7 @@ class StraightEdgeRecord(Struct):
                 yield Field("delta_x", SB[NBits]) * 20
 
     def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
-        rect = Rect(last[0], last[1], self.delta_x, self.delta_y)
+        rect = Rect(last[0], last[1], self.delta_x, self.delta_y).sort()
         if style:
             edge_bounds = edge_bounds.union(style.cap_style_logic(last,
                 (self.delta_x, self.delta_y)))

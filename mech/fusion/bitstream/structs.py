@@ -14,6 +14,11 @@ from mech.fusion.bitstream.interfaces import IStructEvaluateable, IStructStateme
 from zope.interface import implements, classProvides
 from zope.component import adapter, provideAdapter
 
+try:
+    from numbers import Integral
+except ImportError:
+    Integral = (int, long)
+
 def byte_aligned(func):
     func.byte_aligned = True
     return func
@@ -225,7 +230,7 @@ class Local(FieldTemp):
     def __str__(self):
         return "Local(%r, %r)" % (self.name, self.format)
 
-class FieldTempArray(Field):
+class FieldTempArray(FieldTemp):
     var_name = None
     default = []
     def __init__(self, fields, format):
@@ -280,7 +285,7 @@ class NBitsMeta(type):
     @staticmethod
     def _pre_write_inner(struct, format, field):
         value = field._filter_write(struct, field._struct_get(struct))
-        if isinstance(value, (int, long)):
+        if isinstance(value, Integral):
             value = [value]
         nbits = format._nbits(*value)
         name = "NBits%d" % (struct.get_local("NBitsCount"),)
@@ -329,7 +334,7 @@ class NBits(FilterStatement):
 
     def __eq__(self, other):
         return isinstance(other, type(self)) and self.hash == other.hash
-    
+
     def __str__(self):
         return "NBits[%d]" % (self.length,)
 

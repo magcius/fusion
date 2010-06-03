@@ -10,7 +10,7 @@ from mech.fusion.bitstream.structs import Field, Local
 from zope.interface import implementedBy
 
 # rect_data = "01110" + "%s"*4 % tuple(("0"*(15-len(s))+s for s in (bin(s*20)[2:] for s in (20, 80, 600, 800))))
-rect_data = "01110000000110010000000011001000000010111011100000011111010000000"
+rect_data = BitStream("01111000000110010000010111011100000000011001000000011111010000000")
 
 class TestRect(Struct):
     def __init__(self, XMin=0, YMin=0, XMax=0, YMax=0):
@@ -22,7 +22,7 @@ class TestRect(Struct):
 
 def test_rect_write():
     rect = TestRect(20, 80, 600, 800)
-    assert str(rect.as_bitstream()) == rect_data
+    assert rect.as_bitstream() == rect_data
     
 def test_rect_read():
     rect = TestRect.from_bitstream(rect_data)
@@ -32,13 +32,14 @@ def test_rect_read():
     assert rect.YMax == 800
 
 class TestMatrix(Struct):
-    def __init__(self, a=1, b=0, c=0, d=1, tx=0, ty=0):
+    a, b, c, d = 1, 0, 0, 1
+    def __init__(self, a, b, c, d, tx, ty):
         super(TestMatrix, self).__init__(locals())
 
     def create_fields(self):
         if self.writing:
             self.set_local("HasScale", (Field("a") != 1) & (Field("d") != 1))
-        
+
         yield Local("HasScale", Bit)
         if self.get_local("HasScale", True):
             yield NBits[5]
