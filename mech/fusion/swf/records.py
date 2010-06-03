@@ -310,7 +310,6 @@ class ShapeWithStyle(Shape):
         bits = BitStream()
         bits += serialize_style_list(self.fills)
         bits += serialize_style_list(self.strokes)
-        print bits
         self.fillbits = nbits(len(self.fills))
         self.linebits = nbits(len(self.strokes))
         bits.write(self.fillbits, UB[4])
