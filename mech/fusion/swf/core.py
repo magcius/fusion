@@ -15,7 +15,7 @@ class SwfGraphicsEmulation(object):
 
     def get_delta(self, new_x, new_y):
         delta = new_x - self.last_x, new_y - self.last_y
-        self.last_x, self.last_y = newx, newy
+        self.last_x, self.last_y = new_x, new_y
         return delta
 
     def moveTo(self, x, y):
