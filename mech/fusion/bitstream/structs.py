@@ -279,28 +279,29 @@ class NBitsMeta(type):
 
     @staticmethod
     def _evaluate(struct):
-        return struct.get_local("NBits%d" % \
-                   (struct.get_local("NBitsCount"),))
+        name = "NBits%d" % (struct.get_local("NBitsCount"),)
+        return struct.get_local(name) - struct.get_local(name+"Offset")
 
     @staticmethod
     def _pre_write_inner(struct, format, field):
+        name = "NBits%d" % (struct.get_local("NBitsCount"),)
         value = field._filter_write(struct, field._struct_get(struct))
         if isinstance(value, Integral):
             value = [value]
-        nbits = format._nbits(*value)
-        name = "NBits%d" % (struct.get_local("NBitsCount"),)
+        nbits = max(format._nbits(*value) + struct.get_local(name+"Offset"), 0)
         if nbits > struct.get_local(name, -1):
             struct.set_local(name, nbits)
 
-class NBits(FilterStatement):
+class NBits(object):
     
     __metaclass__ = NBitsMeta
 
     implements(IStructStatement)
-    
+
     def __init__(self, length):
         super(NBits, self).__init__()
         self.length = length
+        self.offset = 0
         # XXX: find a better way to do this
         frame = sys._getframe(2)
         self.hash = (frame.f_lineno, frame.f_code.co_filename)
@@ -309,6 +310,7 @@ class NBits(FilterStatement):
         self.count = struct.get_local("NBitsCount", 0) + 1
         struct.set_local("NBitsCount", self.count)
         self.name = "NBits%d" % (self.count,)
+        struct.set_local(self.name+"Offset", self.offset)
 
     def _pre_read(self, struct):
         self._prequel(struct)
@@ -321,13 +323,11 @@ class NBits(FilterStatement):
 
     def _struct_read(self, struct, bitstream):
         self._realquel(struct)
-        struct.set_local(self.name,
-                   self._filter_read(struct, bitstream.read(UB[self.length])))
+        struct.set_local(self.name, bitstream.read(UB[self.length]))
 
     def _struct_write(self, struct, bitstream):
         self._realquel(struct)
-        bitstream.write(self._filter_write(struct, struct.get_local(self.name)),
-                        UB[self.length])
+        bitstream.write(struct.get_local(self.name), UB[self.length])
 
     def __hash__(self):
         return hash(self.hash)
@@ -337,6 +337,14 @@ class NBits(FilterStatement):
 
     def __str__(self):
         return "NBits[%d]" % (self.length,)
+
+    def __add__(self, other):
+        self.offset += other
+        return self
+
+    def __sub__(self, other):
+        self.offset -= other
+        return self
 
 def Enum(field, enum, **kwargs):
     enum  = enum.copy()
