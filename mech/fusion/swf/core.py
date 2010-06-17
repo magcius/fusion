@@ -1,9 +1,10 @@
 
 from zope.interface import implements
+from zope.component import adapter, provideAdapter
 
-from mech.fusion.swf.interfaces import ISwfPart
+from mech.fusion.swf.interfaces import ISwfPart, IPlaceable
 from mech.fusion.swf.tags import (ShowFrame, SwfTagNotAllowed,
-    DefineShape4, PlaceObject2)
+    DefineShape4, PlaceObject2, RemoveObject2)
 from mech.fusion.swf.records import (StraightEdgeRecord, CurvedEdgeRecord,
     StyleChangeRecord, LineStyle2, FillStyleSolidFill, ShapeWithStyle)
 
@@ -20,6 +21,10 @@ class SwfGraphicsEmulation(object):
 
     def moveTo(self, x, y):
         self.owner.add_shape_record(StyleChangeRecord(*self.get_delta(x, y)))
+
+    def curveTo(self, controlx, controly, anchorx, anchory):
+        self.owner.add_shape_record(CurvedEdgeRecord(controlx-self.last_x,
+            controly-self.last_y, *self.get_delta(anchorx, anchory)))
 
     def lineTo(self, x, y):
         self.owner.add_shape_record(StraightEdgeRecord(*self.get_delta(x, y)))
@@ -56,8 +61,8 @@ class SwfTagContainer(object):
 
 class SwfMovieClip(SwfTagContainer):
     """
-    A SwfMovieClip is a tag container
-    that has the concept of frames.
+    A SwfMovieClip is a tag container that
+    has the concept of a stage, and frames.
     """
     implements(ISwfPart)
     def __init__(self, movie):
@@ -87,6 +92,24 @@ class SwfMovieClip(SwfTagContainer):
     def next_frame(self):
         self.add_tag(ShowFrame())
 
+    def place(self, obj):
+        displayobject = SwfDisplayObject(self, IPlaceable(obj).characterid, self.depth)
+        self.add_part(displayobject)
+        self.depth += 1
+        return displayobject
+
+class SwfDisplayObject(object):
+    def __init__(self, cont, charid, depth):
+        self.cont, self.charid, self.depth = cont, charid, depth
+
+    def remove(self):
+        self.cont.add_tag(RemoveObject2(self.depth))
+
+def swfdisplayobject_to_ipart(self):
+    return PlaceObject2(self.depth, self.charid)
+
+provideAdapter(swfdisplayobject_to_ipart, [SwfDisplayObject], ISwfPart)
+
 class SwfShape(object):
     implements(ISwfPart)
     def __init__(self):
@@ -96,5 +119,8 @@ class SwfShape(object):
     def add_to(self, data):
         # TODO: account for SWF version
         data.add_tag(DefineShape4(self.shape))
-        data.add_tag(PlaceObject2(self.shape, data.depth))
-        data.depth += 1
+
+def swfshape_to_iplaceable(self):
+    return self.shape
+
+provideAdapter(swfshape_to_iplaceable, [SwfShape], IPlaceable)

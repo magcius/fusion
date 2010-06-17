@@ -9,7 +9,7 @@ from mech.fusion.bitstream.interfaces import IStruct, IStructClass
 from mech.fusion.bitstream.formats import CString, Bit, Zero, ByteString
 from mech.fusion.bitstream.flash_formats import SI16, UI16, UI32
 
-from mech.fusion.swf.interfaces import ISwfPart
+from mech.fusion.swf.interfaces import ISwfPart, IPlaceable
 from mech.fusion.swf.records import (RecordHeader, ShapeWithStyle,
                                      Matrix, CXForm, RGB, Rect)
 
@@ -357,33 +357,35 @@ class DefineShape(SwfTag):
     TAG_VARIANT = 1
     
     _current_variant = None
+
+    implements(IPlaceable)
     
-    def __init__(self, shapes=None, characterid=None):
+    def __init__(self, shape=None, characterid=None):
         """
         Constructor.
 
         :param shapes:
         """
-        self.shapes = ShapeWithStyle() if shapes is None else shapes
+        self.shape = ShapeWithStyle() if shape is None else shape
         self.characterid = characterid
 
     def add_to(self, data):
         super(DefineShape, self).add_to(data)
-        self.characterid = self.shapes.characterid = data.next_character_id
+        self.characterid = self.shape.characterid = data.next_character_id
         data.next_character_id += 1
 
     def serialize_data(self):
-        self.shapes.calculate_bounds()
+        self.shape.calculate_bounds()
         DefineShape._current_variant = self.TAG_VARIANT
         
         bits = BitStream()
         bits.write_int_value(self.characterid, 16, endianness="<")
         
-        bits += self.shapes.shape_bounds
-        bits += self.shapes
+        bits += self.shape.shape_bounds
+        bits += self.shape
         
         DefineShape._current_variant = None
-        return bits
+        return bits.serialize()
 
 class DefineShape2(DefineShape):
     TAG_TYPE = 22
@@ -401,22 +403,22 @@ class DefineShape4(DefineShape):
     TAG_VARIANT = 4
 
     def serialize_data(self):
-        self.shapes.calculate_bounds()
+        self.shape.calculate_bounds()
         DefineShape._current_variant = self.TAG_VARIANT
 
         bits = BitStream()
         bits.write(self.characterid, UI16) # Shape ID
 
-        bits += self.shapes.shape_bounds # ShapeBounds Rect
-        bits += self.shapes.edge_bounds  # EdgeBounds Rect
+        bits += self.shape.shape_bounds # ShapeBounds Rect
+        bits += self.shape.edge_bounds  # EdgeBounds Rect
 
         bits.write(Zero[6]) # Reserved
 
-        bits.write(self.shapes.has_scaling)     # UsesNonScalingStrokes
-        bits.write(self.shapes.has_non_scaling) # UsesScalingStrokes
+        bits.write(self.shape.has_scaling)     # UsesNonScalingStrokes
+        bits.write(self.shape.has_non_scaling) # UsesScalingStrokes
 
-        bits += self.shapes # ShapeWithStyle
-        
+        bits += self.shape # ShapeWithStyle
+
         DefineShape._current_variant = None
 
         return bits.serialize()
@@ -424,6 +426,8 @@ class DefineShape4(DefineShape):
 class DefineSprite(SwfTag):
     TAG_TYPE = 39
     TAG_MIN_VERSION = 3
+
+    implements(IPlaceable)
 
     def __init__(self, movieclip):
         self.mc = movieclip
@@ -493,11 +497,44 @@ class FileAttributes(SwfTag):
         bits.cursor += 24
         return fa
 
+class RemoveObject(SwfTag):
+    TAG_TYPE = 5
+    TAG_MIN_VERSION = 1
+
+    def __init__(self, charid, depth):
+        self.characterid, self.depth = charid, depth
+
+    def serialize_data(self):
+        bits = BitStream()
+        bits.write(self.characterid, UI16)
+        bits.write(self.depth, UI16)
+        return bits.serialize()
+
+    @classmethod
+    def parse_inner(cls, bits):
+        inst = cls(bits.read(UI16), bits.read(UI16))
+
+class RemoveObject2(SwfTag):
+    TAG_TYPE = 28
+    TAG_MIN_VERSION = 3
+
+    def __init__(self, depth):
+        self.depth = depth
+
+    def serialize_data(self):
+        bits = BitStream()
+        bits.write(self.depth, UI16)
+        return bits.serialize()
+
+    @classmethod
+    def parse_inner(cls, bits):
+        inst = cls(bits.read(UI16))
+
 class PlaceObject(SwfTag):
     TAG_TYPE = 4
     TAG_MIN_VERSION = 1
 
-    def __init__(self, shape, depth, transform=None, colortransform=None):
+    def __init__(self, depth, charid=None, transform=None, colortransform=None):
         self.shapeid = shape
         if getattr(shape, "characterid", None) is not None:
             self.shapeid = shape.characterid
@@ -519,11 +556,11 @@ class PlaceObject2(PlaceObject):
     TAG_TYPE = 26
     TAG_MIN_VERSION = 3
 
-    def __init__(self, shape, depth, name=None, transform=None, colortransform=None):
-        self.shapeid = shape
-        if getattr(shape, "characterid", None) is not None:
-            self.shapeid = shape.characterid
+    def __init__(self, depth, charid=None, update=False,
+                 name=None, transform=None, colortransform=None):
         self.depth = depth
+        self.charid = charid
+        self.update = update
         self.name = name
         self.transform = transform
         self.colortransform = colortransform
@@ -536,12 +573,12 @@ class PlaceObject2(PlaceObject):
         bits.write(False) # HasRatio
         bits.write(self.colortransform is not None)
         bits.write(self.transform is not None)
-        bits.write(True)  # HasCharacter
-        bits.write(False) # FlagMove
-        
+        bits.write(self.charid is not None)  # HasCharacter
+        bits.write(self.update) # FlagMove
+
         bits.write(self.depth, UI16)
-        bits.write(self.shapeid, UI16)
-        
+        bits.write(self.charid, UI16)
+
         if self.name is not None:
             bits.write(self.name, CString)
         

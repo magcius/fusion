@@ -45,7 +45,6 @@ f.write(AbcFile.serialize(abc))
 f.close()
 
 f = open("library_example.swf", "wb")
-
 f.write(swf.serialize())
 f.close()
 

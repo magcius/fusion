@@ -219,7 +219,7 @@ class Matrix(Struct):
 class Shape(object):
     implements(IStruct)
     def __init__(self):
-        self.shapes = []
+        self.records = []
 
         self.edge_bounds = Rect()
         self.shape_bounds = Rect()
@@ -230,7 +230,7 @@ class Shape(object):
         self.bounds_calculated = False
 
     def add_shape_record(self, shape):
-        self.shapes.append(shape)
+        self.records.append(shape)
         shape.parent = self
         shape.record_added()
         self.bounds_calculated = False
@@ -250,13 +250,12 @@ class Shape(object):
         if not self.bounds_calculated:
             self.calculate_bounds()
 
-        if EndShapeRecord not in self.shapes:
-            self.shapes.append(EndShapeRecord)
+        if EndShapeRecord not in self.records:
+            self.records.append(EndShapeRecord)
 
         bits = BitStream()
         bits += self.serialize_style()
-        import traceback
-        for record in self.shapes:
+        for record in self.records:
             bits += record
 
         return bits
@@ -275,7 +274,7 @@ class Shape(object):
 
         last = 0, 0
         style = None
-        for record in self.shapes:
+        for record in self.records:
             last, (self.shape_bounds, self.edge_bounds), (has_scale, has_non_scale, style) = \
                   record.calculate_bounds(last, self.shape_bounds, self.edge_bounds, style)
             if has_scale:
