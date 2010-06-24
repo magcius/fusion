@@ -109,7 +109,9 @@ class Library(object):
         self.build_package_tree(None, self.packages, self.toplevel)
 
     def __getattr__(self, attr):
-        return getattr(self.toplevel, attr)
+        if "toplevel" in self.__dict__:
+            return getattr(self.toplevel, attr)
+        raise AttributeError(attr)
 
     @classmethod
     def gen_library_swcdata(cls, swcdata):
