@@ -41,8 +41,8 @@ class NativePackage(object):
 
     def __copy__(self):
         inst = type(self)(self._library, self._name)
-        inst._types = self._types
-        inst._packages = self._packages
+        inst._types = dict(self._types)
+        inst._packages = dict(self._packages)
         # XXX: should we copy modulename_prefixes?
         return inst
 
