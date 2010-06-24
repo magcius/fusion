@@ -1,4 +1,5 @@
 
+from copy import copy
 from mech.fusion.avm2.constants import packagedQName, TypeName
 
 class ClassDesc(object):
@@ -50,7 +51,7 @@ class ClassDesc(object):
 
     def specialize(self, types):
         if self.Specializable:
-            specialized = self.clone()
+            specialized = copy(self)
             specialized.Specialized = types
             return specialized
         raise TypeError("%s is not a specializable type.")
