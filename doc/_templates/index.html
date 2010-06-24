@@ -1,0 +1,44 @@
+{% extends "layout.html" %}
+{% set title = 'Overview' %}
+{% block body %}
+  <h1>Welcome</h1>
+
+  <p><strong>Mecheye Fusion</strong> is a Python library to create and parse valid
+  <abbr title="ShockWave Flash / Small Web File">SWF</abbr> and
+  <abbr title="Actionscript Byte Code">ABC</abbr> files. It was created by Jasper
+  St. Pierre to try and understand the SWF format.</p>
+
+  <h2>Documentation</h2>
+
+  <table class="contentstable" align="center" style="margin-left: 30px"><tr>
+    <td width="50%">
+      <p class="biglink"><a class="biglink" href="{{ pathto("intro") }}">Introduction to Fusion</a><br/>
+         <span class="linkdescr">overview of basic tasks</span></p>
+      <p class="biglink"><a class="biglink" href="{{ pathto("contents") }}">Contents</a><br/>
+         <span class="linkdescr">for a complete overview</span></p>
+    </td><td width="50%">
+      <p class="biglink"><a class="biglink" href="{{ pathto("search") }}">Search page</a><br/>
+         <span class="linkdescr">search the documentation</span></p>
+      <p class="biglink"><a class="biglink" href="{{ pathto("genindex") }}">General Index</a><br/>
+         <span class="linkdescr">all functions, classes, terms</span></p>
+    </td></tr>
+  </table>
+
+  <p>
+    You can also download <a href="/fusion.pdf">PDF versions of the documentation.</a>
+  </p>
+
+
+  <h2>How To Get It</h2>
+  <p>
+    Fusion is available as an <a
+    href="http://peak.telecommunity.com/DevCenter/EasyInstall">easy-installable</a>
+    package on the <a href="http://pypi.python.org/pypi/mecheye-fusion">Python Package
+    Index</a>.
+  </p>
+  <p>The stable repo can be found on GitHub, at
+    <tt><a href="http://github.com/mecheye/mecheye-fusion">http://github.com/mecheye/mecheye-fusion</a></tt>.</p>
+  <p>Development repo can be found on GitHub, at
+    <tt><a href="http://github.com/magcius/mecheye-fusion">http://github.com/magcius/mecheye-fusion</a></tt>.</p>
+
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "sphinxdoc/layout.html" %}
+
+{% block header %}
+<div class="top">
+  <div class="header">
+    <a href="{{ pathto('index') }}">Mecheye Fusion</a>
+  </div>
+{{ super() }}
+{% endblock %}
+
+{% block rootrellink %}
+        <li><a href="{{ pathto('index') }}">home</a>|&nbsp;</li>
+        <li><a href="{{ pathto('search') }}">search</a>|&nbsp;</li>
+       <li><a href="{{ pathto('contents') }}">documentation </a> &raquo;</li>
+{% endblock %}
+
+{# put the sidebar before the body #}
+{% block sidebar1 %}{{ sidebar() }}{% endblock %}
+{% block sidebar2 %}{% endblock %}
+{% block relbar2 %}{% endblock %}
+{% block footer %}
+</div>
+<div class="bottom">
+  {{ relbar() }}
+  <div class="footer">
+    <span class="author">
+      &copy; Copyright 2010 <a href="http://www.mecheye.net/" class="mis">Mecheye Independent Studios</a>.
+      Written by <a href="http://magcius.mecheye.net/">Jasper St. Pierre</a>.
+    </span>
+    <span class="license">
+      All code and docs licensed under the MPL, but I'm very flexible.
+    </span>
+    <span class="sphinx">
+      Docs created using <a href="http://sphinx.pocoo.org/">Sphinx</a> {{ sphinx_version }}.
+    </span>
+  </div>
+</div>
+{% endblock %}
