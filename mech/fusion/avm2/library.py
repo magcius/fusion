@@ -72,7 +72,7 @@ class NativePackage(object):
         globals are evil and should not be depended on.
         """
         if modulename_prefix:
-            mnp = modulename_prefix.strip(".")
+            mnp = modulename_prefix.rstrip(".")
             self._modulename_prefixes.append(mnp)
             sys.modules[("%s.%s" % (mnp, self._name)).strip(".")] = self
         else:
@@ -187,9 +187,9 @@ class Library(object):
         Load a Library from a pickle object.
         """
         f = open(picklepath, "rb")
-        types, packages = pickle.load(f)
+        Types, Packages = pickle.load(f)
         f.close()
-        return cls(types, packages)
+        return cls(Types, Packages)
 
     def save_pickledb(self, picklepath):
         f = open(picklepath, "wb")
@@ -215,21 +215,15 @@ class Library(object):
                 value.Library = self
                 context._types[name] = value
 
-    ## def convert_classdesc(self, classdesc):
-    ##     """
-    ##     This is a hook to convert the ClassDesc objects in the pickle
-    ##     database into something a little more reasonable for users of
-    ##     this library.
-    ##     """
-    ##     return classdesc
-
     def get_type(self, name):
         """
         This function returns the object associated with the passed
-        multiname in this library, and optionally calls
-        self.convert_classdesc before returning it (default is True).
+        multiname in this library.
         """
         return self.types[name]
+
+    def __contains__(self, name):
+        return name in self.types
 
     def install_global(self, modulename_prefix=None):
         """
@@ -307,6 +301,17 @@ def type_exists(TYPE):
     the currently installed libraries.
     """
     return QName(TYPE) in AllTypes
+
+def make_package(package, Interface):
+    """
+    Make a new package by calling Interface on all of the types.
+    """
+    package = copy(package)
+    for name, TYPE in package._types.iteritems():
+        package._types[name] = Interface(TYPE)
+    for name, PKG in package._packages.iteritems():
+        package._packages[name] = make_package(PKG, Interface)
+    return package
 
 def librarygen_main():
     from optparse import OptionParser

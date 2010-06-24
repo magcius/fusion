@@ -1,18 +1,17 @@
 
+import functools
 import inspect
 
 from mech.fusion.avm2 import traits
 from mech.fusion.avm2.codegen import Argument
 from mech.fusion.avm2.constants import QName, packagedQName, undefined
-from mech.fusion.avm2.library import ClassDesc, NativePackage, get_type
+from mech.fusion.avm2.library import ClassDesc, get_type, make_package
 from mech.fusion.avm2.interfaces import INode, ILoadable
 
 from zope.interface import implements, implementer
 from zope.component import adapter, provideAdapter
 
-from copy import copy
 from types import FunctionType
-from itertools import chain
 
 class Slot(object):
     """
@@ -392,16 +391,7 @@ def ClassDescNodeAdapter(classdesc, _cache={}):
 
 provideAdapter(ClassDescNodeAdapter)
 
-def convert_package(package):
-    """
-    Convert all of a package's classes to the INode API.
-    """
-    package = copy(package)
-    for name, TYPE in package._types.iteritems():
-        package._types[name] = INode(TYPE)
-    for name, PKG in package._packages.iteritems():
-        package._packages[name] = convert_package(PKG)
-    return package
+convert_package = functools.partial(make_package, Interface=INode)
 
 def export_as(name):
     """
