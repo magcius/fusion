@@ -263,7 +263,7 @@ def gen_playerglobal(output, Library=Library):
     library = Library.gen_library_abc(get_playerglobal_swc().get_abc("library.swf"))
     
     # Special hack for Vector's public interface.
-    Vector = copy(library.toplevel.__AS3__.vec.Vector)
+    Vector = library.toplevel.__AS3__.vec.Vector
     Vector.Specializable   = True
     # It seems these aren't open to the public :(
     ## Vector.SpecializedFast = {
@@ -272,13 +272,10 @@ def gen_playerglobal(output, Library=Library):
     ##     QName('Number'): packagedQName('__AS3__.vec', 'Vector$double'),
     ##     QName('Object'): packagedQName('__AS3__.vec', 'Vector$object'),
     ## }
-    library.types[packagedQName('__AS3__.vec', 'Vector')] = Vector
-    library.toplevel.__AS3__.vec._types['Vector'] = Vector
-
     library.types[QName('Vector')] = Vector
     library.toplevel._types['Vector'] = Vector
 
-    # And hack Object's super_name to be None.
+    # And hack Object's BaseType to be None.
     Object = library.toplevel.Object
     Object.BaseType = None
 
