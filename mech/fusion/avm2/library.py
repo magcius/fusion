@@ -185,21 +185,14 @@ class Library(object):
         Load a Library from a pickle object.
         """
         f = open(picklepath, "rb")
-        obj = pickle.load(f)
+        types, packages = pickle.load(f)
         f.close()
-        return obj
+        return cls(types, packages)
 
     def save_pickledb(self, picklepath):
         f = open(picklepath, "wb")
-        pickle.dump(self, f)
+        pickle.dump((self.types, self.packages), f)
         f.close()
-
-    def __setstate__(self, state):
-        types, packages = state
-        self.__init__(types, packages)
-
-    def __getstate__(self):
-        return self.types, self.packages
 
     def build_package_tree(self, parentname, packagedict, context):
         """
