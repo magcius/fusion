@@ -4,7 +4,7 @@ import os
 
 from mech.fusion.bitstream.bitstream import BitStream
 
-from mech.fusion.bitstream.formats import BitsList, Bit, Byte, ByteList,  \
+from mech.fusion.bitstream.formats import Bit, Byte, ByteList,  \
      ByteString, SignedByte, CString, UTF8, CUTF8, Zero, One, UB, SB, FB, \
      FloatFormat, FixedFormat
 
@@ -71,28 +71,28 @@ def test_Byte_read():
     py.test.raises(ValueError, bits.read, Byte)
 
     # Testing length.
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(Byte[2])
     assert result == 0b1010101011001100
     assert bits.bits_available == 0
 
     # Testing endianness.
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(Byte[2:"<"])
     assert result == 0b1100110010101010
     assert bits.bits_available == 0
 
     # Testing length behavior.
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(Byte) # This should read one byte.
     assert result == 0b10101010
     assert bits.bits_available == 8
 
     # Make length not divisible by 8.
-    bits.skip_to_end()
+    bits.seek(0, os.SEEK_END)
     bits.write(Zero)
 
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(Byte) # But this should still work.
     assert result == 0b10101010
     assert bits.bits_available == 9
@@ -118,6 +118,11 @@ def test_Byte_write():
     bits.write(1033, Byte[3])
     assert str(bits) == "000000000000010000001001"
 
+    # Testing explicit length with 0.
+    bits = BitStream()
+    bits.write(0, Byte[3])
+    assert str(bits) == "000000000000000000000000"
+
     # Testing leftover < 0.
     bits = BitStream()
     py.test.raises(ValueError, bits.write, 1033, Byte[1])
@@ -132,6 +137,12 @@ def test_Byte_write():
     bits.write(1033, Byte[3:"<"])
     assert str(bits) == "000010010000010000000000"
 
+    # Testing endianness and explicit length with 0.
+    bits = BitStream()
+    bits.write(0, Byte[3:"<"])
+    assert str(bits) == "000000000000000000000000"
+
+
 def test_ByteString_read():
     # Testing basics.
     bits = BitStream("00101010 00101111")
@@ -140,19 +151,19 @@ def test_ByteString_read():
     assert bits.bits_available == 8
 
     # Testing length.
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(ByteString[2])
     assert result == chr(0b00101010) + chr(0b00101111)
     assert bits.bits_available == 0
 
     # Testing endianness.
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(ByteString[2:"<"])
     assert result == chr(0b00101111) + chr(0b00101010)
     assert bits.bits_available == 0
 
     # Testing with no length provided.
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(ByteString)
     assert result == chr(0b00101010) + chr(0b00101111)
 
@@ -160,15 +171,15 @@ def test_ByteString_read():
     # Testing non-flush length.
 
     # Make length not divisible by 8.
-    bits.skip_to_end()
+    bits.seek(0, os.SEEK_END)
     bits.write(Zero)
 
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(ByteString[2]) # This should still work.
     assert result == chr(0b00101010) + chr(0b00101111)
     assert bits.bits_available == 1
 
-    bits.rewind()
+    bits.seek(0)
     py.test.raises(ValueError, bits.read, ByteString) # But this should fail.
 
 def test_ByteString_write():
@@ -178,7 +189,7 @@ def test_ByteString_write():
     assert bits.bits_available == 0
     assert len(bits) == 24
 
-    bits.rewind()
+    bits.seek(0)
     for i, char in enumerate("SWF"):
         result = bits.read(Byte)
         assert result == ord(char)
@@ -190,7 +201,7 @@ def test_ByteString_write():
     assert bits.bits_available == 0
     assert len(bits) == 24
 
-    bits.rewind()
+    bits.seek(0)
     for i, char in enumerate("SWF"):
         result = bits.read(Byte)
         assert result == ord(char)
@@ -202,7 +213,7 @@ def test_ByteString_write():
     assert bits.bits_available == 0
     assert len(bits) == 32
 
-    bits.rewind()
+    bits.seek(0)
     for i, char in enumerate("\0SWF"):
         result = bits.read(Byte)
         assert result == ord(char)
@@ -218,7 +229,7 @@ def test_ByteString_write():
     assert bits.bits_available == 0
     assert len(bits) == 24
 
-    bits.rewind()
+    bits.seek(0)
     for i, char in enumerate("FWS"):
         result = bits.read(Byte)
         assert result == ord(char)
@@ -230,7 +241,7 @@ def test_ByteString_write():
     assert bits.bits_available == 0
     assert len(bits) == 40
 
-    bits.rewind()
+    bits.seek(0)
     for i, char in enumerate("FWS\0\0"):
         result = bits.read(Byte)
         assert result == ord(char)
@@ -242,14 +253,14 @@ def test_CString_read():
     test_data = "test 123\x01\xFF"
     bits.write(test_data, ByteString)
     bits.write(Zero[8])
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(CString)
     assert result == test_data
 
     # Testing error-handling.
     bits = BitStream()
     bits.write("adsfasfdgjklhrgokrjygaosaf", ByteString)
-    bits.rewind()
+    bits.seek(0)
     py.test.raises(ValueError, bits.read, CString)
 
 def test_CString_write():
@@ -258,7 +269,7 @@ def test_CString_write():
     bits.write("FWS", CString)
     assert bits.bits_available == 0
     assert len(bits) == 32
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(Byte)
     assert result == ord("F")
     assert bits.bits_available == 24
@@ -292,12 +303,12 @@ def test_UB_read():
     bits = BitStream()
     bits.write("\xDD\xEE\xFF", ByteString)
     
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(UB[24])
     assert result == 0xDDEEFF
     assert bits.bits_available == 0
     
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(UB[24:"<"])
     assert result == 0xFFEEDD
     assert bits.bits_available == 0
@@ -313,14 +324,14 @@ def test_UB_write():
 
     bits = BitStream()
     bits.write(0xDDEEFF, UB)
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(ByteString[3])
     assert result == "\xDD\xEE\xFF"
     assert bits.bits_available == 0
 
     bits = BitStream()
     bits.write(0xDDEEFF, UB["<"])
-    bits.rewind()
+    bits.seek(0)
     result = bits.read(ByteString[3])
     assert result == "\xFF\xEE\xDD"
     assert bits.bits_available == 0

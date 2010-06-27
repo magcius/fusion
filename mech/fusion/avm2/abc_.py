@@ -1,18 +1,19 @@
+
 import struct
+import os
 
 from mech.fusion.bitstream import BitStream, BitStreamParseMixin
 from mech.fusion.bitstream.formats import Bit, Zero
 from mech.fusion.bitstream.flash_formats import UI8, UI16, U32
 
 from mech.fusion.avm2.constants import (AbcConstantPool,
-                                        METHODFLAG_HasOptional,
-                                        METHODFLAG_HasParamNames,
-                                        METHODFLAG_NeedRest,
-                                        py_to_abc, abc_to_py, QName)
+    METHODFLAG_HasOptional, METHODFLAG_HasParamNames,
+    METHODFLAG_NeedRest, py_to_abc, abc_to_py, QName)
 
 from mech.fusion.avm2 import instructions, traits as TRAITS
-from mech.fusion.avm2.util import serialize_u32 as s_u32, ValuePool
 from mech.fusion.avm2.assembler import Avm2CodeAssembler
+from mech.fusion.avm2.interfaces import IMultiname
+from mech.fusion.avm2.util import serialize_u32 as s_u32, ValuePool
 
 MAJOR_VERSION = 46
 MINOR_VERSION = 16
@@ -34,7 +35,7 @@ def eval_traits(self):
             trait.method.owner = self
             if isinstance(trait, TRAITS.AbcGetterTrait):
                 trait.type_name = trait.method.return_type
-                if trait.name in fields:
+                if trait.name in properties:
                     properties[trait.name] = (trait.name, trait.type_name,
                                               trait, properties[trait.name][3])
                     trait.kind = properties[trait.name][3].kind = "property"
@@ -60,6 +61,7 @@ def eval_traits(self):
             trait.cls.instance.name  = trait.name
             trait.cls.instance.owner = self
     self.fields     = fields
+    print self, fields
     self.methods    = methods
     self.properties = properties
 
@@ -113,6 +115,8 @@ class AbcFile(BitStreamParseMixin):
         for cls, instance in zip(abc.classes, abc.instances):
             cls.instance = instance
             instance.cls = cls
+            cls.cinit.owner = cls
+            instance.iinit.owner = instance
             eval_traits(cls)
             eval_traits(instance)
 
@@ -120,6 +124,7 @@ class AbcFile(BitStreamParseMixin):
             eval_traits(meth)
 
         for script in abc.scripts:
+            script.init.owner = script
             eval_traits(script)
 
         return abc
@@ -152,7 +157,7 @@ class AbcMethodInfo(object):
         self.namestr = namestr
         self._namestr_index = None
 
-        self.param_types = [QName(t) for t in param_types] if param_types else []
+        self.param_types = [IMultiname(t) for t in param_types] if param_types else []
         self._param_types_indices = None
 
         self.param_names = param_names or []
@@ -271,23 +276,23 @@ class AbcMetadataInfo(object):
 
         return code
 
-    def __repr__(self):
-        return "Metadata(%r, %s)" % (self.name, ''.join("%s=%r" % t for t in self.items.iteritems()))
-
     def write_to_pool(self, pool):
         strindex = pool.utf8_pool.index_for
         self._name_index = strindex(self.name)
         self._items_indices = [(strindex(k), strindex(v)) for k, v in self.items.iteritems()]
+
+    def __repr__(self):
+        return "Metadata(%r, %s)" % (self.name, ''.join("%s=%r" % t for t in self.items.iteritems()))
 
 class AbcInstanceInfo(object):
     def __init__(self, name, iinit, interfaces=None,
                  is_interface=False, final=False, sealed=True,
                  super_name=None, traits=None, protectedNs=None):
 
-        self.name = QName(name)
+        self.name = IMultiname(name)
         self._name_index = None
 
-        self.super_name = QName(super_name)
+        self.super_name = IMultiname(super_name)
         self._super_name_index = None
 
         self.is_interface = is_interface
@@ -305,15 +310,12 @@ class AbcInstanceInfo(object):
         self.protectedNs = protectedNs
         self._protectedNs_index = None
 
-    def __repr__(self):
-        return "AbcInstance(%r, %r)" % (self.name, self.super_name)
-
     @classmethod
     def parse(cls, bitstream, abc, constants):
         name = constants.multiname_pool.value_at(bitstream.read(U32))
         super_name = constants.multiname_pool.value_at(bitstream.read(U32))
 
-        bitstream.cursor += 4
+        bitstream.seek(4, os.SEEK_CUR)
         FlagProtectedNS = bitstream.read(Bit)
         FlagIsInterface = bitstream.read(Bit)
         FlagIsFinal     = bitstream.read(Bit)
@@ -376,10 +378,14 @@ class AbcInstanceInfo(object):
         for trait in self.traits:
             trait.write_to_abc(abc)
 
+    def __repr__(self):
+        return "AbcInstance(%r, %r)" % (self.name, self.super_name)
+
 class AbcClassInfo(object):
     def __init__(self, cinit, traits=None):
         self.traits = traits or []
 
+        self.instance = None
         self.cinit = cinit
         self._cinit_index = None
 
@@ -406,6 +412,10 @@ class AbcClassInfo(object):
     def write_to_pool(self, pool):
         for trait in self.traits:
             trait.write_to_pool(pool)
+
+    def __repr__(self):
+        if self.instance:
+            return "AbcClass(%r, %r)", (self.instance.name, self.instance.super_name)
 
 class AbcScriptInfo(object):
     def __init__(self, init, traits=None):
@@ -507,13 +517,16 @@ class AbcMethodBodyInfo(object):
             exc.write_to_pool(pool)
         self.code.write_to_pool(pool)
 
+    def __repr__(self):
+        return "AbcMethodBody(%r)" % (self.method_info.namestr,)
+
 class AbcException(object):
     def __init__(self, from_, to_, target, exc_type, var_name):
         self.from_ = from_
         self.to_ = to_
         self.target = target
 
-        self.exc_type = QName(exc_type)
+        self.exc_type = IMultiname(exc_type)
         self._exc_type_index = None
         self.var_name = var_name
         self._var_name_index = None

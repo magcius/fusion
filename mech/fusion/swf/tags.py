@@ -1,5 +1,6 @@
 
 import sys
+import os
 
 from zope.interface import implements, classProvides
 from zope.component import provideAdapter
@@ -16,114 +17,8 @@ from mech.fusion.swf.records import (RecordHeader, ShapeWithStyle,
 from mech.fusion.avm1.actions import Block
 from mech.fusion.avm2.abc_ import AbcFile
 
-class SwfTagTooNew(Exception):
-    pass
-
-class SwfTagNotAllowed(Exception):
-    pass
-
-class UnknownSwfTag(object):
-    """
-    Used for both SWF tags not yet implemented by Fusion
-    and unknown SWF tags.
-    """
-    TAG_MIN_VERSION = -1
-    TAG_TYPE = -1
-    TAG_REFERENCE = [
-        "End",                  # 00
-        "ShowFrame",            # 01
-        "DefineShape",          # 02
-        "FreeCharacter",        # 03
-        "PlaceObject",          # 04
-        "RemoveObject",         # 05
-        "DefineBits",           # 06
-        "DefineButton",         # 07
-        "JPEGTables",           # 08
-        "SetBackgroundColor",   # 09
-        "DefineFont",           # 10
-        "DefineText",           # 11
-        "DoAction",             # 12
-        "DefineFontInfo",       # 13
-        "DefineSound",          # 14
-        "StartSound",           # 15
-        "StopSound",            # 16
-        "DefineButtonSound",    # 17
-        "SoundStreamHead",      # 18
-        "SoundStreamBlock",     # 19
-        "DefineBitsLossless",   # 20
-        "DefineBitsJPEG2",      # 21
-        "DefineShape2",         # 22
-        "DefineButtonCxform",   # 23
-        "Protect",              # 24
-        "PathsArePostScript",   # 25
-        "PlaceObject2",         # 26
-        "27 (invalid)",         # 27
-        "RemoveObject2",        # 28
-        "SyncFrame",            # 29
-        "30 (invalid)",         # 30
-        "FreeAll",              # 31
-        "DefineShape3",         # 32
-        "DefineText2",          # 33
-        "DefineButton2",        # 34
-        "DefineBitsJPEG3",      # 35
-        "DefineBitsLossless2",  # 36
-        "DefineEditText",       # 37
-        "DefineVideo",          # 38
-        "DefineSprite",         # 39
-        "NameCharacter",        # 40
-        "ProductInfo",          # 41
-        "DefineTextFormat",     # 42
-        "FrameLabel",           # 43
-        "DefineBehavior",       # 44
-        "SoundStreamHead2",     # 45
-        "DefineMorphShape",     # 46
-        "FrameTag",             # 47
-        "DefineFont2",          # 48
-        "GenCommand",           # 49
-        "DefineCommandObj",     # 50
-        "CharacterSet",         # 51
-        "FontRef",              # 52
-        "DefineFunction",       # 53
-        "PlaceFunction",        # 54
-        "GenTagObject",         # 55
-        "ExportAssets",         # 56
-        "ImportAssets",         # 57
-        "EnableDebugger",       # 58
-        "DoInitAction",         # 59
-        "DefineVideoStream",    # 60
-        "VideoFrame",           # 61
-        "DefineFontInfo2",      # 62
-        "DebugID",              # 63
-        "EnableDebugger2",      # 64
-        "ScriptLimits",         # 65
-        "SetTabIndex",          # 66
-        "67 (invalid)",         # 67
-        "DefineMorphShape2",    # 68
-        "FileAttributes",       # 69
-        "PlaceObject3",         # 70
-        "ImportAssets2",        # 71
-        "DoABCDefine",          # 72
-        "73 (invalid)",         # 73
-        "74 (invalid)",         # 74
-        "75 (invalid)",         # 75
-        "SymbolClass",          # 76
-        "77 (invalid)",         # 77
-        "78 (invalid)",         # 78
-        "79 (invalid)",         # 79
-        "80 (invalid)",         # 80
-        "81 (invalid)",         # 81
-        "DoABC",                # 82
-        "DefineShape4"          # 83
-    ]
-    def __init__(self, tag):
-        self.tag = tag
-        self.name = self.TAG_REFERENCE[tag]
-
-    def __repr__(self):
-        return "<%s (%#X) (Unknown Tag)>" % (self.name, self.tag)
-
-    def parse_inner(self, bitstream):
-        return self
+class SwfTagTooNew(Exception): pass
+class SwfTagNotAllowed(Exception): pass
 
 class SwfTag(object):
     """
@@ -136,13 +31,13 @@ class SwfTag(object):
     implements(IStruct, ISwfPart)
     classProvides(IStructClass)
 
-    TAG_TYPE = -1
-    TAG_MIN_VERSION = -1
+    id = -1
+    min_version = -1
 
     def add_to(self, data):
-        if data.version < self.TAG_MIN_VERSION:
+        if data.version < self.min_version:
             raise SwfTagTooNew("%r requires a minimum version of %d. Your SWF v"
-                "ersion is %d" % (self, self.TAG_MIN_VERSION, data.version))
+                "ersion is %d" % (self, self.min_version, data.version))
         data.add_raw_tag(self)
 
     def serialize_data(self):
@@ -157,7 +52,7 @@ class SwfTag(object):
         repr_inner = self.__repr_inner__()
         if repr_inner:
             repr_inner = " (%s)" % (repr_inner)
-        return "<%s (%#X)%s>" % (type(self).__name__, self.TAG_TYPE, repr_inner)
+        return "<%s (%#X)%s>" % (type(self).__name__, self.id, repr_inner)
 
     def __repr_inner__(self):
         return ""
@@ -167,16 +62,13 @@ class SwfTag(object):
         Return a bytestring containing the appropriate structures of the tag.
         """
         data = self.serialize_data()
-        rh = RecordHeader(self.TAG_TYPE, len(data)).as_bitstream()
+        rh = RecordHeader(self.id, len(data)).as_bitstream()
         return rh.serialize() + data
 
     @classmethod
-    def from_bitstream(cls, bitstream, real=True):
-        offset = bitstream.cursor//8
+    def from_bitstream(cls, bitstream):
+        offset = bitstream.tell() // 8
         recordheader = RecordHeader.from_bitstream(bitstream)
-        cls = REVERSE_INDEX[recordheader.type]
-        if not getattr(cls, "parse_inner", None):
-            cls = UnknownSwfTag(recordheader.type)
         bits = bitstream.read(BitStream[recordheader.length*8])
         inst = cls.parse_inner(bits)
         inst.length = recordheader.length
@@ -184,8 +76,8 @@ class SwfTag(object):
         return inst
 
 class SetBackgroundColor(SwfTag):
-    TAG_TYPE = 9
-    TAG_MIN_VERSION = 1
+    id = 9
+    min_version = 1
 
     def __init__(self, color):
         """
@@ -216,8 +108,8 @@ class SetBackgroundColor(SwfTag):
         return cls(RGB.from_bitstream(bits).color)
 
 class DoAction(SwfTag, Block):
-    TAG_TYPE = 12
-    TAG_MIN_VERSION = 3
+    id = 12
+    min_version = 3
 
     def __init__(self):
         """
@@ -237,11 +129,11 @@ class DoAction(SwfTag, Block):
         """
         return Block.serialize(self)
 
-class DoABC(SwfTag, AbcFile):
-    TAG_TYPE = 82
-    TAG_MIN_VERSION = 9
+class DoABC(SwfTag):
+    id = 82
+    min_version = 9
 
-    def __init__(self, name="Mecheye Fusion", flags=0):
+    def __init__(self, name="Mecheye Fusion", abc=None, flags=0):
         """
         Constructor.
 
@@ -251,7 +143,7 @@ class DoABC(SwfTag, AbcFile):
                       currently, that can be 1, which
                       lazily inits the ABC Block
         """
-        AbcFile.__init__(self)
+        self.abc   = abc or AbcFile()
         self.name  = name
         self.flags = flags
 
@@ -260,13 +152,12 @@ class DoABC(SwfTag, AbcFile):
         flags = bitstream.read(UI32)
         name  = bitstream.read(CString)
         abc   = AbcFile.from_bitstream(bitstream)
-        # XXX
-        instance = cls(name, flags)
-        for name in dir(abc):
-            if not name.startswith("__"):
-                setattr(instance, name, getattr(abc, name))
+        instance = cls(name, abc, flags)
         return instance
-    
+
+    def create_generator(self):
+        return self.abc.create_generator()
+
     def serialize_data(self):
         """
         Serializes this tag, according to the following format.
@@ -282,23 +173,18 @@ class DoABC(SwfTag, AbcFile):
         bits = BitStream()
         bits.write(self.flags, UI32)
         bits.write(self.name, CString)
-        return bits.serialize() + AbcFile.serialize(self)
+        return bits.serialize() + self.abc.serialize()
 
     def __repr_inner__(self):
         return "name=%s, flags=%s" % (self.name, bin(self.flags)[2:])
 
-class DoABCDefine(SwfTag, AbcFile):
-    TAG_TYPE = 72
-    TAG_MIN_VERSION = 9
+class DoABCDefine(SwfTag):
+    id = 72
+    min_version = 9
 
-    name = "DoABCDefine"
-    
-    def __init__(self):
-        """
-        Constructor.
-        """
-        AbcFile.__init__(self)
-    
+    def __init__(self, abc):
+        self.abc = abc
+
     def serialize_data(self):
         """
         Serializes this tag, according to the following format.
@@ -309,11 +195,11 @@ class DoABCDefine(SwfTag, AbcFile):
         ABC      abc file
         =======  ==========
         """
-        return AbcFile.serialize(self)
+        return self.abc.serialize(self)
 
 class SymbolClass(SwfTag):
-    TAG_TYPE = 76
-    TAG_MIN_VERSION = 9
+    id = 76
+    min_version = 9
 
     def __init__(self, symbols):
         """
@@ -336,10 +222,10 @@ class SymbolClass(SwfTag):
         =======  =============
         """
         bits = BitStream()
-        bits.write_int_value(len(self.symbols), 16, endianness="<")
+        bits.write(len(self.symbols), UI16)
         for char_id, classname in self.symbols.iteritems():
-            bits.write_int_value(char_id, 16, endianness="<")
-            bits.write_cstring(classname)
+            bits.write(char_id, UI16)
+            bits.write(classname, CString)
         return bits.serialize()
 
     @classmethod
@@ -352,9 +238,9 @@ class SymbolClass(SwfTag):
         return cls(symbols)
 
 class DefineShape(SwfTag):
-    TAG_TYPE = 2
-    TAG_MIN_VERSION = 1
-    TAG_VARIANT = 1
+    id = 2
+    min_version = 1
+    variant = 1
     
     _current_variant = None
 
@@ -376,41 +262,44 @@ class DefineShape(SwfTag):
 
     def serialize_data(self):
         self.shape.calculate_bounds()
-        DefineShape._current_variant = self.TAG_VARIANT
-        
+        DefineShape._current_variant = self.variant
+
         bits = BitStream()
-        bits.write_int_value(self.characterid, 16, endianness="<")
-        
+        bits.write(self.characterid, UI16)
+
         bits += self.shape.shape_bounds
         bits += self.shape
-        
+
         DefineShape._current_variant = None
         return bits.serialize()
 
 class DefineShape2(DefineShape):
-    TAG_TYPE = 22
-    TAG_MIN_VERSION = 2
-    TAG_VARIANT = 2
+    id = 22
+    min_version = 2
+    variant = 2
 
 class DefineShape3(DefineShape):
-    TAG_TYPE = 32
-    TAG_MIN_VERSION = 32
-    TAG_VARIANT = 3
+    id = 32
+    min_version = 32
+    variant = 3
 
 class DefineShape4(DefineShape):
-    TAG_TYPE = 83
-    TAG_MIN_VERSION = 8
-    TAG_VARIANT = 4
+    id = 83
+    min_version = 8
+    variant = 4
 
     def serialize_data(self):
         self.shape.calculate_bounds()
-        DefineShape._current_variant = self.TAG_VARIANT
+        DefineShape._current_variant = self.variant
 
         bits = BitStream()
         bits.write(self.characterid, UI16) # Shape ID
 
-        bits += self.shape.shape_bounds # ShapeBounds Rect
-        bits += self.shape.edge_bounds  # EdgeBounds Rect
+        rect = Rect(XMax=100, YMax=100)
+        bits += rect
+        bits += rect
+        #bits += self.shape.shape_bounds # ShapeBounds Rect
+        #bits += self.shape.edge_bounds  # EdgeBounds Rect
 
         bits.write(Zero[6]) # Reserved
 
@@ -420,12 +309,22 @@ class DefineShape4(DefineShape):
         bits += self.shape # ShapeWithStyle
 
         DefineShape._current_variant = None
-
         return bits.serialize()
 
+    @classmethod
+    def parse_inner(cls, bits):
+        DefineShape._current_variant = cls.variant
+        inst = cls()
+        inst.characterid = bits.read(UI16)
+        shape_bounds, edge_bounds = (bits.read(Rect) for i in xrange(2))
+        bits.read(Zero[6])
+        has_scaling, has_nonscaling = bits.read_bits(2)
+        DefineShape._current_variant = None
+        return inst
+
 class DefineSprite(SwfTag):
-    TAG_TYPE = 39
-    TAG_MIN_VERSION = 3
+    id = 39
+    min_version = 3
 
     implements(IPlaceable)
 
@@ -445,8 +344,8 @@ class DefineSprite(SwfTag):
         return bits.serialize + self.mc.serialize()
 
 class ShowFrame(SwfTag):
-    TAG_TYPE = 1
-    TAG_MIN_VERSION = 1
+    id = 1
+    min_version = 1
 
     def add_to(self, data):
         super(ShowFrame, self).add_to(data)
@@ -457,8 +356,8 @@ class ShowFrame(SwfTag):
         return cls()
 
 class FileAttributes(SwfTag):
-    TAG_TYPE = 69
-    TAG_MIN_VERSION = 1
+    id = 69
+    min_version = 1
     
     def __init__(self, hasMetadata=False, useAS3=True, useNetwork=False):
         """
@@ -489,17 +388,17 @@ class FileAttributes(SwfTag):
     @classmethod
     def parse_inner(cls, bits):
         fa = cls()
-        bits.cursor += 3
+        bits.seek(3, os.SEEK_CUR)
         fa.hasMetadata = bits.read(Bit)
         fa.useAS3      = bits.read(Bit)
-        bits.cursor += 2
+        bits.seek(2, os.SEEK_CUR)
         fa.useNetwork  = bits.read(Bit)
-        bits.cursor += 24
+        bits.seek(24, os.SEEK_CUR)
         return fa
 
 class RemoveObject(SwfTag):
-    TAG_TYPE = 5
-    TAG_MIN_VERSION = 1
+    id = 5
+    min_version = 1
 
     def __init__(self, charid, depth):
         self.characterid, self.depth = charid, depth
@@ -512,11 +411,11 @@ class RemoveObject(SwfTag):
 
     @classmethod
     def parse_inner(cls, bits):
-        inst = cls(bits.read(UI16), bits.read(UI16))
+        return cls(bits.read(UI16), bits.read(UI16))
 
 class RemoveObject2(SwfTag):
-    TAG_TYPE = 28
-    TAG_MIN_VERSION = 3
+    id = 28
+    min_version = 3
 
     def __init__(self, depth):
         self.depth = depth
@@ -528,16 +427,14 @@ class RemoveObject2(SwfTag):
 
     @classmethod
     def parse_inner(cls, bits):
-        inst = cls(bits.read(UI16))
+        return cls(bits.read(UI16))
 
 class PlaceObject(SwfTag):
-    TAG_TYPE = 4
-    TAG_MIN_VERSION = 1
+    id = 4
+    min_version = 1
 
     def __init__(self, depth, charid=None, transform=None, colortransform=None):
-        self.shapeid = shape
-        if getattr(shape, "characterid", None) is not None:
-            self.shapeid = shape.characterid
+        self.shapeid = charid
         self.depth = depth
         self.transform = transform or Matrix()
         self.colortransform = colortransform or CXForm()
@@ -553,8 +450,8 @@ class PlaceObject(SwfTag):
         return bits.serialize()
 
 class PlaceObject2(PlaceObject):
-    TAG_TYPE = 26
-    TAG_MIN_VERSION = 3
+    id = 26
+    min_version = 3
 
     def __init__(self, depth, charid=None, update=False,
                  name=None, transform=None, colortransform=None):
@@ -591,8 +488,8 @@ class PlaceObject2(PlaceObject):
 
 class DefineEditText(SwfTag):
 
-    TAG_TYPE = 37
-    TAG_MIN_VERSION = 4
+    id = 37
+    min_version = 4
     
     def __init__(self, rect, variable, text="", readonly=True, isHTML=False,
                  wordwrap=False, multiline=True, password=False, autosize=True,
@@ -730,25 +627,123 @@ class DefineEditText(SwfTag):
         return "bounds=%s, variable=%r, initial_text=%r" % (self.rect, self.variable, self.text)
 
 class End(SwfTag):
-
-    TAG_TYPE = 0
-    TAG_MIN_VERSION = 0
+    id = 0
+    min_version = 0
     
     def serialize(self):
         return "\0\0"
 
     @classmethod
     def parse_inner(cls, bits):
-        bits.cursor += 16
+        bits.seek(16, os.SEEK_CUR)
         return cls()
+
+
+class UnknownSwfTag(object):
+    """
+    Used for both SWF tags not yet implemented by Fusion
+    and unknown SWF tags.
+    """
+    min_version = -1
+    id = -1
+    reference = {
+        0: "End",
+        1: "ShowFrame",
+        2: "DefineShape",
+        3: "FreeCharacter",        
+        4: "PlaceObject",          
+        5: "RemoveObject",         
+        6: "DefineBits",           
+        7: "DefineButton",         
+        8: "JPEGTables",           
+        9: "SetBackgroundColor",   
+        10: "DefineFont",           
+        11: "DefineText",           
+        12: "DoAction",             
+        13: "DefineFontInfo",       
+        14: "DefineSound",          
+        15: "StartSound",           
+        16: "StopSound",            
+        17: "DefineButtonSound",    
+        18: "SoundStreamHead",      
+        19: "SoundStreamBlock",     
+        20: "DefineBitsLossless",   
+        21: "DefineBitsJPEG2",      
+        22: "DefineShape2",         
+        23: "DefineButtonCxform",   
+        24: "Protect",              
+        25: "PathsArePostScript",   
+        26: "PlaceObject2",         
+        28: "RemoveObject2",        
+        29: "SyncFrame",            
+        31: "FreeAll",              
+        32: "DefineShape3",         
+        33: "DefineText2",          
+        34: "DefineButton2",        
+        35: "DefineBitsJPEG3",      
+        36: "DefineBitsLossless2",  
+        37: "DefineEditText",       
+        38: "DefineVideo",          
+        39: "DefineSprite",         
+        40: "NameCharacter",        
+        41: "ProductInfo",          
+        42: "DefineTextFormat",     
+        43: "FrameLabel",           
+        44: "DefineBehavior",       
+        45: "SoundStreamHead2",     
+        46: "DefineMorphShape",     
+        47: "FrameTag",             
+        48: "DefineFont2",          
+        49: "GenCommand",           
+        50: "DefineCommandObj",     
+        51: "CharacterSet",         
+        52: "FontRef",              
+        53: "DefineFunction",       
+        54: "PlaceFunction",        
+        55: "GenTagObject",         
+        56: "ExportAssets",         
+        57: "ImportAssets",         
+        58: "EnableDebugger",       
+        59: "DoInitAction",         
+        60: "DefineVideoStream",    
+        61: "VideoFrame",           
+        62: "DefineFontInfo2",      
+        63: "DebugID",              
+        64: "EnableDebugger2",      
+        65: "ScriptLimits",         
+        66: "SetTabIndex",          
+        68: "DefineMorphShape2",    
+        69: "FileAttributes",       
+        70: "PlaceObject3",         
+        71: "ImportAssets2",        
+        72: "DoABCDefine",          
+        76: "SymbolClass",          
+        82: "DoABC",                
+        83: "DefineShape4",
+    }
+    def __init__(self, id):
+        self.id = id
+        self.name = self.reference.get(id, "Invalid")
+
+    def __repr__(self):
+        return "<%s (%#X) (Unknown Tag)>" % (self.name, self.id)
+
+    def parse_inner(self, bitstream):
+        return self
 
 class UnknownSwfTagMap(dict):
     def __missing__(self, key):
         self[key] = UnknownSwfTag(key)
         return self[key]
 
-REVERSE_INDEX = UnknownSwfTagMap()
+tag_map = UnknownSwfTagMap()
 
-for clazz in SwfTag.__subclasses__():
-    REVERSE_INDEX[clazz.__name__] = clazz
-    REVERSE_INDEX[clazz.TAG_TYPE] = clazz
+def add_subclasses(TYPE, tag_map=tag_map):
+    for clazz in TYPE.__subclasses__():
+        if getattr(clazz, "parse_inner", None):
+            tag_map[clazz.__name__] = clazz
+            tag_map[clazz.id] = clazz
+        add_subclasses(clazz, tag_map)
+
+add_subclasses(SwfTag)
+del add_subclasses

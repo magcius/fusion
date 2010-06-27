@@ -46,6 +46,9 @@ class FormatStructStatementAdapter(object):
     def __init__(self, format):
         self.format = format
 
+    def _pre_read(self, struct):
+        pass
+
     def _pre_write(self, struct):
         self.format._pre_write(struct, self)
     
@@ -180,7 +183,8 @@ class FieldTemp(FilterStatement):
     def _struct_read(self, struct, bitstream):
         format = IFormat(self.format)
         format = IStructEvaluateable(format)._evaluate(struct)
-        value  = self._filter_read(struct, bitstream.read(format))
+        value  = bitstream.read(format)
+        value  = self._filter_read(struct, value)
         self._struct_set(struct, value)
         return value
 
@@ -397,7 +401,9 @@ class Struct(StructMixin):
 
     def __init__(self, kwargs=None):
         self.reading, self.writing = False, False
-        for k, v in (kwargs or {}).iteritems():
+        kwargs = kwargs or {}
+        kwargs.pop('self', None)
+        for k, v in kwargs.iteritems():
             setattr(self, k, v)
 
     def create_fields(self):
@@ -435,7 +441,7 @@ class Struct(StructMixin):
         if getattr(cls.create_fields, "byte_aligned", None):
             bs.flush()
         bs += argument.as_bitstream()
-    
+
     def as_bitstream(self):
         bitstream = BitStream()
         bitstream.byte_aligned = getattr(self.create_fields, "byte_aligned", False)
@@ -451,7 +457,7 @@ class Struct(StructMixin):
             statement._struct_write(self, bitstream)
         del self.TEMP_FIELDS
         self.writing = False
-        bitstream.rewind()
+        bitstream.seek(0)
         return bitstream
 
     @classmethod

@@ -71,13 +71,13 @@ class SwfMovieClip(SwfTagContainer):
         self.depth = 1
         self.movie = movie
 
-    @property
-    def next_character_id(self):
+    def get_next_charid(self):
         return self.movie._next_character_id
 
-    @next_character_id.setter
-    def next_character_id(self, value):
+    def set_next_charid(self, value):
         self.movie._next_character_id = value
+
+    next_character_id = property(get_next_charid, set_next_charid)
 
     def new_movie_clip(self):
         mc = SwfMovieClip(self.movie)

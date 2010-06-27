@@ -1,11 +1,11 @@
 
-import struct
+import os
 
 from mech.fusion.bitstream.bitstream import BitStream
 from mech.fusion.bitstream.formats import U32, Bit, UB
 from mech.fusion.bitstream.flash_formats import UI8
 
-from mech.fusion.avm2.interfaces import ILoadable, IStorable
+from mech.fusion.avm2.interfaces import ILoadable, IStorable, IMultiname
 from mech.fusion.avm2.constants import py_to_abc, abc_to_py, QName
 from mech.fusion.avm2.util import serialize_u32 as s_u32
 
@@ -41,7 +41,7 @@ class AbcTrait(object):
     """
     KIND = None
     def __init__(self, name, final=False, override=False):
-        self.name = QName(name)
+        self.name = IMultiname(name)
         self._name_index = None
 
         self.is_final = final
@@ -59,7 +59,7 @@ class AbcTrait(object):
     @classmethod
     def parse(cls, bitstream, abc, constants):
         name = constants.multiname_pool.value_at(bitstream.read(U32))
-        bitstream.cursor += 1
+        bitstream.seek(1, os.SEEK_CUR)
         has_metadata = bitstream.read(Bit)
         override = bitstream.read(Bit)
         final    = bitstream.read(Bit)
@@ -125,7 +125,7 @@ class AbcSlotTrait(AbcTrait):
         super(AbcSlotTrait, self).__init__(name, False, False)
         self.slot_id = slot_id
 
-        self.type_name = QName(type_name)
+        self.type_name = IMultiname(type_name)
         self._type_name_index = None
 
         self.value = value

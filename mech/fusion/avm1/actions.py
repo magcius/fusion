@@ -12,9 +12,11 @@ otherwise known as "AVM1 Actions"
 # AVM1 = ActionScript Virtual Machine 1
 # Used for ActionScript 1 and 2
 
+import os
+import struct
+
 from mech.fusion.avm1 import types_ as types
 from mech.fusion.util import BitStream, camel_case_convert
-import struct
 
 preload = dict(this="preload_this",
                arguments="preload_args",
@@ -394,7 +396,7 @@ class ActionDefineFunction2(Action, Block):
         actn.suppress_args  = bits.read_bit()
         actn.preload_args   = bits.read_bit()
         actn.suppress_this  = bits.read_bit()
-        bits.cursor += 7
+        bits.seek(os.SEEK_CUR)
         actn.preload_global = bits.read_bit()
         actn.eval_flags()
         
@@ -459,7 +461,7 @@ class ActionGetURL2(Action):
         actn = cls("")
         actn.load_variables = bits.read_bit()
         actn.load_target    = bits.read_bit()
-        bits.cursor += 4
+        bits.seek(4, os.SEEK_CUR)
         actn.method = cls.METHODR[bits.read_int_value(2)]
         return actn
 
@@ -498,7 +500,7 @@ class ActionGotoFrame2(Action):
 
     @classmethod
     def parse_data(cls, bits, length):
-        bits.cursor += 6
+        bits.seek(6, os.SEEK_CUR)
         has_scene_bias = bits.read_bit()
         play = bits.read_bit()
 

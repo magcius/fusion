@@ -4,20 +4,12 @@ import sys
 import urllib
 import zipfile
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
-
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
-
+from mech.fusion.util import pickle, StringIO
 from mech.fusion.avm2.swc import SwcData
 from mech.fusion.avm2.constants import QName, packagedQName
 from mech.fusion.avm2.abc_ import AbcFile
 from mech.fusion.avm2.query import ClassDesc
+from mech.fusion.avm2.interfaces import IMultiname
 
 from copy import copy
 
@@ -41,8 +33,8 @@ class NativePackage(object):
 
     def __copy__(self):
         inst = type(self)(self._library, self._name)
-        inst._types = dict(self._types)
-        inst._packages = dict(self._packages)
+        inst._types = self._types.copy()
+        inst._packages = self._packages.copy()
         # XXX: should we copy modulename_prefixes?
         return inst
 
@@ -50,6 +42,8 @@ class NativePackage(object):
         return "<native flash module '%s'>" % (self._name or "toplevel",)
 
     def __getattr__(self, attr):
+        if attr in ("_packages", "_types"):
+            return None
         value = self._packages.get(attr, self._types.get(attr, None))
         if value is not None:
             setattr(self, attr, value)
@@ -113,6 +107,19 @@ class Library(object):
             return getattr(self.toplevel, attr)
         raise AttributeError(attr)
 
+    def get_type(self, name):
+        """
+        This function returns the object associated with the passed
+        multiname in this library.
+        """
+        return self.types[name]
+
+    def __contains__(self, name):
+        return name in self.types
+
+    def __copy__(self):
+        return type(self)(self.types, self.packages)
+
     @classmethod
     def gen_library_swcdata(cls, swcdata):
         """
@@ -125,11 +132,10 @@ class Library(object):
         """
         Generates a Library from a SwfData object.
         """
-        from mech.fusion.swf.swfdata import SwfData
-        return cls.gen_library_abc(swfdata.collect_type(AbcFile))
+        return cls.gen_library_abc(swfdata.read_tags(AbcFile))
 
     @classmethod
-    def gen_library_abc(cls, abc):
+    def gen_library_abc(cls, abcs):
         """
         Generates a Library from an ABC file. This may take a little while
         for all libraries to be parsed and working, so it is recommended that
@@ -140,32 +146,35 @@ class Library(object):
         PackagesFlat = {}
 
         def properties(inst):
-            return [(name, type, bool(getter), bool(setter)) for (name, type,
-                     getter, setter) in inst.properties.itervalues()]
+            return [(name, type, getattr(g, "slot_id", None),
+                     getattr(s, "slot_id", None)) for
+                    (name, type, g, s) in inst.properties.itervalues()]
 
         def fields(inst):
-            return [(field.name,
-                     field.type_name) for field in inst.fields.itervalues()]
+            return [(field.name, field.type_name, field.slot_id)
+                    for field in inst.fields.itervalues()]
 
         def methods(inst):
-            return [(m.name, m.method.param_types,
-                     m.method.return_type) for m in inst.methods.itervalues()]
+            return [(m.name, m.method.param_types, m.method.return_type)
+                    for m in inst.methods.itervalues()]
 
-        for inst in abc.instances:
-            # Build our class declarations.
-            desc = ClassDesc()
-            desc.FullName      = inst.name
-            desc.BaseType      = inst.super_name
-            desc.Fields        = fields(inst)
-            desc.StaticFields  = fields(inst.cls)
-            desc.Methods       = methods(inst)
-            desc.StaticMethods = methods(inst.cls)
-            desc.Properties    = properties(inst)
-            desc.StaticProperties = properties(inst.cls)
+        for abc in abcs:
+            abc = getattr(abc, "abc", abc)
+            for inst in abc.instances:
+                # Build our class declarations.
+                desc = ClassDesc()
+                desc.FullName      = inst.name
+                desc.BaseType      = inst.super_name
+                desc.Fields        = fields(inst)
+                desc.StaticFields  = fields(inst.cls)
+                desc.Methods       = methods(inst)
+                desc.StaticMethods = methods(inst.cls)
+                desc.Properties    = properties(inst)
+                desc.StaticProperties = properties(inst.cls)
 
-            # Set it up in the package.
-            package = PackagesFlat.setdefault(desc.Package, {})
-            Types[inst.name] = package[desc.ShortName] = desc
+                # Set it up in the package.
+                package = PackagesFlat.setdefault(desc.Package, {})
+                Types[inst.name] = package[desc.ShortName] = desc
 
         for package, D in PackagesFlat.iteritems():
             # Go through and build our tree.
@@ -173,7 +182,7 @@ class Library(object):
             context = Packages
             for part in parts[:-1]:
                 context = context.setdefault(part, {})
-            context[parts[-1]] = D
+            context.setdefault(parts[-1], {}).update(D)
 
         # Fix toplevel stuff.
         Packages.update(Packages[''])
@@ -215,16 +224,6 @@ class Library(object):
                 value.Library = self
                 context._types[name] = value
 
-    def get_type(self, name):
-        """
-        This function returns the object associated with the passed
-        multiname in this library.
-        """
-        return self.types[name]
-
-    def __contains__(self, name):
-        return name in self.types
-
     def install_global(self, modulename_prefix=None):
         """
         This installs all packages in this library into the
@@ -254,7 +253,7 @@ def gen_playerglobal(output, Library=Library):
     This adds some additional classes, so please use this for playerglobal
     instead of gen_library.
     """
-    library = Library.gen_library_abc(get_playerglobal_swc().get_abc("library.swf"))
+    library = Library.gen_library_abc(get_playerglobal_swc().get_abcs("library.swf"))
     
     # Special hack for Vector's public interface.
     Vector = library.toplevel.__AS3__.vec.Vector
@@ -275,11 +274,17 @@ def gen_playerglobal(output, Library=Library):
 
     library.save_pickledb(output)
 
-def gen_library(swcpath, output, Library=Library):
+def gen_library(path, output, Library=Library):
     """
     This method does the entire generation process for a random SWC.
     """
-    Library.gen_library_swcdata(SwcData.from_filename(swcpath)).save_pickledb(output)
+    if path.endswith(".swc"):
+        L = Library.gen_library_swcdata(SwcData.from_filename(path))
+    elif path.endswith(".swf"):
+        L = Library.gen_library_swfdata(SwfData.from_filename(path))
+    elif path.endswith(".abc"):
+        L = Library.gen_library_abc(AbcFile.from_filename(path))
+    L.save_pickledb(output)
 
 def get_playerglobal(Library=Library):
     """
@@ -293,14 +298,14 @@ def get_type(TYPE):
     This function returns the object associated with the passed
     multiname in all installed libraries.
     """
-    return AllTypes[QName(TYPE)]
+    return AllTypes[IMultiname(TYPE)]
 
 def type_exists(TYPE):
     """
     This function checks for the existance of TYPE, a multiname, in all
     the currently installed libraries.
     """
-    return QName(TYPE) in AllTypes
+    return IMultiname(TYPE) in AllTypes
 
 def make_package(package, Interface):
     """

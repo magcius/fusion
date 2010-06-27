@@ -5,7 +5,9 @@ from zope.component import provideAdapter
 class IBitStream(Interface):
     byte_aligned = Attribute("Whether this BitStream should be"
                              " read/written on a byte boundary")
-    
+
+    bits_available = Attribute("The number of bits left in the BitStream")
+
     def read(format):
         """
         Read a format or struct and return it.
@@ -27,19 +29,35 @@ class IBitStream(Interface):
         and the cursor, args and kwargs returns a tuple containing user data
         to be returned in the first field and a new cursor in the second.
         """
-    
-    def __getitem__(index):
-        """
-        Get and return the bit at value.
 
-        Index may be a slice.
+    def read_bit():
         """
-    
-    def __setitem__(index, value):
+        Read a bit.
         """
-        Set the bit at index to value.
 
-        Index may be a slice.
+    def write_bit():
+        """
+        Write a bit.
+        """
+
+    def read_bits(length):
+        """
+        Read length bits.
+        """
+
+    def write_bits(length):
+        """
+        Write length bits.
+        """
+
+    def read_byte():
+        """
+        Read a byte.
+        """
+
+    def write_byte(byte):
+        """
+        Write a byte.
         """
 
     def __len__():
@@ -51,6 +69,12 @@ class IBitStream(Interface):
         """
         Iterate over the bits in the stream.
         """
+
+    def seek(a, b):
+        pass
+
+    def tell():
+        pass
 
 class IFormat(Interface):
     def _read(bitstream, cursor):

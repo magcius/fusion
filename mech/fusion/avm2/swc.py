@@ -3,6 +3,7 @@ import sys
 
 import zipfile
 
+from mech.fusion.swf.tags import DoABC, DoABCDefine
 from mech.fusion.avm2.abc_ import AbcFile
 
 class SwcData(object):
@@ -20,28 +21,20 @@ class SwcData(object):
     def get_catalog(self):
         return self.zip.open("catalog.xml", "r")
 
-    def get_swf(self, name="library", tags_as_list=True, only_parse_type=None):
+    def get_swf(self, name="library"):
         from mech.fusion.swf.swfdata import SwfData
         if not name.endswith(".swf"):
             name += ".swf"
-        return SwfData.from_file(self.zip.open(name, "r"),
-                                 tags_as_list, only_parse_type)
+        info = self.zip.getinfo(name)
+        return SwfData.from_file(self.zip.open(info, "r"), info.file_size)
 
-    def get_all_swfs(self, tags_as_list=True, only_parse_type=None):
-        return [self.get_swf(name, tags_as_list, only_parse_type) \
-                for name in self.zip.namelist() if name.endswith(".swf")]
+    def get_all_swfs(self):
+        return (self.get_swf(name) for name in
+                self.zip.namelist() if name.endswith(".swf"))
+
+    def get_abcs(self, name="library"):
+        return self.get_swf(name).read_tags((AbcFile, DoABC, DoABCDefine))
 
     def get_all_abcs(self):
-        swfs = self.get_all_swfs(False, AbcFile)
-        abc = AbcFile()
-        for swf in swfs:
-            for tag in swf.tags:
-                abc.merge(tag)
-        return abc
-
-    def get_abc(self, name="library"):
-        library = self.get_swf(name, False, AbcFile)
-        abc = AbcFile()
-        for tag in library.tags:
-            abc.merge(tag)
-        return abc
+        return (s.read_tags((AbcFile, DoABC, DoABCDefine))
+                for s in self.get_all_swfs())

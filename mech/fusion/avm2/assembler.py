@@ -73,6 +73,8 @@ class CodeAssembler(object):
             remv_inst = set()
             remv_regs = {}
 
+            repl_regs = {}
+
             prev = None
 
             # First pass - mark anything needed for the second pass.
@@ -96,6 +98,12 @@ class CodeAssembler(object):
                     remv_inst |= S
                     remv_regs[curr.argument] = S
 
+                # getlocal and then setlocal.
+                ## if prev.name.startswith("getlocal") and \
+                ##    curr.name.startswith("setlocal"):
+                ##     remv_inst |= S
+                ##     repl_regs[curr.argument] = prev.argument
+
                 # PyPy-specific optimization: some opcodes have an unnecessary
                 # StoreResult at the end, so callpropvoid and some setproperty's
                 # have a pushnull and an unused register afterwards. Stop that.
@@ -105,11 +113,12 @@ class CodeAssembler(object):
                     remv_regs[curr.argument] = S
 
                 elif curr.name.startswith("getlocal"):
+                    curr.argument = repl_regs.get(curr.argument, curr.argument)
                     if curr.argument in remv_regs:
                         remv_inst -= remv_regs[curr.argument]
 
-                elif curr.name.startswith("setlocal"):
-                    remv_regs[curr.argument] = set()
+                #elif curr.name.startswith("setlocal"):
+                #    remv_regs[curr.argument] = set()
 
                 elif curr.name == "kill":
                     # If we're going to remove this register, then mark the kill
@@ -155,7 +164,7 @@ class CodeAssembler(object):
                         instructions.pop(-2)
                         jumps[prev.lblname].remove(prev)
 
-                    # returnvalue then returnv(alue|oid).
+                    # return after return.
                     elif prev.name in ("returnvalue", "returnvoid") and \
                          curr.name in ("returnvalue", "returnvoid"):
                         instructions.pop()
@@ -185,6 +194,7 @@ class CodeAssembler(object):
         # Third pass - pack in those registers.
         institer = iter(self.instructions)
         instructions = [institer.next()]
+        # local_names is the arguments to the method
         used_registers = dict((i, i) for i in xrange(len(self.local_names)))
         for newinst in institer:
             curr = instructions.pop()
@@ -330,8 +340,8 @@ class CodeAssembler(object):
     def parse(cls, bitstream, abc, constants, local_count):
         asm = cls(constants, ["_loc%d" % (i,) for i in xrange(local_count)])
         codelen = bitstream.read(U32)
-        finish  = bitstream.cursor + codelen*8
-        while bitstream.cursor < finish:
+        finish  = bitstream.tell() + codelen*8
+        while bitstream.tell() < finish:
             asm.add_instruction(parse_instruction(bitstream, abc, constants, asm))
         return asm
 

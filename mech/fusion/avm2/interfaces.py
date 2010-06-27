@@ -1,6 +1,13 @@
 
 from zope.interface import implements, Interface, Attribute
 
+class IMultiname(Interface):
+    def get_kind():
+        pass
+
+    def serializable():
+        pass
+
 class ILoadable(Interface):
     """
     An ILoadable is something that is loadable on the stack.

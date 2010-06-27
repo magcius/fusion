@@ -1,6 +1,10 @@
 
 from copy import copy
-from mech.fusion.avm2.constants import packagedQName, TypeName
+from mech.fusion.avm2.interfaces import IMultiname
+from mech.fusion.avm2.constants import TypeName
+
+from zope.interface import implementer
+from zope.component import adapter
 
 class ClassDesc(object):
     """
@@ -36,13 +40,17 @@ class ClassDesc(object):
         return hash(self.FullName)
 
     def __str__(self):
-        return "<ClassDesc for %s>" % (self.multiname(),)
+        return "<ClassDesc for %s>" % (IMultiname(self),)
 
-    def multiname(self):
-        if self.Specialized:
-            return self.SpecializedFast.get(self.Specialized, TypeName(self.FullName, *self.Specialized))
-        else:
-            return self.FullName
+    def __copy__(self):
+        cd = ClassDesc()
+        cd.__dict__.update(self.__dict__)
+        return cd
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop('Library', None)
+        return state
 
     def __getitem__(self, item):
         if not isinstance(item, tuple):
@@ -55,3 +63,11 @@ class ClassDesc(object):
             specialized.Specialized = types
             return specialized
         raise TypeError("%s is not a specializable type.")
+
+@adapter(ClassDesc)
+@implementer(IMultiname)
+def multiname(self):
+    if self.Specialized:
+        return self.SpecializedFast.get(self.Specialized, TypeName(self.FullName, *self.Specialized))
+    else:
+        return self.FullName

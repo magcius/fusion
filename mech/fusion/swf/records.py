@@ -3,7 +3,7 @@ import operator
 
 from mech.fusion.bitstream.bitstream import BitStream
 from mech.fusion.bitstream.interfaces import IStruct, IFormat, IStructEvaluateable
-from mech.fusion.bitstream.formats import UB, SB, FB, Bit, Ignore, Zero, One
+from mech.fusion.bitstream.formats import UB, SB, FB, Bit, Zero, One
 from mech.fusion.bitstream.flash_formats import SI32, UI8, UI16, UI24, UI32, FIXED8
 from mech.fusion.bitstream.structs import Struct, NBits, Field, Local, Fields, Enum, byte_aligned
 from mech.fusion.util import nbits, nbits_signed, clamp
@@ -25,26 +25,25 @@ def serialize_style_list(lst):
 
     return bits
 
-## def parse_style_list(bits):
-##     bits = BitStream()
-##     lst_len = bits.read(UI8)
-##     if lst_len == 0xFF:
-##         lst_len = bits.read(UI16)
+def parse_fill_style_list(bits):
+    length = bits.read(UI8)
+    if length == 0xFF:
+        length = bits.read(UI16)
 
-##     L = []
-##     for i in xrange(lst_len):
-##         TYPE = bits.read(UI8)
-##         L.append(Fill[TYPE].from_bitstream(bits))
-##     return L
+    for i in xrange(length):
+        yield FillStyle.from_bitstream(bits)
 
 class RecordHeader(object):
     """
     RECORDHEADER struct, the header that signifies SWF tags.
     """
     implements(IStruct)
-    def __init__(self, type, length):
-        self.type = type
+    def __init__(self, id, length):
+        from mech.fusion.swf.tags import tag_map
+        self.id = id
+        self.type = tag_map[id]
         self.length = length
+        self.bit_length = length*8
 
     def as_bitstream(self):
         """
@@ -66,10 +65,10 @@ class RecordHeader(object):
     @classmethod
     def from_bitstream(cls, bitstream):
         bits = bitstream.read(UI16)
-        type, length = (bits >> 6), (bits & 0x3F)
+        id, length = (bits >> 6), (bits & 0x3F)
         if length == 0x3F:
             length = bitstream.read(UI32)
-        return cls(type, length)
+        return cls(id, length)
 
 class _EndShapeRecord(Struct):
     classProvides(IFormat, IStructEvaluateable)
@@ -465,26 +464,28 @@ class LineStyle2(LineStyle):
             max(p1y, p2y, p3y, p4y) + ly).sort()
 
 class FillStyle(Struct):
-    TYPE = -1
     classProvides(IFormat, IStructEvaluateable)
     @property
     def index(self):
         return self.parent.find(self) + 1
 
-    def create_fields(self):
-        yield Field("TYPE", UI8)
-        for field in self.create_fields_inner():
-            yield field
+    @classmethod
+    def from_bitstream(self, bits):
+        cls = {0: FillStyleSolidFill,
+               16: FillStyleLinearGradient}.get(bits.read(UI8))
+        return Struct.from_bitstream(cls, bits)
 
-    def create_fields_inner(self):
-        return []
+    def as_bitstream(self):
+        bits = BitStream()
+        bits.write(self.TYPE, UI16)
+        bits.write(Struct.as_bitstream(self))
 
 class FillStyleSolidFill(FillStyle):
     TYPE = 0
-    def __init_(self, color=0, alpha=1.0):
+    def __init__(self, color=0, alpha=1.0):
         super(FillStyleSolidFill, self).__init__(dict(color=RGBA(color, alpha)))
 
-    def create_fields_inner(self):
+    def create_fields(self):
         yield Field("color", RGBA)
 
 class GradRecord(Struct):
@@ -557,7 +558,8 @@ class FillStyleLinearGradientFill(FillStyle):
         self.matrix = matrix
         self.gradient = gradient
 
-    def create_fields_inner(self):
+    def create_fields(self):
+        yield Field("TYPE", UI8)
         yield Field("matrix", Matrix)
         yield Field("gradient", Gradient)
 
@@ -570,7 +572,6 @@ class StraightEdgeRecord(Struct):
     def record_added(self):
         pass
 
-    # @byte_aligned
     def create_fields(self):
         if self.writing:
             GeneralLineFlag = not (self.delta_x == 0 or self.delta_y == 0)
@@ -612,7 +613,6 @@ class CurvedEdgeRecord(Struct):
     def record_added(self):
         pass
 
-    # @byte_aligned
     def create_fields(self):
         yield IFormat(True) # TypeFlag
         yield IFormat(False) # StraightFlag
@@ -706,7 +706,6 @@ class StyleChangeRecord(Struct):
         self.parent.add_fill_style(self.fillstyle0)
         self.parent.add_fill_style(self.fillstyle1)
 
-    # @byte_aligned
     def create_fields(self):
         if self.writing:
             from mech.fusion.swf.tags import DefineShape

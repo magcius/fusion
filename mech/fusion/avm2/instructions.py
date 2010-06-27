@@ -3,12 +3,12 @@ from types import FunctionType
 from mech.fusion.bitstream.flash_formats import UI8, SI24, U32
 from mech.fusion.avm2.util import serialize_u32 as u32, Avm2Label
 from mech.fusion.avm2.constants import METHODFLAG_Activation, \
-    METHODFLAG_SetsDxns, has_RTName, has_RTNS, QName
+    METHODFLAG_SetsDxns, has_RTName, has_RTNS, IMultiname
 
 INSTRUCTIONS = {}
 
 def parse_instruction(bitstream, abc, constants, asm):
-    label_name = make_offset_label_name(bitstream.cursor//8)
+    label_name = make_offset_label_name(bitstream.tell()//8)
     cls = INSTRUCTIONS[bitstream.read(UI8)]
     inst = cls.parse_inner(bitstream, abc, constants, asm)
     if label_name in asm.labels:
@@ -181,10 +181,10 @@ class _Avm2MultinameInstruction(_Avm2ShortInstruction):
 
     def __repr_inner__(self):
         return ", multiname=%s" % (self.multiname,)
-
+ 
     def __init__(self, multiname):
         self._multiname_index = 0
-        self.multiname = QName(multiname)
+        self.multiname = IMultiname(multiname)
 
 class _Avm2OffsetInstruction(_Avm2ShortInstruction):
     offset=True
@@ -203,7 +203,7 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
         offset  = bitstream.read(SI24)
-        offset += bitstream.cursor//8
+        offset += bitstream.tell()//8
         lbl = make_offset_label(offset, asm)
         return cls(lbl.name)
 
@@ -238,14 +238,14 @@ class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
     def parse_inner(cls, bitstream, abc, constants, asm):
         # default label
         offset  = bitstream.read(SI24)
-        offset += bitstream.cursor/8
+        offset += bitstream.tell()//8
         lbl = make_offset_label(offset, asm)
 
         # case label count
         cases, count = [], bitstream.read(U32) + 1
 
         for i in xrange(count):
-            offset  = bitstream.cursor//8 - 1
+            offset  = bitstream.tell()//8 - 1
             offset += bitstream.read(SI24)
             lbl = make_offset_label(offset, asm)
             cases.append(lbl.name)
@@ -285,7 +285,7 @@ class _Avm2LabelInstruction(_Avm2ShortInstruction):
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
-        lbl = make_offset_label(bitstream.cursor//8-1, asm)
+        lbl = make_offset_label(bitstream.tell()//8-1, asm)
         lbl.backref = True
         inst = cls(lbl.name)
         inst.label = lbl
@@ -314,7 +314,7 @@ class _Avm2CallIDX(_Avm2ShortInstruction):
         self._multiname_index = pool.multiname_pool.index_for(self.multiname)
 
     def __init__(self, multiname, num_args):
-        self.multiname, self.num_args = QName(multiname), num_args
+        self.multiname, self.num_args = IMultiname(multiname), num_args
 
     def serialize(self):
         return chr(self.opcode) + u32(self._multiname_index) + u32(self.num_args)
@@ -324,7 +324,7 @@ class _Avm2CallIDX(_Avm2ShortInstruction):
         return cls(constants.multiname_pool.value_at(bitstream.read(U32)), bitstream.read(U32))
 
     def __repr_inner__(self):
-        return ", multiname=%s, num_args=%d" % (self.multiname, self.num_args)
+        return ", multiname=%s, num_args=%s" % (self.multiname, self.num_args)
 
 class _Avm2CallMN(_Avm2CallIDX):
     is_void = False

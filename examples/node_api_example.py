@@ -27,5 +27,5 @@ generator.add_node(NodeAPIExampleEntryPoint)
 generator.finish()
 
 f = open("node_api_example.abc", "wb")
-f.write(AbcFile.serialize(abc))
+f.write(abc.serialize())
 f.close()

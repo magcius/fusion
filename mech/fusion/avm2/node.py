@@ -5,8 +5,8 @@ import inspect
 from mech.fusion.avm2 import traits
 from mech.fusion.avm2.codegen import Argument
 from mech.fusion.avm2.constants import QName, packagedQName, undefined
-from mech.fusion.avm2.library import ClassDesc, get_type, make_package
-from mech.fusion.avm2.interfaces import INode, ILoadable
+from mech.fusion.avm2.library import ClassDesc, make_package, get_type
+from mech.fusion.avm2.interfaces import INode, ILoadable, IMultiname
 
 from zope.interface import implements, implementer
 from zope.component import adapter, provideAdapter
@@ -18,8 +18,9 @@ class Slot(object):
     A slot trait. It handles AbcSlotTrait as well as getters and setters.
     """
     implements(ILoadable)
-    def __init__(self, type, id=None, static=False, owner=None):
-        self.type, self.slot_id, self.static = QName(type), id, static
+    def __init__(self, type, gid=None, sid=None, static=False):
+        self.type = IMultiname(type)
+        self.gid, self.sid, self.static = gid, sid, static
         self.owner, self.name = None, None
 
     def create_trait(self):
@@ -32,7 +33,7 @@ class Slot(object):
         # First, load the owner.
         gen.load(self.owner)
         if self.slot_id > 0:
-            gen.emit('getslot', self.slot_id)
+            gen.emit('getslot', self.gid)
         else:
             gen.get_field(self.name)
 
@@ -55,7 +56,6 @@ class CompiledAbcFileNode(object):
         The AbcFile instance to add to the generator.
         """
         self.abc = abcfile
-
     def dependencies(self):
         pass
 
@@ -77,7 +77,7 @@ class ClassNodeMeta(type):
 
         # exported name - name can be a multinamable
         # when using the ClassNodeMeta() constructor.
-        if getattr(name, "multiname", None) is None:
+        if not IMultiname.providedBy(name):
             package = dct.pop('package', '')
             name = packagedQName(package, name)
 
@@ -152,10 +152,10 @@ class ClassNodeMeta(type):
         Emulate descriptor nonsense.
         """
         obj = super(ClassNodeMeta, self).__getattribute__(attr)
-        if getattr(obj, "get_bind", None):
-            if self.currently_rendering:
-                return obj.get_bind(self, True)
-            return obj.get_bind(self, False)
+        ## if getattr(obj, "get_bound", None):
+        ##     if self.currently_rendering:
+        ##         return obj.get_bound(self, True)
+        ##     return obj.get_bound(self, False)
         return obj
 
     def render(self, generator):
@@ -187,14 +187,11 @@ class ClassNodeMeta(type):
 
         generator.end_class()
 
-    def multiname(self):
-        return self.__multiname__
-
     def bases(self):
         bases, context = [], self
-        while context and QName(context) != QName("Object"):
+        while context and IMultiname(context) != IMultiname("Object"):
             bases.append(context)
-            context = INode(get_type(QName(context.__basetype__)))
+            context = INode(get_type(IMultiname(context.__basetype__)))
         return bases
 
     def load(self, gen):
@@ -246,7 +243,7 @@ class FunctionNode(object):
         self.trait_type = getattr(fn, "trait_type", "method")
         self.static = getattr(fn, "static", None)
         self.argspec = zip(argtypes, argspec.args[2:])
-        self.rettype = QName(rettype)
+        self.rettype = IMultiname(rettype)
 
     def dependencies(self):
         pass
@@ -367,18 +364,18 @@ def ClassDescNodeAdapter(classdesc, _cache={}):
     """
     if classdesc in _cache:
         return _cache[classdesc]
-    dct = dict(keep_desc=True, __multiname__=classdesc.FullName)
+    dct = dict(keep_desc=True, __multiname__=classdesc.FullName, __library__=classdesc.Library)
     for n, t in classdesc.Fields:
         dct[n.name] = Slot(t)
-    for n, t in classdesc.StaticFields:
-        dct[n.name] = Slot(t, static=True)
+    for n, t, s in classdesc.StaticFields:
+        dct[n.name] = Slot(t, s, s, static=True)
     for n, t, g, s in classdesc.Properties:
-        dct[n.name] = Slot(t)
+        dct[n.name] = Slot(t, g, s)
     for n, t, g, s in classdesc.StaticProperties:
-        dct[n.name] = Slot(t, static=True)
-    for n, p, r in classdesc.Methods:
+        dct[n.name] = Slot(t, g, s, static=True)
+    for n, p, r, s in classdesc.Methods:
         dct[n.name] = ClassDescFunctionNode(n.name, r)
-    for n, p, r in classdesc.StaticMethods:
+    for n, p, r, s in classdesc.StaticMethods:
         dct[n.name] = ClassDescFunctionNode(n.name, r, static=True)
     base = classdesc.BaseType
     if type(base) == object or base is None or base == undefined: # interfaces and root objects
@@ -390,6 +387,13 @@ def ClassDescNodeAdapter(classdesc, _cache={}):
     return meta
 
 provideAdapter(ClassDescNodeAdapter)
+
+@adapter(ClassNodeMeta)
+@implementer(IMultiname)
+def nodemeta_to_IMultiname(self):
+    return self.__multiname__
+
+provideAdapter(nodemeta_to_IMultiname)
 
 convert_package = functools.partial(make_package, Interface=INode)
 

@@ -4,7 +4,8 @@ from mech.fusion.avm2.assembler import CodeAssembler
 from mech.fusion.avm2.abc_ import (AbcMethodInfo, AbcMethodBodyInfo,
                                    AbcClassInfo, AbcInstanceInfo,
                                    AbcScriptInfo, AbcException, AbcFile)
-from mech.fusion.avm2.interfaces import ILoadable, LoadableAdapter, INode
+from mech.fusion.avm2.interfaces import (ILoadable, LoadableAdapter,
+                                         INode, IMultiname)
 
 from zope.interface import implements
 from zope.component import adapter, provideAdapter
@@ -14,8 +15,8 @@ from math import isnan
 from itertools import chain
 
 NAME_PARAMETER = """
-:param name: should be a string or an object%s with a multiname()
-             method for converting to an ABC Multiname (QName,
+:param name: should be a string or an object%s adaptable to an IMultiname,
+             the interface for representing ABC Multinames (QName,
              TypeName, Multiname, etc). A common use is to use a
              QName with the ns being a private, protected or public
              namespace for access protection.
@@ -284,9 +285,9 @@ class ClassContext(_MethodContextMixin):
         """
         ctx = self.gen.get_class_context(self.name)
         while ctx:
-            if static and constants.QName(name) in ctx.StaticMethods:
+            if static and IMultiname(name) in ctx.StaticMethods:
                 return True
-            elif not static and constants.QName(name) in ctx.Methods:
+            elif not static and IMultiname(name) in ctx.Methods:
                 return True
             ctx = self.gen.get_class_context(ctx.super_name)
         return False
@@ -553,7 +554,6 @@ provideAdapter(IntLoadable, [long], ILoadable)
 
 @adapter(float)
 class FloatLoadable(LoadableAdapter):
-    implements(ILoadable)
     def load(self, generator):
         v = self.value
         if isnan(v):
@@ -565,7 +565,6 @@ provideAdapter(FloatLoadable)
 
 @adapter(basestring)
 class BaseStringLoadable(LoadableAdapter):
-    implements(ILoadable)
     def load(self, generator):
         generator.I(instructions.pushstring(self.value))
 
@@ -855,7 +854,7 @@ class CodeGenerator(object):
         """
         self.I(instructions.pop())
 
-    def dup(self):
+    def dup(self, TYPE=None):
         """
         Duplicate the top item on the stack.
 
@@ -863,6 +862,8 @@ class CodeGenerator(object):
         actual object.
         """
         self.I(instructions.dup())
+        if TYPE:
+            self.downcast(TYPE)
 
     def throw(self):
         """
@@ -967,7 +968,7 @@ class CodeGenerator(object):
         use callpropvoid instead of callproperty, which discards the undefined
         return value that exists on the stack.
         """
-        self.I(instructions.findpropstrict(constants.QName(name)))
+        self.I(instructions.findpropstrict(IMultiname(name)))
         self.call_method_constargs(name, *args, **kwargs)
 
     def call_method_constargs(self, name, *args, **kwargs):
@@ -983,7 +984,7 @@ class CodeGenerator(object):
             i = instructions.callpropvoid
         else:
             i = instructions.callproperty
-        self.I(i(constants.QName(name), len(args)))
+        self.I(i(IMultiname(name), len(args)))
 
     def return_value(self):
         """
@@ -1134,7 +1135,7 @@ class CodeGenerator(object):
         off the stack, and calls the method on the receiver with the
         arguments in first-pushed first-argument order.
         """
-        name = constants.QName(name)
+        name = IMultiname(name)
         self.I(instructions.findpropstrict(name))
         self.I(instructions.callproperty(name, argcount))
 
@@ -1149,7 +1150,7 @@ class CodeGenerator(object):
         off the stack, and calls the method on the receiver with the
         arguments in first-pushed first-argument order.
         """
-        self.I(instructions.callproperty(constants.QName(name), argcount))
+        self.I(instructions.callproperty(IMultiname(name), argcount))
         if TYPE:
             self.downcast(TYPE)
 
@@ -1164,7 +1165,7 @@ class CodeGenerator(object):
         """
         if TYPE:
             self.downcast(TYPE)
-        self.I(instructions.setproperty(constants.QName(fieldname)))
+        self.I(instructions.setproperty(IMultiname(fieldname)))
 
     def get_field(self, fieldname, TYPE=None):
         """
@@ -1175,7 +1176,7 @@ class CodeGenerator(object):
         Pops an object from the top of the stack, gets the field "fieldname",
         and pushes it on the stack.
         """
-        self.I(instructions.getproperty(constants.QName(fieldname)))
+        self.I(instructions.getproperty(IMultiname(fieldname)))
         if TYPE:
             self.downcast(TYPE)
 
@@ -1237,7 +1238,7 @@ class CodeGenerator(object):
         Begin a catch block, attempting to catch TYPE.
         """
         assert self.context.CONTEXT_TYPE == "method"
-        name = TYPE.multiname()
+        name = IMultiname(TYPE)
         ctx = CatchContext(self, self.context)
         idx = self.context.add_exception(name)
         self.context.restore_scopes()
