@@ -61,7 +61,6 @@ def eval_traits(self):
             trait.cls.instance.name  = trait.name
             trait.cls.instance.owner = self
     self.fields     = fields
-    print self, fields
     self.methods    = methods
     self.properties = properties
 
@@ -415,7 +414,8 @@ class AbcClassInfo(object):
 
     def __repr__(self):
         if self.instance:
-            return "AbcClass(%r, %r)", (self.instance.name, self.instance.super_name)
+            return "AbcClass(%r, %r)" % (self.instance.name, self.instance.super_name)
+        return repr(super(AbcClassInfo, self))
 
 class AbcScriptInfo(object):
     def __init__(self, init, traits=None):
@@ -550,3 +550,4 @@ class AbcException(object):
     def write_to_pool(self, pool):
         self._exc_type_index = pool.multiname_pool.index_for(self.exc_type)
         self._var_name_index = pool.utf8_pool.index_for(self.var_name)
+

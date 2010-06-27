@@ -45,14 +45,14 @@ def dump_swf(swfdata):
         dumper.dump_abc(indent="  ")
         p, s, m, b = (a+b for a,b in zip((p,s,m,b), dumper.stats()))
 
-    print indent + "// overall stats:"
-    print indent + "//   %d methods, %d bodies" % (m, b)
-    print indent + "//   %d properties" % (p,)
-    print indent + "//   %d slots" % (s,)
+    print "// overall stats:"
+    print "//   %d methods, %d bodies" % (m, b)
+    print "//   %d properties" % (p,)
+    print "//   %d slots" % (s,)
 
 class AbcDumper(object):
     def __init__(self, abc):
-        self.abc = abc
+        self.abc = getattr(abc, "abc", abc)
         self.meth_count = 0
         self.body_count = 0
         self.prop_count = 0
