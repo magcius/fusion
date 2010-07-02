@@ -4,7 +4,7 @@ import sys
 import urllib
 import zipfile
 
-from mech.fusion.util import pickle, StringIO
+from mech.fusion.compat import pickle, StringIO
 from mech.fusion.avm2.swc import SwcData
 from mech.fusion.avm2.constants import QName, packagedQName
 from mech.fusion.avm2.abc_ import AbcFile
@@ -146,8 +146,7 @@ class Library(object):
         PackagesFlat = {}
 
         def properties(inst):
-            return [(name, type, getattr(g, "slot_id", None),
-                     getattr(s, "slot_id", None)) for
+            return [(name, type, bool(g), bool(s)) for
                     (name, type, g, s) in inst.properties.itervalues()]
 
         def fields(inst):
@@ -330,13 +329,11 @@ def librarygen_main():
         parser.error("cannot use both --playerglobal and a FILENAME")
     elif options.pg:
         options.output = options.output or "playerglobal.pickle"
-        print "Generating", options.output
-        gen_playerglobal(options.output)
     elif not args:
         parser.error("no filename specified")
     elif len(args) > 1:
         parser.error("too many args")
     else:
         options.output = options.output or os.path.splitext(os.path.basename(args[0]))[0]+".pickle"
-        print "Generating", options.output
-        gen_library(args[0], options.output)
+    print "Generating", options.output
+    gen_library(args[0], options.output)
