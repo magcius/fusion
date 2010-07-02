@@ -8,16 +8,6 @@ from math import isnan
 # Old API names
 from mech.fusion.bitstream import BitStream, BitStreamParseMixin, formats, nbits_signed, nbits
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle as pickle
-
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
-
 def clamp(n, minimum, maximum):
     """
     Clamp n between mniimum and maximum.

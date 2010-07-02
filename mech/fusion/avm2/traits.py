@@ -5,8 +5,8 @@ from mech.fusion.bitstream.bitstream import BitStream
 from mech.fusion.bitstream.formats import U32, Bit, UB
 from mech.fusion.bitstream.flash_formats import UI8
 
-from mech.fusion.avm2.interfaces import ILoadable, IStorable, IMultiname
-from mech.fusion.avm2.constants import py_to_abc, abc_to_py, QName
+from mech.fusion.avm2.interfaces import ILoadable, IMultiname
+from mech.fusion.avm2.constants import py_to_abc, abc_to_py
 from mech.fusion.avm2.util import serialize_u32 as s_u32
 
 from zope.interface import implements

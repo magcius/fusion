@@ -7,6 +7,7 @@ dump a .swf or .abc file
 import sys
 import os.path
 
+from mech.fusion.compat import set
 from mech.fusion.avm2 import constants, traits as TRAITS, abc_ as abc
 from mech.fusion.swf import SwfData, tags
 
@@ -33,7 +34,7 @@ def dump_swf(swfdata):
     print "  bounds:", swfdata.width, swfdata.height
     abcs = []
     for tag in swfdata.read_tags():
-        if isinstance(tag, (tags.DoABC, tags.DoABCDefine)):
+        if isinstance(tag, tags.DoABC):
             abcs.append(tag)
         print "    %04x %s" % (tag.offset, tag,)
 

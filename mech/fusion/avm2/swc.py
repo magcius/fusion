@@ -3,7 +3,7 @@ import sys
 
 import zipfile
 
-from mech.fusion.swf.tags import DoABC, DoABCDefine
+from mech.fusion.swf.tags  import DoABC, DoABCDefine
 from mech.fusion.avm2.abc_ import AbcFile
 
 class SwcData(object):
@@ -33,8 +33,8 @@ class SwcData(object):
                 self.zip.namelist() if name.endswith(".swf"))
 
     def get_abcs(self, name="library"):
-        return self.get_swf(name).read_tags((AbcFile, DoABC, DoABCDefine))
+        return self.get_swf(name).read_tags((DoABC, DoABCDefine))
 
     def get_all_abcs(self):
-        return (s.read_tags((AbcFile, DoABC, DoABCDefine))
+        return (s.read_tags((DoABC, DoABCDefine))
                 for s in self.get_all_swfs())

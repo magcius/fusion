@@ -2,6 +2,7 @@
 import functools
 import inspect
 
+from mech.fusion.compat import set
 from mech.fusion.avm2 import traits
 from mech.fusion.avm2.codegen import Argument
 from mech.fusion.avm2.constants import QName, packagedQName, undefined
@@ -18,9 +19,9 @@ class Slot(object):
     A slot trait. It handles AbcSlotTrait as well as getters and setters.
     """
     implements(ILoadable)
-    def __init__(self, type, gid=None, sid=None, static=False):
+    def __init__(self, type, slot_id=None, static=False):
         self.type = IMultiname(type)
-        self.gid, self.sid, self.static = gid, sid, static
+        self.slot_id, self.static = slot_id or 0, static
         self.owner, self.name = None, None
 
     def create_trait(self):
@@ -32,15 +33,22 @@ class Slot(object):
         """
         # First, load the owner.
         gen.load(self.owner)
-        if self.slot_id > 0:
-            gen.emit('getslot', self.gid)
+        if self.slot_id:
+            gen.emit('getslot', self.slot_id)
         else:
             gen.get_field(self.name)
 
     def __getattr__(self, attr):
-        # Do some magic here to make sure our load method gets called.
+        # Do some dirty magic here to make sure the Slot is
+        # the object the function is being bound to.
+        
         # Get the attribute, calling the descriptor if it exists.
         attribute = getattr(INode(get_type(self.type)), attr)
+
+        # Get the actual function.
+        attribute = getattr(attribute, "function", attribute)
+        attribute = getattr(attribute, "im_func", attribute)
+        
         # And finally, call the descriptor on us.
         if getattr(attribute, "get_bound", None):
             attribute = attribute.get_bound(self, False)
@@ -56,6 +64,7 @@ class CompiledAbcFileNode(object):
         The AbcFile instance to add to the generator.
         """
         self.abc = abcfile
+
     def dependencies(self):
         pass
 
@@ -115,13 +124,16 @@ class ClassNodeMeta(type):
                     functs.append(val)
 
         # Allocate slot ids.
-        for slot in slots:
-            if not slot.slot_id:
-                proposed = len(slot_ids)
-                while proposed in slot_ids:
-                    proposed += 1
-                slot.slot_id = proposed
-                slot_ids.add(proposed)
+        # Don't do this, properties don't provide
+        # slot IDs and slots aren't widely used
+        # anyway.
+        ## for slot in slots:
+        ##     if not slot.slot_id:
+        ##         proposed = len(slot_ids)
+        ##         while proposed in slot_ids:
+        ##             proposed += 1
+        ##         slot.slot_id = proposed
+        ##         slot_ids.add(proposed)
 
         dct['__basetype__'] = basetype
         dct.setdefault('__iinit__', None)
@@ -152,10 +164,10 @@ class ClassNodeMeta(type):
         Emulate descriptor nonsense.
         """
         obj = super(ClassNodeMeta, self).__getattribute__(attr)
-        ## if getattr(obj, "get_bound", None):
-        ##     if self.currently_rendering:
-        ##         return obj.get_bound(self, True)
-        ##     return obj.get_bound(self, False)
+        if getattr(obj, "get_bound", None):
+            if self.currently_rendering:
+                return obj.get_bound(self, True)
+            return obj.get_bound(self, False)
         return obj
 
     def render(self, generator):
@@ -365,24 +377,24 @@ def ClassDescNodeAdapter(classdesc, _cache={}):
     if classdesc in _cache:
         return _cache[classdesc]
     dct = dict(keep_desc=True, __multiname__=classdesc.FullName, __library__=classdesc.Library)
-    for n, t in classdesc.Fields:
-        dct[n.name] = Slot(t)
+    for n, t, s in classdesc.Fields:
+        dct[n.name] = Slot(t, s)
     for n, t, s in classdesc.StaticFields:
-        dct[n.name] = Slot(t, s, s, static=True)
+        dct[n.name] = Slot(t, s, static=True)
     for n, t, g, s in classdesc.Properties:
-        dct[n.name] = Slot(t, g, s)
+        dct[n.name] = Slot(t)
     for n, t, g, s in classdesc.StaticProperties:
-        dct[n.name] = Slot(t, g, s, static=True)
-    for n, p, r, s in classdesc.Methods:
+        dct[n.name] = Slot(t, static=True)
+    for n, p, r in classdesc.Methods:
         dct[n.name] = ClassDescFunctionNode(n.name, r)
-    for n, p, r, s in classdesc.StaticMethods:
+    for n, p, r in classdesc.StaticMethods:
         dct[n.name] = ClassDescFunctionNode(n.name, r, static=True)
     base = classdesc.BaseType
-    if type(base) == object or base is None or base == undefined: # interfaces and root objects
+    if type(base) == object or base is None or base == QName("*"): # interfaces and root objects
         base = object
     else:
-        base = ClassDescNodeAdapter(get_type(base))
-    meta = ClassDescNodeMeta(str(classdesc.FullName), (base,), dct)
+        base = INode(get_type(base))
+    meta = ClassDescNodeMeta(classdesc.FullName, (base,), dct)
     _cache[classdesc] = meta
     return meta
 

@@ -1,11 +1,11 @@
 
-from mech.fusion.avm2 import constants, instructions, library, traits, util
+from mech.fusion.compat import set
+
+from mech.fusion.avm2 import constants, instructions, abc_ as abc
+from mech.fusion.avm2 import library, traits, util, playerglobal
+from mech.fusion.avm2.interfaces import ILoadable, LoadableAdapter
+from mech.fusion.avm2.interfaces import IMultiname, INode
 from mech.fusion.avm2.assembler import CodeAssembler
-from mech.fusion.avm2.abc_ import (AbcMethodInfo, AbcMethodBodyInfo,
-                                   AbcClassInfo, AbcInstanceInfo,
-                                   AbcScriptInfo, AbcException, AbcFile)
-from mech.fusion.avm2.interfaces import (ILoadable, LoadableAdapter,
-                                         INode, IMultiname)
 
 from zope.interface import implements
 from zope.component import adapter, provideAdapter
@@ -111,7 +111,7 @@ class _MethodContextMixin(object):
         with the given name, parameters, and return type, "...rest"
         variable names and default values.
         """
-        return AbcMethodInfo(name, [self.gen._get_type(t) for t, n in params],
+        return abc.AbcMethodInfo(name, [self.gen._get_type(t) for t, n in params],
                self.gen._get_type(rettype), param_names=[n for t, n in params],
                varargs=varargs, options=defaults)
 
@@ -172,7 +172,7 @@ class ScriptContext(_MethodContextMixin):
         for generating code on that method.
         """
         if not self.init:
-            self.init = AbcMethodInfo("", [], constants.undefined)
+            self.init = abc.AbcMethodInfo("", [], constants.undefined)
             self.init.ctx = MethodContext(self.gen, self.init, self, [],
                                           optimize=optimize or self.gen.optimize)
         self.gen.enter_context(self.init.ctx)
@@ -254,7 +254,7 @@ class ScriptContext(_MethodContextMixin):
             self.gen.I(*[instructions.popscope()]*len(parents))
             self.gen.I(instructions.initproperty(context.name))
 
-        self.gen.abc.scripts.index_for(AbcScriptInfo(self.init, self.traits))
+        self.gen.abc.scripts.index_for(abc.AbcScriptInfo(self.init, self.traits))
         self.gen.exit_context()
         meth.asm.instructions += insts
         return self.parent
@@ -294,7 +294,7 @@ class ClassContext(_MethodContextMixin):
 
     def make_cinit(self, optimize=None):
         if not self.cinit:
-            self.cinit = AbcMethodInfo("", [], constants.undefined)
+            self.cinit = abc.AbcMethodInfo("", [], constants.undefined)
             self.cinit.ctx = MethodContext(self.gen, self.cinit, self, [],
                                    optimize=optimize or self.gen.optimize)
         self.gen.enter_context(self.cinit.ctx)
@@ -373,10 +373,9 @@ class ClassContext(_MethodContextMixin):
         if self.cinit is None:
             self.make_cinit()
             self.gen.end_method()
-        self.instance = AbcInstanceInfo(self.name, self.iinit,
-                                        traits=self.instance_traits,
-                                        super_name=self.super_name)
-        self.classobj = AbcClassInfo(self.cinit, traits=self.static_traits)
+        self.instance = abc.AbcInstanceInfo(self.name, self.iinit,
+            traits=self.instance_traits, super_name=self.super_name)
+        self.classobj = abc.AbcClassInfo(self.cinit, traits=self.static_traits)
         self.index = self.gen.abc.instances.index_for(self.instance)
         self.gen.abc.classes.index_for(self.classobj)
         return self.parent
@@ -399,8 +398,8 @@ class MethodContext(_MethodContextMixin):
         self.label_counters = {}
         self.acv_traits = []
         self.exceptions = []
-        self.body = AbcMethodBodyInfo(self.method, self.asm, self.acv_traits,
-                                      self.exceptions, self.optimize)
+        self.body = abc.AbcMethodBodyInfo(self.method, self.asm,
+                    self.acv_traits, self.exceptions, self.optimize)
         if stdprologue:
             self.restore_scopes()
 
@@ -435,7 +434,7 @@ class MethodContext(_MethodContextMixin):
         It uses -1 for from, to, and target values, which should be filled
         in by the bogus addexcinfo, begintry, and endtry "instructions".
         """
-        exc = AbcException(-1, -1, -1, param_type, "")
+        exc = abc.AbcException(-1, -1, -1, param_type, "")
         self.asm.add_instruction(instructions.addexcinfo(self, exc))
         self.exceptions.append(exc)
         return len(self.exceptions)-1
@@ -612,13 +611,13 @@ class CodeGenerator(object):
     common idioms in methods.
     """
     def __init__(self, abc_=None, make_script=True, optimize=True):
-        self.abc = abc_ or AbcFile()
+        self.abc = abc_ or abc.AbcFile()
         self.constants = self.abc.constants
         self.context = GlobalContext(self)
         self.optimize = optimize
         self.current_node = None
 
-        self.pending_nodes = set()
+        self.pending_nodes = []
 
         if make_script:
             self.script0 = self.context.new_script()
@@ -628,7 +627,7 @@ class CodeGenerator(object):
         An internal function designed to get a QName for
         a special construct of a "TYPE"
         """
-        return constants.QName(TYPE)
+        return IMultiname(TYPE)
 
     def get_class_context(self, name, DICT={}):
         """
@@ -968,16 +967,18 @@ class CodeGenerator(object):
         use callpropvoid instead of callproperty, which discards the undefined
         return value that exists on the stack.
         """
-        self.I(instructions.findpropstrict(IMultiname(name)))
-        self.call_method_constargs(name, *args, **kwargs)
+        self.I(instructions.getglobalscope())
+        self.call_method_constargs(name, None, *args, **kwargs)
 
-    def call_method_constargs(self, name, *args, **kwargs):
+    def call_method_constargs(self, name, target, *args, **kwargs):
         """
-        Call a method on an object on the stack with the constant arguments
+        Call a method on "target" with the constant arguments
         "args". If a keyword argument "void" that is passed in is True, it will
         use callpropvoid instead of callproperty, which discards the undefined
         return value that exists on the stack.
         """
+        if target:
+            self.load(target)
         if args:
             self.load(*args)
         if kwargs.pop("void", False):
@@ -1014,9 +1015,9 @@ class CodeGenerator(object):
             try:
                 ILoadable(v).load(self)
             except TypeError:
-                m = getattr(v, "multiname", None)
-                if m:
-                    self.I(instructions.getlex(m()))
+                ILoadable(IMultiname(v)).load(self)
+            except:
+                raise TypeError("Unloadable type v")
 
     push_const = load
 
@@ -1110,7 +1111,7 @@ class CodeGenerator(object):
         self.I(instructions.applytype(1))
         return constants.TypeName(Vector, TYPE)
 
-    def oonewarray(self, TYPE, length=1):
+    def new_vector(self, TYPE, length=1):
         """
         Creates a strongly typed Vector of the type "TYPE".
         """
@@ -1119,12 +1120,12 @@ class CodeGenerator(object):
         self.I(instructions.construct(1))
         self.I(instructions.coerce(typename))
 
-    def newarray(self, length=1):
+    def new_array(self, length=1):
         """
         Creates an Array with the given length.
         """
         self.I(instructions.getglobalscope())
-        self.push_const(length)
+        self.load(length)
         self.I(instructions.constructprop(constants.QName("Array"), 1))
 
     def call_function(self, name, argcount):
@@ -1271,7 +1272,7 @@ class CodeGenerator(object):
         """
         Add a node to the pending nodes of this code generator.
         """
-        self.pending_nodes.add(INode(node))
+        self.pending_nodes.append(INode(node))
 
     def Class(self, name, super_name=None, bases=None):
         return ContextManager((self.begin_class, (name, super_name, bases)),

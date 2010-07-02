@@ -350,7 +350,7 @@ class ByteArrayBitStream(BitStreamMixin):
         """
         self.bytes = array('B', [0])
         self.byte, self.bit = 0, 7
-        self.len, self.lenb = 0, 0
+        self.len = 0
         for bit in bits:
             if bit == " ": continue
             self.write_bit(bit or bit == "1")
@@ -387,9 +387,8 @@ class ByteArrayBitStream(BitStreamMixin):
         if self.bit == 0:
             self.bit = 7
             self.byte += 1
-            if self.byte > self.lenb:
+            if self.byte*8 > self.len:
                 self.bytes.append(0)
-                self.lenb += 1
         else:
             self.bit -= 1
         L = self.tell()
@@ -411,13 +410,11 @@ class ByteArrayBitStream(BitStreamMixin):
     def write_byte(self, byte):
         if byte < 0: byte += 256
         if self.bit == 7:
+            self.bytes[self.byte] = byte
             self.byte += 1
-            if self.byte > self.lenb:
-                self.bytes.append(byte)
-                self.lenb += 1
-                self.len  += 8
-            else:
-                self.bytes[self.byte-1:self.byte] = array('B', [byte])
+            if self.byte*8 > self.len:
+                self.len += 8
+                self.bytes.append(0)
         else:
             self.write_bits(self.BYTE_TO_BITS[byte])
 
@@ -427,9 +424,7 @@ class ByteArrayBitStream(BitStreamMixin):
         if self.bit == 7:
             self.bytes[self.byte:self.byte+Len] = array('B', bytes)
             self.byte += Len
-            if self.byte > self.lenb:
-                self.lenb = self.byte
-                self.len  = self.byte*8
+            self.len  = max(self.len, self.byte*8)
         else:
             for byte in bytes:
                 self.write_byte(byte)
@@ -441,7 +436,7 @@ class ByteArrayBitStream(BitStreamMixin):
         return self.len
 
     def __iter__(self):
-        for B in self.bytes:
+        for B in self.bytes[:-1]: # chop off the last 0
             for i in reversed(xrange(8)):
                 yield bool(B & 1 << i)
 
@@ -503,14 +498,11 @@ class BitStreamDataFormat(object):
     def _read(self, bs, cursor):
         inst = self.cls()
         length = self.length
-        if self.endianness == "<":
-            if length & 7: # we don't support non-byte-aligned endianness
-                raise ValueError("You must have a length of a multiple of 8"
-                                 " in order to read with endianness")
-            inst.write(bs.read(F.ByteString[length//8]), F.ByteString["<"])
-            length = 0
-        else:
-            inst.write_bits(bs.read_bits(length))
+        if self.endianness and length & 7: # we don't support endianness
+            raise ValueError("You must have a length of a multiple of 8"
+                             " in order to read with endianness")
+        inst.write_bytes(bs.read(F.ByteList[length//8:self.endianness]))
+        inst.write_bits(bs.read_bits(length & 7))
         inst.seek(0)
         return inst
 

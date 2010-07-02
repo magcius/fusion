@@ -110,12 +110,9 @@ TYPE_MULTINAME_RtqName            = 0x0F # o.ns::name   - namespace on stack
 TYPE_MULTINAME_RtqNameA           = 0x10 # o.@ns::name
 TYPE_MULTINAME_RtqNameL           = 0x11 # o.ns::[name] - namespace and name on stack
 TYPE_MULTINAME_RtqNameLA          = 0x12 # o.@ns::name
-# NameL and NameLA no longer exist.
-# TYPE_MULTINAME_NameL              = 0x13 # o.[name]     - implied public namespace, name on stack
-# TYPE_MULTINAME_NameLA             = 0x14 # o.@[name]
 TYPE_MULTINAME_MultinameL         = 0x1B # o.[name]     -
 TYPE_MULTINAME_MultinameLA        = 0x1C # o.@[name]
-TYPE_MULTINAME_TypeName           = 0x1D # o.ns::name.<generic> - used to implement Vector
+TYPE_MULTINAME_TypeName           = 0x1D # o.ns::name.<types> - used to implement Vector
 
 def has_RTNS(multiname):
     m = IMultiname(multiname).get_kind()
@@ -132,6 +129,9 @@ def has_RTName(multiname):
                  TYPE_MULTINAME_RtqNameLA)
 
 class _undefined(object):
+    """
+    The "undefined" object in JavaScript.
+    """
     implements(ILoadable)
     def load(self, generator):
         generator.push_undefined()
@@ -158,6 +158,11 @@ class _null(object):
 null = _null()
 
 def py_to_abc(value, pool):
+    """
+    This method is not what you are looking for.
+
+    It tries to convert a python type to 
+    """
     if value is True:
         return TYPE_BOOLEAN_True, 0
     if value is False:
@@ -212,17 +217,15 @@ def abc_to_py(tup, pool):
         return pool.multiname_pool.value_at(index)
     raise ValueError("Unknown ABC type value %d." % (TYPE,))
 
-def mn_utf8(bitstream, constants):
-    namei = bitstream.read(U32)
-    if namei == 0:
-        return "*"
-    return constants.utf8_pool.value_at(namei)
-
 # ======================================
 # Namespaces
 # ======================================
 
 class Namespace(object):
+    """
+    A namespace is a property telling multinames
+    what portion your code
+    """
     def __init__(self, kind, name):
         self.kind = kind
         self.name = name
@@ -252,7 +255,19 @@ class Namespace(object):
         kind = {0x16: "package", 0x08: "normal", 0x05: "private"}
         return "Namespace(name=%r, kind=%r)" % (self.name, kind.get(self.kind, self.kind))
 
+
+# As far as I can tell, NamespaceSets are used by crappy compilers
+# that figure out how to manipulate the scope stack and what namespaces
+# to use, but not how to properly resolve properties.
+
+# Basically, it means that the property could be in any one of these
+# namespaces, and it's up to the runtime to figure out where.
 class NamespaceSet(object):
+    """
+    NamespaceSets give a set of namespaces that the runtime
+    will try to resolve it. It's more useful when you need
+    access control.
+    """
     def __init__(self, *namespaces):
         self.namespaces = namespaces
         self._namespace_indices = None
@@ -290,13 +305,18 @@ ANY_NAMESPACE = Namespace(TYPE_NAMESPACE_Namespace, "*")
 PACKAGE_NAMESPACE   = Namespace(TYPE_NAMESPACE_PackageNamespace, "")
 PACKAGE_I_NAMESPACE = Namespace(TYPE_NAMESPACE_PackageInternalNs, "")
 PRIVATE_NAMESPACE   = Namespace(TYPE_NAMESPACE_PrivateNamespace, "")
+
+# This is found in a lot of methods used by ABC.
 AS3_NAMESPACE       = Namespace(TYPE_NAMESPACE_Namespace, "http://adobe.com/AS3/2006/builtin")
 
 NO_NAMESPACE_SET = NamespaceSet()
 PACKAGE_NSSET    = NamespaceSet(PACKAGE_NAMESPACE)
+
+# More often than not, this isn't needed.
 PROP_NAMESPACE_SET = NamespaceSet(PRIVATE_NAMESPACE, PACKAGE_NAMESPACE,
                                   PACKAGE_I_NAMESPACE, AS3_NAMESPACE)
 
+# A convenient factory to get packaged QNames.
 def packagedQName(ns, name):
     return QName(name, Namespace(TYPE_NAMESPACE_PackageNamespace, ns))
 
@@ -311,12 +331,14 @@ def undef_to_IMultiname(mult):
 
 provideAdapter(undef_to_IMultiname)
 
+
 @adapter(NoneType)
 @implementer(IMultiname)
 def none_to_IMultiname(none):
     return QName(none)
 
 provideAdapter(none_to_IMultiname)
+
 
 @adapter(basestring)
 @implementer(IMultiname)
@@ -325,8 +347,22 @@ def str_to_IMultiname(string):
 
 provideAdapter(str_to_IMultiname)
 
+# This is used in something like:
+#   a = new Array();
+#   print(a[0]);
+# The index, 0, is converted to the string "0"
+# and used as the name component as a QName.
+# It's an awful hack, but it's how ECMAScript
+# was designed.
+@adapter(int)
+@implementer(IMultiname)
+def int_to_IMultiname(num):
+    return QName(str(num))
+
+provideAdapter(int_to_IMultiname)
+
 class MultinameBase(object):
-    implements(IMultiname)
+    implements(IMultiname, ILoadable)
     @classmethod
     def get_kind(cls):
         return cls._kind
@@ -345,18 +381,28 @@ class MultinameBase(object):
         return "%s(%s)" % (type(self).__name__,
              ''.join("%s=%r" % (f, getattr(self, f)) for f in self._fields))
 
+    def load(self, gen):
+        gen.emit('getlex', self)
+
     @classmethod
     def parse(cls, bitstream, constants):
         kind = bitstream.read(UI8)
         cls = MULTINAME_KINDS[kind]
         return cls.parse_inner(bitstream, constants)
 
+    @classmethod
+    def mn_utf8(cls, bitstream, constants):
+        index = bitstream.read(U32)
+        if index == 0:
+            return "*"
+        return constants.utf8_pool.value_at(index)
+
 class MultinameL(MultinameBase):
     _fields = "ns_set",
     _kind = TYPE_MULTINAME_MultinameL
 
-    def __init__(self, ns_set):
-        self.ns_set = ns_set
+    def __init__(self, ns_set=None):
+        self.ns_set = ns_set or PACKAGE_NSSET
         self._ns_set_index = None
 
     def write_to_pool(self, pool):
@@ -395,7 +441,7 @@ class Multiname(MultinameL):
 
     @classmethod
     def parse_inner(cls, bitstream, constants):
-        return cls(mn_utf8(bitstream, constants),
+        return cls(cls.mn_utf8(bitstream, constants),
                    constants.nsset_pool.value_at(bitstream.read(U32)))
 
     def serialize(self):
@@ -411,8 +457,8 @@ class QName(MultinameBase):
     _kind = TYPE_MULTINAME_QName
 
     def __init__(self, name, ns=None):
-        if getattr(self, "name", None) is not None:
-            return
+        if IMultiname.providedBy(name):
+            raise TypeError("QName is no longer an adapter. Please use IMultiname instead")
 
         self.name = str(name)
         self.ns = ns or PACKAGE_NAMESPACE
@@ -431,7 +477,7 @@ class QName(MultinameBase):
     @classmethod
     def parse_inner(cls, bitstream, constants):
         return cls(ns=constants.namespace_pool.value_at(bitstream.read(U32)),
-                   name=mn_utf8(bitstream, constants))
+                   name=cls.mn_utf8(bitstream, constants))
 
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
@@ -513,7 +559,7 @@ class TypeName(MultinameBase):
     def serialize(self):
         assert self._name_index is not None, "Please call write_to_pool before serializing"
         assert self._types_indices is not None, "Please call write_to_pool before serializing"
-        return ''.join([chr(self.get_kind), s_u32(self._name_index),
+        return ''.join([chr(self.get_kind()), s_u32(self._name_index),
                         s_u32(len(self._types_indices))] + [s_u32(a) for a in self._types_indices])
 
 MULTINAME_KINDS = dict()
@@ -589,7 +635,9 @@ class AbcConstantPool(BitStreamParseMixin):
             return inner
 
         def utf8():
-            return bitstream.read(UTF8[bitstream.read(U32)])
+            length = bitstream.read(U32)
+            value = bitstream.read(UTF8[length])
+            return value
 
         def serializable(item):
             def _inner():

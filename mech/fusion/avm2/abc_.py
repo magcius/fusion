@@ -162,7 +162,7 @@ class AbcMethodInfo(object):
         self.param_names = param_names or []
         self._param_names_indices = None
 
-        self.return_type = QName(return_type)
+        self.return_type = IMultiname(return_type)
         self._return_type_index = None
 
         self.flags = flags
@@ -170,7 +170,7 @@ class AbcMethodInfo(object):
 
         if varargs and varargs is not True:
             self.param_types.append(QName("Array"))
-            self.param_names.append(QName(varargs))
+            self.param_names.append(IMultiname(varargs))
 
         self.options = options or []
         self._options_indices = None
@@ -324,7 +324,7 @@ class AbcInstanceInfo(object):
         if FlagProtectedNS:
             protectedNs = constants.namespace_pool.value_at(bitstream.read(U32))
 
-        interfaces = [constants.multiname_pool.index_for(bitstream.read(U32)) for i in xrange(bitstream.read(U32))]
+        interfaces = [constants.multiname_pool.value_at(bitstream.read(U32)) for i in xrange(bitstream.read(U32))]
         iinit = abc.methods.value_at(bitstream.read(U32))
 
         traits = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
@@ -550,4 +550,3 @@ class AbcException(object):
     def write_to_pool(self, pool):
         self._exc_type_index = pool.multiname_pool.index_for(self.exc_type)
         self._var_name_index = pool.utf8_pool.index_for(self.var_name)
-

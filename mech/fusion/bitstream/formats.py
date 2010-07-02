@@ -6,6 +6,7 @@ from math import log, floor, ceil, isnan
 from mech.fusion.bitstream.interfaces import IFormat, IBitStream
 from mech.fusion.bitstream.interfaces import IFormatData, IFormatLength
 from mech.fusion.bitstream.interfaces import IStructEvaluateable
+from mech.fusion.compat import set
 
 from types import NoneType
 
@@ -579,26 +580,29 @@ class U32(Format):
     @no_endianness
     def _read(self, bs, cursor):
         n = 0
-        i = 0
-        cont = True
-        while cont:
-            cont = bs.read(Bit)
-            if i == 5:
-                raise ValueError("U32 parsed beyond bounds")
-            n |= bs.read(UB[7]) << 7*i
-            i += 1
+        for i in xrange(5):
+            byte = bs.read_byte()
+            n |= (byte & 0x7F) << 7*i
+            if not (byte & 0x80):
+                break
+        else:
+            raise ValueError("Invalid U32")
         if self.signed and n > 0x7FFFFFFF:
             n -= 0x100000000
-        return int(n)
+        return int(n) # no pesky 'L's
 
     @requires_length(can_be=(None,))
     @no_endianness
     def _write(self, bs, cursor, n):
         n &= 0xFFFFFFFF
-        while n > 0:
-            bs.write((n >> 7) > 0,     Bit)
-            bs.write((n & 0b01111111), UB[7])
+        for i in xrange(5):
+            cont = bool(n >> 7)
+            bs.write_byte((cont << 7) | (n & 0x7F))
             n >>= 7
+            if not cont:
+                break
+        else:
+            raise ValueError("Value does not fit in a U32")
 
 class S32(U32):
     signed = True
@@ -698,7 +702,7 @@ class FloatFormat(Format):
                 value = ~value + 1
             else:
                 bits.write(Zero)
-            
+
             exp = self._EXPN_BIAS[self.length]
             if value < 1:
                 while int(value) != 1:

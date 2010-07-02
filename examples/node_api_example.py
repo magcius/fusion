@@ -1,8 +1,6 @@
 
-from mech.fusion.avm2.constants import QName
 from mech.fusion.avm2.abc_ import AbcFile
 from mech.fusion.avm2.node import Slot, export_method, convert_package
-from mech.fusion.avm2.traits import AbcSlotTrait
 
 from mech.fusion.avm2 import playerglobal
 flash = convert_package(playerglobal.flash)

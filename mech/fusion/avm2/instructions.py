@@ -223,7 +223,7 @@ class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
         address += 1 # opcode
         fake_offset(self.default_label, address)
         asm.offsets.setdefault(self.default_label_name, [])
-        asm.offsets[self.default_label].append(self.default_label)
+        asm.offsets[self.default_label_name].append(self.default_label)
         address += len(u32(len(self.case_labels) - 1))
         for lbl in self.case_labels:
             fake_offset(lbl, address)

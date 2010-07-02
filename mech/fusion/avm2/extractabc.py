@@ -8,8 +8,8 @@ import sys
 import os.path
 
 from mech.fusion.swf.swfdata import SwfData
+from mech.fusion.swf.tags    import DoABC, DoABCDefine
 from mech.fusion.avm2.swc    import SwcData
-from mech.fusion.avm2.abc_   import AbcFile
 
 def sizeof_fmt(num):
     for x in [' bytes','KiB','MiB','GiB','TiB']:
@@ -36,19 +36,18 @@ def main():
         error('cannot find file %s' % (filename,))
 
     if ext == ".swf":
-        abc = AbcFile()
-        for tag in SwfData.from_filename(filename, False, AbcFile).tags:
-            abc.merge(tag)
-        data = abc.serialize()
-    elif ext == ".swc":
-        data = SwcData.from_filename(filename).get_all_abcs().serialize()
+        abcs = SwfData.from_filename(filename).read_tags((DoABC, DoABCDefine))
     else:
         error('cannot parse a %s file' % (ext,))
 
-    out = open(nex+".abc", "w")
-    out.write(data)
-    out.close()
-    print "wrote %s.abc, %s" % (nex, sizeof_fmt(len(data)))
+    for i, abc in enumerate(abcs):
+        name = getattr(abc, "name", None) or "%s_%d" % (nex, i)
+        abc  = getattr(abc, "abc", abc)
+        data = abc.serialize()
+        f = open(name+".abc", "w")
+        f.write(data)
+        f.close()
+        print "wrote %s.abc, %s" % (name, sizeof_fmt(len(data)))
 
 if __name__ == '__main__':
     main()

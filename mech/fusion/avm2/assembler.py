@@ -2,6 +2,7 @@ import itertools
 
 from mech.fusion.bitstream.flash_formats import U32
 
+from mech.fusion.compat import set
 from mech.fusion.avm2.util import ValuePool
 from mech.fusion.avm2.instructions import (parse_instruction, INSTRUCTIONS,
                                            getlocal, setlocal, kill, get_label)

@@ -4,7 +4,7 @@ from mech.fusion.avm2.interfaces import IMultiname
 from mech.fusion.avm2.constants import TypeName
 
 from zope.interface import implementer
-from zope.component import adapter
+from zope.component import adapter, provideAdapter
 
 class ClassDesc(object):
     """
@@ -39,7 +39,7 @@ class ClassDesc(object):
     def __hash__(self):
         return hash(self.FullName)
 
-    def __str__(self):
+    def __repr__(self):
         return "<ClassDesc for %s>" % (IMultiname(self),)
 
     def __copy__(self):
@@ -66,8 +66,10 @@ class ClassDesc(object):
 
 @adapter(ClassDesc)
 @implementer(IMultiname)
-def multiname(self):
+def classdesc_to_multiname(self):
     if self.Specialized:
         return self.SpecializedFast.get(self.Specialized, TypeName(self.FullName, *self.Specialized))
     else:
         return self.FullName
+
+provideAdapter(classdesc_to_multiname)
