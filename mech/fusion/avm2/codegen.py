@@ -1014,10 +1014,11 @@ class CodeGenerator(object):
         for v in args:
             try:
                 ILoadable(v).load(self)
-            except TypeError:
-                ILoadable(IMultiname(v)).load(self)
-            except:
-                raise TypeError("Unloadable type v")
+            except TypeError as e:
+                try:
+                    ILoadable(IMultiname(v)).load(self)
+                except TypeError:
+                    raise TypeError("Unloadable: %r of type %r" % (v, type(v)))
 
     push_const = load
 
@@ -1074,6 +1075,14 @@ class CodeGenerator(object):
             self.load(*members)
         self.I(instructions.newarray(len(members)))
 
+    def new_array(self, length=1):
+        """
+        Creates an Array with the given length.
+        """
+        self.I(instructions.getglobalscope())
+        self.load(length)
+        self.I(instructions.constructprop(constants.QName("Array"), 1))
+
     def init_object(self, members=None):
         """
         Initialize an Object with the dictionary "members".
@@ -1082,51 +1091,34 @@ class CodeGenerator(object):
             self.load(*chain(*members.iteritems()))
         self.I(instructions.newobject(len(members)))
 
-    def init_vector(self, TYPE, members=None):
-        """
-        Initializes a Vector of TYPE with the list "members".
-        """
-        if members:
-            self.load(*members)
-        typename = self._get_vector_type(TYPE)
-        self.I(instructions.construct(len(members)))
-        self.I(instructions.coerce(typename))
-
     def _get_vector_type(self, TYPE):
         """
-        This internal method does two things:
-
-        1. Pushes a Vector applytype'd with TYPE to the top of the stack
-        2. Returns a TypeName of Vector with the given TYPE.
+        Returns a TypeName of Vector with the given TYPE.
         """
         from mech.fusion.avm2 import playerglobal
         TYPE = self._get_type(TYPE)
         Vector = playerglobal.__AS3__.vec.Vector
         if TYPE in Vector.SpecializedFast:
-            fast = Vector.SpecializedFast[TYPE]
-            self.load(fast)
-            return fast
-        self.load(Vector)
-        self.load(TYPE)
-        self.I(instructions.applytype(1))
+            return Vector.SpecializedFast[TYPE]
         return constants.TypeName(Vector, TYPE)
+
+    def init_vector(self, TYPE, members=None):
+        """
+        Initializes a Vector of TYPE with the list "members".
+        """
+        typename = self._get_vector_type(TYPE)
+        self.load(typename, *members)
+        self.I(instructions.construct(len(members)))
+        self.I(instructions.coerce(typename))
 
     def new_vector(self, TYPE, length=1):
         """
         Creates a strongly typed Vector of the type "TYPE".
         """
         typename = self._get_vector_type(TYPE)
-        self.load(length)
+        self.load(typename, length)
         self.I(instructions.construct(1))
         self.I(instructions.coerce(typename))
-
-    def new_array(self, length=1):
-        """
-        Creates an Array with the given length.
-        """
-        self.I(instructions.getglobalscope())
-        self.load(length)
-        self.I(instructions.constructprop(constants.QName("Array"), 1))
 
     def call_function(self, name, argcount):
         """
@@ -1183,7 +1175,7 @@ class CodeGenerator(object):
 
     fast_cast = {
         constants.QName("String"):  instructions.coerce_s(),
-        constants.QName("Array"):   instructions.coerce_a(),
+        constants.QName("*"):       instructions.coerce_a(),
         constants.QName("uint"):    instructions.convert_u(),
         constants.QName("int"):     instructions.convert_i(),
         constants.QName("Number"):  instructions.convert_d(),
