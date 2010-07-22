@@ -474,6 +474,12 @@ class QName(MultinameBase):
             self._name_index = pool.utf8_pool.index_for(self.name)
         self._ns_index = pool.namespace_pool.index_for(self.ns)
 
+    def load(self, gen):
+        if self.name == "*":
+            gen.push_null()
+        else:
+            super(QName, self).load(gen)
+
     @classmethod
     def parse_inner(cls, bitstream, constants):
         return cls(ns=constants.namespace_pool.value_at(bitstream.read(U32)),
@@ -561,6 +567,11 @@ class TypeName(MultinameBase):
         assert self._types_indices is not None, "Please call write_to_pool before serializing"
         return ''.join([chr(self.get_kind()), s_u32(self._name_index),
                         s_u32(len(self._types_indices))] + [s_u32(a) for a in self._types_indices])
+
+    def load(self, gen):
+        gen.load(self.name)
+        gen.load(*self.types)
+        gen.emit('applytype', len(self.types))
 
 MULTINAME_KINDS = dict()
 

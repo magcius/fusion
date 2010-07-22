@@ -405,8 +405,8 @@ getlocal0 = m(_Avm2ShortInstruction, 0xD0, "getlocal0", 1, argument=0)
 getlocal1 = m(_Avm2ShortInstruction, 0xD1, 'getlocal1', 1, argument=1)
 getlocal2 = m(_Avm2ShortInstruction, 0xD2, 'getlocal2', 1, argument=2)
 getlocal3 = m(_Avm2ShortInstruction, 0xD3, 'getlocal3', 1, argument=3)
-newactivation = m(_Avm2ShortInstruction, 0x57, 'newactivation', 1,\
-                      flags=METHODFLAG_Activation)
+newactivation = m(_Avm2ShortInstruction, 0x57, 'newactivation', 1,
+                  flags=METHODFLAG_Activation)
 pushfalse = m(_Avm2ShortInstruction, 0x27, 'pushfalse', 1)
 pushnan = m(_Avm2ShortInstruction, 0x28, 'pushnan', 1)
 pushnull = m(_Avm2ShortInstruction, 0x20, 'pushnull', 1)
@@ -491,7 +491,7 @@ callproplex = m(_Avm2CallMN, 0x4C, 'callproplex', arg_count=2)
 callsupervoid = m(_Avm2CallMNVoid, 0x4E, 'callsupervoid', arg_count=2)
 callpropvoid = m(_Avm2CallMNVoid, 0x4F, 'callpropvoid', arg_count=2)
 
-# Instructions that do not chage the stack height stack and take one U30 argument.
+# Instructions that do not change the stack height stack and take one U30 argument.
 astype = m(_Avm2U30Instruction, 0x86, 'astype')
 # coerce moved to special.
 debugfile = m(_Avm2U30Instruction, 0xF1, 'debugfile')
@@ -519,7 +519,7 @@ pushnamespace = m(_Avm2PushPoolInstruction, 0x31, 'pushnamespace', 1, pool="name
 pushshort = m(_Avm2U30Instruction, 0x25, 'pushshort', 1)
 pushstring = m(_Avm2PushPoolInstruction, 0x2C, 'pushstring', 1, pool="utf8_pool")
 pushuint = m(_Avm2PushPoolInstruction, 0x2E, 'pushuint', 1, pool="uint_pool")
-_getlocal = m(_Avm2U30Instruction, 0x62, 'getlocal')
+_getlocal = m(_Avm2U30Instruction, 0x62, 'getlocal', 1)
 
 # Instructions that pop from the stack and take one U30 argument.
 _setlocal = m(_Avm2U30Instruction, 0x63, 'setlocal', -1)
