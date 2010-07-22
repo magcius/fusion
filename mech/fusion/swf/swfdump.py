@@ -117,7 +117,7 @@ class AbcDumper(object):
         else:
             self.body_count += 1
             print "{"
-            print meth.body.code.dump_instructions(indent=indent+"  ")
+            print meth.body.code.dump_instructions(indent=indent+"  ", exceptions=meth.body.exceptions)
             print indent + "}"
         print
 
