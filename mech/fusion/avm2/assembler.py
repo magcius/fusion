@@ -74,8 +74,6 @@ class CodeAssembler(object):
             remv_inst = set()
             remv_regs = {}
 
-            repl_regs = {}
-
             prev = None
 
             # First pass - mark anything needed for the second pass.
@@ -99,12 +97,6 @@ class CodeAssembler(object):
                     remv_inst |= S
                     remv_regs[curr.argument] = S
 
-                # getlocal and then setlocal.
-                ## if prev.name.startswith("getlocal") and \
-                ##    curr.name.startswith("setlocal"):
-                ##     remv_inst |= S
-                ##     repl_regs[curr.argument] = prev.argument
-
                 # PyPy-specific optimization: some opcodes have an unnecessary
                 # StoreResult at the end, so callpropvoid and some setproperty's
                 # have a pushnull and an unused register afterwards. Stop that.
@@ -114,18 +106,16 @@ class CodeAssembler(object):
                     remv_regs[curr.argument] = S
 
                 elif curr.name.startswith("getlocal"):
-                    curr.argument = repl_regs.get(curr.argument, curr.argument)
                     if curr.argument in remv_regs:
                         remv_inst -= remv_regs[curr.argument]
 
-                #elif curr.name.startswith("setlocal"):
-                #    remv_regs[curr.argument] = set()
+                elif curr.name.startswith("setlocal"):
+                    remv_regs[curr.argument] = set()
 
                 elif curr.name == "kill":
                     # If we're going to remove this register, then mark the kill
                     # for deletion too.
                     if curr.argument in remv_regs:
-                        remv_regs[curr.argument] = set()
                         remv_inst.add(curr)
 
                 prev = curr
@@ -220,23 +210,21 @@ class CodeAssembler(object):
         for i in instructions:
             self.add_instruction(i)
 
-    @property
-    def stack_depth(self):
+    def get_stack_depth(self):
         return self._stack_depth
 
-    @stack_depth.setter
-    def stack_depth(self, value):
+    def set_stack_depth(self, value):
         self._stack_depth = value
         self._stack_depth_max = max(value, self._stack_depth_max)
+    stack_depth = property(get_stack_depth, set_stack_depth)
 
-    @property
-    def scope_depth(self):
+    def get_scope_depth(self):
         return self._scope_depth
 
-    @scope_depth.setter
-    def scope_depth(self, value):
+    def set_scope_depth(self, value):
         self._scope_depth = value
         self._scope_depth_max = max(value, self._scope_depth_max)
+    scope_depth = property(get_scope_depth, set_scope_depth)
 
     @property
     def next_free_local(self):
@@ -282,7 +270,8 @@ class CodeAssembler(object):
         """
         return len(self.temporaries)
 
-    def dump_instructions(self, indent="\t", use_label_names=False):
+    def dump_instructions(self, indent="\t", exceptions=[],
+                          use_label_names=False):
         """
         Dump this assembler's instructions to a string, with the given
         "indent" prepended to each line. If "use_label_names" is True,
@@ -291,24 +280,33 @@ class CodeAssembler(object):
         compiled code, so it makes to set this to False when dumping
         parsed code.
         """
-        lblmap = {}
+        lblmap, from_, to_ = {}, {}, {}
+        for exc in exceptions:
+            from_[exc.from_] = exc
+            to_[exc.to_] = exc
         for inst in self.instructions:
             inst.assembler_pass1(self)
             if inst.label and not use_label_names:
                 lblmap[inst.label.name] = "L%d" % (len(lblmap)+1)
                 inst.label.name = lblmap[inst.label.name]
-        dump, offset = "", 0
+        dump, offset = [], 0
         for inst in self.instructions:
             if inst.label:
-                dump += "\n%s%s:\n" % (indent, inst.label.name,)
+                dump.append("\n%s%s:" % (indent, inst.label.name,))
+            if offset in from_:
+                exc = from_[offset]
+                dump.append("%s<%s %d" % (indent, exc.exc_type, exc.target))
+            if offset in to_:
+                exc = to_[offset]
+                dump.append("%s>%s %d" % (indent, exc.exc_type, exc.target))
             if getattr(inst, "lblname", None):
                 if not use_label_names:
                     inst.lblname = lblmap.get(inst.lblname, inst.lblname)
-            dump += "%s%d%s%s\n" % (indent*2, offset, indent, inst)
+            dump.append("%s%d%s%s" % (indent*2, offset, indent, inst))
             if inst.offset:
-                dump += "\n"
+                dump.append("")
             offset += len(inst.serialize())
-        return dump
+        return '\n'.join(dump)
 
     def pass1(self):
         """
