@@ -4,7 +4,7 @@ from zope.component import adapter, provideAdapter
 
 from mech.fusion.swf.interfaces import ISwfPart, IPlaceable
 from mech.fusion.swf.tags import (ShowFrame, SwfTagNotAllowed,
-    DefineShape4, PlaceObject2, RemoveObject2)
+    DefineShape4, PlaceObject2, RemoveObject2, End)
 from mech.fusion.swf.records import (StraightEdgeRecord, CurvedEdgeRecord,
     StyleChangeRecord, LineStyle2, FillStyleSolidFill, ShapeWithStyle)
 
@@ -59,7 +59,10 @@ class SwfTagContainer(object):
         self.tags.append(tag)
 
     def serialize(self):
-        return ''.join(tag.serialize() for tag in self.tags)
+        data = ''.join(tag.serialize() for tag in self.tags)
+        if not isinstance(self.tags[-1], End):
+            data += "\0\0"
+        return data
 
 class SwfMovieClip(SwfTagContainer):
     """
