@@ -59,6 +59,8 @@ class AbcDumper(object):
         self.prop_count = 0
         self.slot_count = 0
 
+        self.methods_seen = set()
+
     def stats(self):
         return self.prop_count, self.slot_count, self.meth_count, self.body_count
 
@@ -110,9 +112,12 @@ class AbcDumper(object):
         print
 
     def dump_method(self, meth, indent, attrib=""):
-        print indent + "function %s%s(%s):%s" % (attrib, meth.name,
+        self.methods_seen.add(meth)
+        meth.param_names += ("param%d" % (i,) for i in xrange(len(meth.param_names), len(meth.param_types) - len(meth.param_names)))
+        print indent + "function %s%s(%s):%s" % (attrib, getattr(meth, "name", "anonymous_%d" % (len(self.methods_seen),)),
             ', '.join("%s:%s" % t for t in zip(meth.param_names, meth.param_types)), meth.return_type),
-        if meth.flags & constants.METHODFLAG_Native or getattr(meth.owner, "is_interface", None):
+        owner = getattr(meth, "owner", None)
+        if meth.flags & constants.METHODFLAG_Native or (owner and getattr(owner, "is_interface", None)):
             print ";"
         else:
             self.body_count += 1
@@ -140,7 +145,10 @@ class AbcDumper(object):
             self.dump_method(script.init, indent+"    ")
             self.dump_traits(script,      indent+"    ")
             print indent + "}"
-
+ 
+        for method in set(self.abc.methods) - self.methods_seen:
+            self.dump_method(method, indent)
+            
         print indent + "// stats:"
         print indent + "//   %d methods, %d bodies" % (self.meth_count, self.body_count)
         print indent + "//   %d properties" % (self.prop_count,)
