@@ -237,6 +237,9 @@ class SymbolClass(SwfTag):
             symbols[char_id] = bits.read_cstring()
         return cls(symbols)
 
+    def __repr_inner__(self):
+        return self.symbols
+
 class DefineShape(SwfTag):
     id = 2
     min_version = 1
@@ -295,11 +298,8 @@ class DefineShape4(DefineShape):
         bits = BitStream()
         bits.write(self.characterid, UI16) # Shape ID
 
-        rect = Rect(XMax=100, YMax=100)
-        bits += rect
-        bits += rect
-        #bits += self.shape.shape_bounds # ShapeBounds Rect
-        #bits += self.shape.edge_bounds  # EdgeBounds Rect
+        bits += self.shape.shape_bounds # ShapeBounds Rect
+        bits += self.shape.edge_bounds  # EdgeBounds Rect
 
         bits.write(Zero[6]) # Reserved
 
