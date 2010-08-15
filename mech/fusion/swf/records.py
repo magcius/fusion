@@ -57,7 +57,7 @@ class RecordHeader(object):
         ====== =========
         """
         bits = BitStream()
-        bits.write((self.type << 6) | min(self.length, 0x3F), UI16)
+        bits.write((self.id << 6) | min(self.length, 0x3F), UI16)
         if self.length >= 0x3F:
             bits.write(self.length, SI32)
         return bits
