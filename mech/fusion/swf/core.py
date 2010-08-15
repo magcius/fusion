@@ -20,7 +20,9 @@ class SwfGraphicsEmulation(object):
         return delta
 
     def moveTo(self, x, y):
-        self.owner.add_shape_record(StyleChangeRecord(*self.get_delta(x, y)))
+        delta = self.get_delta(x, y)
+        if delta != (0, 0):
+            self.owner.add_shape_record(StyleChangeRecord(*delta))
 
     def curveTo(self, controlx, controly, anchorx, anchory):
         self.owner.add_shape_record(CurvedEdgeRecord(controlx-self.last_x,
