@@ -114,7 +114,7 @@ class BitStreamMixin(object):
         return "".join("1" if b else "0" for b in self)
 
     def __repr__(self):
-        return "<BitStream '%s' pos=%d>" % (str(self), self.tell())
+        return "<BitStream '%s' pos=%d>" % (str(self)[:len(self)], self.tell())
 
     def seek(self, offset, whence=os.SEEK_SET):
         """
@@ -335,7 +335,7 @@ class ByteArrayBitStream(BitStreamMixin):
         bits = tuple([False]*(8-len(bits)) + bits)
         BYTE_TO_BITS[i] = bits
         BITS_TO_BYTE[bits] = i
-    del bits, i
+    del bits, i, a
     
     def __init__(self, bits=[]):
         """
@@ -436,7 +436,10 @@ class ByteArrayBitStream(BitStreamMixin):
         return self.len
 
     def __iter__(self):
-        for B in self.bytes[:-1]: # chop off the last 0
+        bytes = self.bytes
+        if self.len & 7 == 0:
+            bytes = bytes[:-1] # chop off the last 0
+        for B in bytes:
             for i in reversed(xrange(8)):
                 yield bool(B & 1 << i)
 
