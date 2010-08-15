@@ -216,7 +216,7 @@ class ClassNodeMeta(type):
             # XXX: what should we do here?
             # Before we ever get here I think we'll
             # need some sort of __call__ on class
-            # nodes that constructS them.
+            # nodes that constructs them.
             assert False
 
 class ClassNode(object):
