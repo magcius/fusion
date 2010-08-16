@@ -536,7 +536,7 @@ class AbcException(object):
         u = lambda : bitstream.read(U32)
         return cls(u(), u(), u(),
                    constants.multiname_pool.value_at(u()),
-                   constants.utf8_pool.value_at(u()))
+                   constants.multiname_pool.value_at(u()))
 
     def serialize(self):
         code = ""
@@ -549,4 +549,4 @@ class AbcException(object):
 
     def write_to_pool(self, pool):
         self._exc_type_index = pool.multiname_pool.index_for(self.exc_type)
-        self._var_name_index = pool.utf8_pool.index_for(self.var_name)
+        self._var_name_index = pool.multiname_pool.index_for(self.var_name)
