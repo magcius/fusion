@@ -967,7 +967,7 @@ class CodeGenerator(object):
         use callpropvoid instead of callproperty, which discards the undefined
         return value that exists on the stack.
         """
-        self.I(instructions.getglobalscope())
+        self.I(instructions.findpropstrict(name))
         self.call_method_constargs(name, None, *args, **kwargs)
 
     def call_method_constargs(self, name, target, *args, **kwargs):
