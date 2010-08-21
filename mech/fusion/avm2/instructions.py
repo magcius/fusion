@@ -35,8 +35,6 @@ def fake_offset(lbl, offset):
 def get_label(name, asm):
     if name in asm.labels:
         lbl = asm.labels[name]
-        if lbl.seenlabel:
-            lbl.backref = True
     else:
         lbl = asm.labels[name] = Avm2Label(asm)
         lbl.name = name
@@ -257,30 +255,28 @@ class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
 
 class _Avm2LabelInstruction(_Avm2ShortInstruction):
     def __repr_inner__(self):
-        return " lbl=%r" % (self.lblname,)
+        return " lbl=%r" % (self.labelname,)
 
     def assembler_pass1(self, asm):
-        if self.lblname in asm.labels:
-            lbl = asm.labels[self.lblname]
-            asm.stack_depth = lbl.stack_depth
-            asm.scope_depth = lbl.scope_depth
+        if self.labelname in asm.labels: # Already seen label
+            self.label = asm.labels[self.labelname]
+            asm.stack_depth = self.label.stack_depth
+            asm.scope_depth = self.label.scope_depth
         else:
-            lbl = asm.labels[self.lblname] = Avm2Label(asm)
-            lbl.name = self.lblname
-
-        lbl.seenlabel = True
-        self.lbl = lbl
+            self.label = asm.labels[self.labelname] = Avm2Label(asm)
+            self.label.name = self.labelname
+            self.backref = True
 
     def assembler_pass2(self, asm, address):
-        self.lbl.address = address
-        if self.lbl.backref:
-            self.label = self.lbl
-        else:
-            self.next.label = self.lbl
+        self.label.address = address
+        ## if self.lbl.backref:
+        ##     self.label = self.lbl
+        ## else:
+        ##     self.next.label = self.lbl
 
     def serialize(self):
-        if self.lbl.backref:
-            return label_internal.serialize()
+        if self.backref:
+            return chr(self.opcode)
         return ""
 
     @classmethod
@@ -292,7 +288,8 @@ class _Avm2LabelInstruction(_Avm2ShortInstruction):
         return inst
 
     def __init__(self, name):
-        self.lblname = name
+        self.backref = False
+        self.labelname = name
 
 class _Avm2Call(_Avm2U30Instruction):
     def assembler_pass1(self, asm):
@@ -555,8 +552,7 @@ jump = m(_Avm2OffsetInstruction, 0x10, 'jump')
 
 # Special Instructions
 debug = m(_Avm2DebugInstruction, 0xEF, 'debug')
-label_internal = m(_Avm2ShortInstruction, 0x09, 'label')()
-label = m(_Avm2LabelInstruction, 0x09, 'label') # Override this for parsing.
+label = m(_Avm2LabelInstruction, 0x09, 'label')
 lookupswitch = m(_Avm2LookupSwitchInstruction, 0x1B, 'lookupswitch')
 coerce = m(_Avm2MultinameInstruction, 0x80, 'coerce', 0, no_rt=True)
 getlex = m(_Avm2MultinameInstruction, 0x60, 'getlex', 1, no_rt=True)
