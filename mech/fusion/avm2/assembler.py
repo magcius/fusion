@@ -131,7 +131,7 @@ class CodeAssembler(object):
                     test = prev.name, curr.name
 
                     # Prevent errors with jumps and lone labels.
-                    if curr.name == "label" and curr.lblname not in jumps:
+                    if curr.name == "label" and curr.labelname not in jumps:
                         instructions = instructions[:-1]
 
                     # Branch optimizations geared for PyPy.

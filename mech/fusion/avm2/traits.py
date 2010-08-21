@@ -219,10 +219,6 @@ class AbcGetterTrait(AbcMethodTrait):
 class AbcSetterTrait(AbcMethodTrait):
     KIND = TRAIT_Setter
 
-TRAIT_KINDS = {0: AbcSlotTrait,
-               1: AbcMethodTrait,
-               2: AbcGetterTrait,
-               3: AbcSetterTrait,
-               4: AbcClassTrait,
-               5: AbcFunctionTrait,
-               6: AbcConstTrait}
+TRAIT_KINDS = [AbcSlotTrait, AbcMethodTrait, AbcGetterTrait,
+               AbcSetterTrait, AbcClassTrait, AbcFunctionTrait,
+               AbcConstTrait]

@@ -570,16 +570,14 @@ initproperty = m(_Avm2MultinameInstruction, 0x68, 'initproperty', -2)
 setproperty = m(_Avm2MultinameInstruction, 0x61, 'setproperty', -2)
 setsuper = m(_Avm2MultinameInstruction, 0x05, 'setsuper', -2)
 
-_s_speed = {0: setlocal0, 1: setlocal1, 2: setlocal2, 3: setlocal3}
-def setlocal(index):
-    if index in _s_speed:
-        return _s_speed[index]()
+del m
+
+def setlocal(index, speed=[setlocal0, setlocal1, setlocal2, setlocal3]):
+    if 0 <= index < 4:
+        return speed[index]()
     return _setlocal(index)
 
-_g_speed = {0: getlocal0, 1: getlocal1, 2: getlocal2, 3: getlocal3}
-def getlocal(index):
-    if index in _g_speed:
-        return _g_speed[index]()
+def getlocal(index, speed=[getlocal0, getlocal1, getlocal2, getlocal3]):
+    if 0 <= index < 4:
+        return speed[index]()
     return _getlocal(index)
-
-del m
