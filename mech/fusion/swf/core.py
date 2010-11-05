@@ -60,6 +60,7 @@ class SwfTagContainer(object):
 
     def serialize(self):
         data = ''.join(tag.serialize() for tag in self.tags)
+        # Make sure there is an end.
         if not isinstance(self.tags[-1], End):
             data += "\0\0"
         return data
@@ -106,12 +107,37 @@ class SwfMovieClip(SwfTagContainer):
 class SwfDisplayObject(object):
     def __init__(self, cont, charid, depth):
         self.cont, self.charid, self.depth = cont, charid, depth
+        self.update, self._x, self._y = False, 0, 0
+
+    def _get_x(self):
+        return self._x
+
+    def _set_x(self, x):
+        self._x = x
+        self.update = True
+
+    x = property(_get_x, _set_x)
+
+    def _get_y(self):
+        return self._y
+
+    def _set_y(self, y):
+        self._y = y
+        self.update = True
+
+    y = property(_get_y, _set_y)
 
     def remove(self):
         self.cont.add_tag(RemoveObject2(self.depth))
 
 def swfdisplayobject_to_ipart(self):
-    return PlaceObject2(self.depth, self.charid)
+    tag = PlaceObject2(self.depth, self.charid)
+    if self.update:
+        self.update = False
+        tag.update = True
+        tag.transform.dx = self._x
+        tag.transform.dy = self._y
+    return tag
 
 provideAdapter(swfdisplayobject_to_ipart, [SwfDisplayObject], ISwfPart)
 
