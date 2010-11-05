@@ -528,7 +528,7 @@ class AbcException(object):
 
         self.exc_type = IMultiname(exc_type)
         self._exc_type_index = None
-        self.var_name = var_name
+        self.var_name = IMultiname(var_name or "e")
         self._var_name_index = None
 
     @classmethod
