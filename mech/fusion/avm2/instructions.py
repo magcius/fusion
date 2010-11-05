@@ -347,25 +347,6 @@ class _Avm2NewObject(_Avm2U30Instruction):
     def assembler_pass1(self, asm):
         asm.stack_depth += 1 - (2 * self.argument)
 
-def _make_avm2(class_, opcode, name, stack=0, scope=0, **kwargs):
-    o, n, st, sc = opcode, name, stack, scope
-    class inner(class_):
-        opcode = o
-        name = n
-        stack = st
-        scope = sc
-    for k, v in kwargs.iteritems():
-        if isinstance(v, FunctionType):
-            v = staticmethod(v)
-        setattr(inner, k, v)
-    inner.__name__ = name
-    INSTRUCTIONS[name]   = inner
-    INSTRUCTIONS[opcode] = inner
-    return inner
-
-m = _make_avm2
-del _make_avm2
-
 class _Avm2BogusInstruction(_Avm2ShortInstruction):
     opcode = -1
     name = "BOGUS"
@@ -394,6 +375,20 @@ class addexcinfo(_Avm2BogusInstruction):
         self.exc = exc
 
 class begincatch(_Avm2BogusInstruction): scope = 1
+
+# instruction factory
+def m(superclass, o, n, x=0, y=0, **kw):
+    class inner(superclass):
+        opcode = o
+        name = n
+        stack = x
+        scope = y
+    for k, v in kw.iteritems():
+        setattr(inner, k, v)
+    inner.__name__  = n
+    INSTRUCTIONS[n] = inner
+    INSTRUCTIONS[o] = inner
+    return inner
 
 # Instructions that push one value to the stack and take no arguments.
 dup = m(_Avm2ShortInstruction, 0x2A, "dup", 1)
@@ -480,7 +475,7 @@ call = m(_Avm2Call, 0x41, 'call')
 construct = m(_Avm2Construct, 0x42, 'construct')
 constructsuper = m(_Avm2ConstructSuper, 0x49, 'constructsuper')
 callmethod = m(_Avm2CallIDX, 0x43, 'callmethod', arg_count=2)
-callstatic = m(_Avm2CallIDX, 0x43, 'callstatic', arg_count=2)
+callstatic = m(_Avm2CallIDX, 0x44, 'callstatic', arg_count=2)
 callsuper = m(_Avm2CallMN, 0x45, 'callsuper', arg_count=2)
 callproperty = m(_Avm2CallMN, 0x46, 'callproperty', arg_count=2)
 constructprop = m(_Avm2CallMN, 0x4A, 'constructprop', arg_count=2)
@@ -505,7 +500,6 @@ newclass = m(_Avm2U30Instruction, 0x58, 'newclass')
 
 # Instructions that push to the stack and take one U30 argument.
 getglobalslot = m(_Avm2U30Instruction, 0x6E, 'getglobalslot', 1)
-getscopeobject = m(_Avm2U30Instruction, 0x65, 'getscopeobject', 1)
 getouterscope = m(_Avm2U30Instruction, 0x67, 'getouterscope', 1)
 # getproperty moved down to special.
 newcatch = m(_Avm2U30Instruction, 0x5A, 'newcatch', 1)
@@ -532,6 +526,7 @@ applytype = m(_Avm2ApplyType, 0x53, 'applytype')
 
 # Instructions that take one U8 argument.
 pushbyte = m(_Avm2U8Instruction, 0x24, 'pushbyte', 1)
+getscopeobject = m(_Avm2U8Instruction, 0x65, 'getscopeobject', 1)
 
 # Offset instructions
 ifeq = m(_Avm2OffsetInstruction, 0x13, 'ifeq', -2)
