@@ -129,10 +129,6 @@ class _MethodContextMixin(object):
         trait = KIND.get(kind, traits.AbcMethodTrait)(name, meth,
                          override=override or self.overridden(static, name))
 
-        if static:
-            self.add_static_trait(trait)
-        else:
-            self.add_instance_trait(trait)
         ctx = MethodContext(self.gen, meth, self, params,
                             optimize=optimize or self.gen.optimize)
         ctx.trait = trait
@@ -223,8 +219,8 @@ class ScriptContext(_MethodContextMixin):
         self.done = True
         meth = self.make_init()
 
+        # Save all instructions after the scope.
         insts = []
-
         if meth.asm.instructions[2:]:
             insts = meth.asm.instructions[2:]
             meth.asm.instructions = meth.asm.instructions[:2]
@@ -256,6 +252,8 @@ class ScriptContext(_MethodContextMixin):
 
         self.gen.abc.scripts.index_for(abc.AbcScriptInfo(self.init, self.traits))
         self.gen.exit_context()
+
+        # And add them after the class init.
         meth.asm.instructions += insts
         return self.parent
 
@@ -606,6 +604,10 @@ class Argument(object):
         return "Argument(%r)" % (self.name,)
 
 class CodeGenerator(object):
+
+    Argument = Argument
+    Local = Local
+    
     """
     CodeGenerator is a nice generator interface for generating
     common idioms in methods.
@@ -730,8 +732,15 @@ class CodeGenerator(object):
                      optimize=None):
         if self.context.CONTEXT_TYPE not in ("class", "script"):
             raise WrongContextError("begin_method", self.context.CONTEXT_TYPE)
-        return self.context.new_method(name, arglist, returntype, kind, static,
-                                       override, varargs, defaults, optimize)
+
+        ctx = self.context.new_method(name, arglist, returntype, kind, static,
+                                      override, varargs, defaults, optimize)
+
+        if static:
+            self.add_static_trait(ctx.trait)
+        else:
+            self.add_instance_trait(ctx.trait)
+
 
     begin_method.__doc__ = METHOD_CREATOR
 
@@ -981,11 +990,37 @@ class CodeGenerator(object):
             self.load(target)
         if args:
             self.load(*args)
-        if kwargs.pop("void", False):
+        self.call_method(name, len(args), kwargs.pop("TYPE", None), kwargs.pop("void", False))
+
+    def call_function(self, name, argcount, TYPE=None, void=False):
+        """
+        Call a global function with "argcount" arguments.
+
+        Pop "argcount" values off the stack, pop the receiver (this object)
+        off the stack, and calls the method on the receiver with the
+        arguments in first-pushed first-argument order.
+        """
+        self.I(instructions.findpropstrict(name))
+        self.call_method(name, argcount, TYPE, void)
+
+    def call_method(self, name, argcount, TYPE=None, void=False):
+        """
+        Call a method on an object on the stack with "argcount" arguments on the stack.
+
+        If "TYPE" is passed in, it will attempt to cast the value on the top of the
+        stack before returning the value.
+
+        Pop "argcount" values off the stack, pop the receiver (this object)
+        off the stack, and calls the method on the receiver with the
+        arguments in first-pushed first-argument order.
+        """
+        if void:
             i = instructions.callpropvoid
         else:
             i = instructions.callproperty
-        self.I(i(IMultiname(name), len(args)))
+        self.I(i(IMultiname(name), argcount))
+        if TYPE:
+            self.downcast(TYPE)
 
     def return_value(self):
         """
@@ -1119,33 +1154,6 @@ class CodeGenerator(object):
         self.load(typename, length)
         self.I(instructions.construct(1))
         self.I(instructions.coerce(typename))
-
-    def call_function(self, name, argcount):
-        """
-        Call a global function with "argcount" arguments.
-
-        Pop "argcount" values off the stack, pop the receiver (this object)
-        off the stack, and calls the method on the receiver with the
-        arguments in first-pushed first-argument order.
-        """
-        name = IMultiname(name)
-        self.I(instructions.findpropstrict(name))
-        self.I(instructions.callproperty(name, argcount))
-
-    def call_method(self, name, argcount, TYPE=None):
-        """
-        Call a method on an object on the stack with "argcount" arguments on the stack.
-
-        If "TYPE" is passed in, it will attempt to cast the value on the top of the
-        stack before returning the value.
-
-        Pop "argcount" values off the stack, pop the receiver (this object)
-        off the stack, and calls the method on the receiver with the
-        arguments in first-pushed first-argument order.
-        """
-        self.I(instructions.callproperty(IMultiname(name), argcount))
-        if TYPE:
-            self.downcast(TYPE)
 
     def set_field(self, fieldname, TYPE=None):
         """
