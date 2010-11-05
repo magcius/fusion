@@ -1,8 +1,1 @@
-"""
-Mecheye Indepedent Studios namespace
-
-Current projects:
-
-mecheye-fusion
-"""
-
+# This file intentionally left blank.
