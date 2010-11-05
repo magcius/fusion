@@ -34,7 +34,7 @@ NO_OP_GLSL = set((
 class CodeAssembler(object):
     def __init__(self, constants, local_names):
         self.local_names = local_names
-        self.temporaries = ValuePool(debug=True)
+        self.temporaries = ValuePool()
         for i in local_names:
             self.temporaries.index_for(i)
 
@@ -282,8 +282,8 @@ class CodeAssembler(object):
         """
         lblmap, from_, to_ = {}, {}, {}
         for exc in exceptions:
-            from_[exc.from_] = exc
-            to_[exc.to_] = exc
+            from_.setdefault(exc.from_, []).append(exc)
+            to_  .setdefault(exc.to_  , []).append(exc)
         for inst in self.instructions:
             inst.assembler_pass1(self)
             if inst.label and not use_label_names:
@@ -293,11 +293,9 @@ class CodeAssembler(object):
         for inst in self.instructions:
             if inst.label:
                 dump.append("\n%s%s:" % (indent, inst.label.name,))
-            if offset in from_:
-                exc = from_[offset]
+            for exc in from_.get(offset, []):
                 dump.append("%s<%s %d" % (indent, exc.exc_type, exc.target))
-            if offset in to_:
-                exc = to_[offset]
+            for exc in to_.get(offset, []):
                 dump.append("%s>%s %d" % (indent, exc.exc_type, exc.target))
             if getattr(inst, "lblname", None):
                 if not use_label_names:
