@@ -99,7 +99,7 @@ class AbcDumper(object):
         if inst.super_name:
             print "extends %s" % (cls.instance.super_name,),
         if inst.interfaces:
-            print "implements", ', '.join(inst.interfaces)
+            print "implements", (('%s, '*len(inst.interfaces)) % tuple(inst.interfaces))[:-3]
         print "{"
         cls.cinit.name = "%s$cinit" % (cls.name.name,)
         cls.cinit.return_type = constants.QName("void")
