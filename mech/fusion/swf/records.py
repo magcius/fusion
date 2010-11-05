@@ -80,6 +80,10 @@ class _EndShapeRecord(Struct):
 
 EndShapeRecord = _EndShapeRecord()
 
+def SortedRect(x0, y0, x1, y1):
+    return Rect(min(x0, x1), min(y0, y1),
+                max(x0, x1), max(y0, y1))
+
 class Rect(Struct):
     classProvides(IFormat, IStructEvaluateable)
     """
@@ -94,15 +98,16 @@ class Rect(Struct):
         yield Fields("XMin XMax YMin YMax", SB[NBits]) * 20
 
     def union(self, *args):
-        return type(self)(min(self.XMin, *[a.XMin for a in args]),
-                          min(self.YMin, *[a.YMin for a in args]),
-                          max(self.XMax, *[a.XMax for a in args]),
-                          max(self.YMax, *[a.YMax for a in args]),)
-    def sort(self):
-        return type(self)(min(self.XMin, self.XMax),
-                          min(self.YMin, self.YMax),
-                          max(self.XMin, self.XMax),
-                          max(self.YMin, self.YMax))
+        self.XMin = min(self.XMin, *[a.XMin for a in args])
+        self.YMin = min(self.YMin, *[a.YMin for a in args])
+        self.XMax = max(self.XMax, *[a.XMax for a in args])
+        self.YMin = max(self.YMax, *[a.YMax for a in args])
+
+    def include_point(self, x, y):        
+        self.XMin = min(x, self.XMin)
+        self.YMin = min(y, self.YMin)
+        self.XMax = max(x, self.XMax)
+        self.YMax = max(y, self.YMax)
 
 class XY(Struct):
     classProvides(IFormat, IStructEvaluateable)
@@ -131,10 +136,10 @@ class RGB(Struct):
             yield Field("alpha", UI8) * 255
 
     def __eq__(self, other):
-        equality = self.color == other.color
-        if self.has_alpha:
-            equality = equality and self.alpha == other.alpha
-        return equality
+        equals = self.color == other.color and self.has_alpha == other.has_alpha
+        if equals and self.has_alpha:
+            return self.alpha == other.alpha
+        return equals
 
 class RGBA(RGB):
     classProvides(IFormat, IStructEvaluateable)
@@ -232,7 +237,6 @@ class Shape(object):
         self.records.append(shape)
         shape.parent = self
         shape.record_added()
-        self.bounds_calculated = False
 
     def as_bitstream(self):
         """
@@ -246,15 +250,14 @@ class Shape(object):
         UB[24]            always 0
         ================= ============
         """
-        if not self.bounds_calculated:
-            self.calculate_bounds()
 
         if EndShapeRecord not in self.records:
             self.records.append(EndShapeRecord)
 
         bits = BitStream()
         bits += self.serialize_style()
-        for record in self.records:
+        recn = len(self.records)
+        for i, record in enumerate(self.records):
             bits += record
 
         return bits
@@ -271,17 +274,21 @@ class Shape(object):
         if self.bounds_calculated:
             return
 
-        last = 0, 0
-        style = None
+        self.style = None
+        self.last_x, self.last_y = 0, 0
         for record in self.records:
-            last, (self.shape_bounds, self.edge_bounds), (has_scale, has_non_scale, style) = \
-                  record.calculate_bounds(last, self.shape_bounds, self.edge_bounds, style)
-            if has_scale:
-                self.has_scaling = True
-            if has_non_scale:
-                self.has_non_scaling = True
+            record.calculate_bounds(self)
 
+        del self.last_x
+        del self.last_y
+        del self.style
         self.bounds_calculated = True
+
+    def update_bounds(self, delta_x, delta_y):
+        self.last_x += delta_x
+        self.last_y += delta_y
+        self.shape_bounds.include_point(self.last_x, self.last_y)
+        self.edge_bounds.include_point(self.last_x, self.last_y)
 
 class ShapeWithStyle(Shape):
     def __init__(self, fills=None, strokes=None):
@@ -337,15 +344,14 @@ class LineStyle(Struct):
         yield Field("width", UI16) * 20
         yield Field("color", RGBA)
 
-    def cap_style_logic(self, last, delta):
+    def cap_style_logic(self, context, delta):
         off = self.width / 2.0
         dx, dy = delta
-        r = Rect()
-        r.XMin = cmp(dx, 0) * off
-        r.YMin = cmp(dy, 0) * off
-        r.XMax = r.XMin + dx
-        r.YMax = r.YMin + dy
-        return r.sort()
+        XMin = cmp(dx, 0) * off
+        YMin = cmp(dy, 0) * off
+        XMax = XMin + dx
+        YMax = YMin + dy
+        return SortedRect(XMin, YMin, XMax, YMax)
 
 class LineStyle2(LineStyle):
     classProvides(IFormat, IStructEvaluateable)
@@ -418,14 +424,14 @@ class LineStyle2(LineStyle):
             yield Field("color", UI24)
             yield Field("alpha", UI8) * 255
 
-    def cap_style_logic(self, last, delta):
+    def cap_style_logic(self, context, delta):
         # Half thickness (radius of round cap; diameter is thickness)
         off = self.width / 2.0
         dx, dy = delta
-        lx, ly = last
+        lx, ly = context.last_x, context.last_y
 
         if self.caps == "round":
-            return super(LineStyle2, self).cap_style_logic(last, delta)
+            return super(LineStyle2, self).cap_style_logic(context, delta)
 
         if self.caps == "square":
             # Account for the length of the caps.
@@ -461,7 +467,7 @@ class LineStyle2(LineStyle):
             min(p1x, p2x, p3x, p4x) + lx,
             max(p1x, p2x, p3x, p4x) + lx,
             min(p1y, p2y, p3y, p4y) + ly,
-            max(p1y, p2y, p3y, p4y) + ly).sort()
+            max(p1y, p2y, p3y, p4y) + ly)
 
 class FillStyle(Struct):
     classProvides(IFormat, IStructEvaluateable)
@@ -578,8 +584,8 @@ class StraightEdgeRecord(Struct):
             self.set_local("GeneralLineFlag", GeneralLineFlag)
             self.set_local("VerticalLineFlag", self.delta_x == 0)
 
-        yield IFormat(True) # TypeFlag
-        yield IFormat(True) # StraightFlag
+        yield One # TypeFlag
+        yield One # StraightFlag
 
         yield NBits[4] - 2
         yield Local("GeneralLineFlag", Bit)
@@ -596,14 +602,11 @@ class StraightEdgeRecord(Struct):
             if not self.get_local("VerticalLineFlag", False):
                 yield Field("delta_x", SB[NBits]) * 20
 
-    def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
-        rect = Rect(last[0], last[1], self.delta_x, self.delta_y).sort()
-        if style:
-            edge_bounds = edge_bounds.union(style.cap_style_logic(last,
-                (self.delta_x, self.delta_y)))
-        return ((self.delta_x, self.delta_y),
-                (shape_bounds.union(rect), edge_bounds),
-                (False, False, style))
+    def calculate_bounds(self, context):
+        if context.style:
+            context.edge_bounds.union(context.style.cap_style_logic(context, (self.delta_x, self.delta_y)))
+
+        context.update_bounds(self.delta_x, self.delta_y)
 
 class CurvedEdgeRecord(Struct):
     classProvides(IFormat, IStructEvaluateable)
@@ -614,8 +617,8 @@ class CurvedEdgeRecord(Struct):
         pass
 
     def create_fields(self):
-        yield IFormat(True) # TypeFlag
-        yield IFormat(False) # StraightFlag
+        yield One # TypeFlag
+        yield Zero # StraightFlag
 
         yield NBits[4] + 2
         yield Fields("controlx controly anchorx anchory", SB[NBits]) * 20
@@ -629,7 +632,7 @@ class CurvedEdgeRecord(Struct):
     def _get_p(self, t):
         return (self._get_x(t), self._get_y(t))
 
-    def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
+    def calculate_bounds(self, context):
         """
         CurvedEdgeRecord Bounds
         Formulas somewhat based on
@@ -651,22 +654,22 @@ class CurvedEdgeRecord(Struct):
         union = Rect(0, 0, 0, 0)
 
         if t <= 0 or t >= 1:
-            union.XMin = last[0] + min(self.anchorx, 0)
+            union.XMin = context.last_x + min(self.anchorx, 0)
             union.XMax = union.XMin + max(self.anchorx, 0)
         else:
-            union.XMin = min(p, 0, self.anchorx + last[0])
-            union.XMax = union.XMin + max(p - last[0], 0, self.anchorx)
+            union.XMin = min(p, 0, self.anchorx + context.last_x)
+            union.XMax = union.XMin + max(p - context.last_y, 0, self.anchorx)
             
         y = -2 * self.controly + self.anchory
         t = -self.controly / y
         p = self._get_y(t)
 
         if t <= 0 or t >= 1:
-            union.YMin = last[1] + min(self.anchory, 0)
+            union.YMin = context.last_y + min(self.anchory, 0)
             union.YMax = union.YMin + max(self.anchory, 0)
         else:
-            union.YMin = min(p, 0, self.anchory + last[1])
-            union.YMax = union.YMin + max(p - last[0], 0, self.anchory)
+            union.YMin = min(p, 0, self.anchory + context.last_y)
+            union.YMax = union.YMin + max(p - context.last_x, 0, self.anchory)
 
         """
         CapStyle logic:
@@ -686,13 +689,14 @@ class CurvedEdgeRecord(Struct):
         
         slope1 = self._get_p(0.01)
         slope2 = (self.anchorx - self._get_x(0.99), self.anchory - self._get_y(0.99))
-        end_cap_rect   = style.cap_style_logic(last, slope2)
-        start_cap_rect = style.cap_style_logic(last, slope1)
+        end_cap_rect   = style.cap_style_logic(context.last, slope2)
+        start_cap_rect = style.cap_style_logic(context.last, slope1)
 
-        return ((self.anchorx, self.anchory),
-                (shape_bounds.union(union),
-                 edge_bounds.union(union, start_cap_rect, end_cap_rect)),
-                (False, False, style))
+        context.shape_bounds.union(union)
+        context.edge_bounds.union(union, start_cap_rect, end_cap_rect)
+
+        context.last_x += self.anchorx
+        context.last_y += self.anchory
 
 class StyleChangeRecord(Struct):
     classProvides(IFormat, IStructEvaluateable)
@@ -730,7 +734,7 @@ class StyleChangeRecord(Struct):
             self.set_local("FillStyle0Index", self.fillstyle0.index if self.fillstyle0 else 0)
             self.set_local("HasMoveTo", bool(self.delta_x or self.delta_y))
 
-        yield IFormat(False) # TypeFlag
+        yield Zero # TypeFlag
         yield Local("HasNewStyles", Bit)
         yield Local("HasLineStyle", Bit)
         yield Local("HasFillStyle1", Bit)
@@ -775,17 +779,14 @@ class StyleChangeRecord(Struct):
                 self.parent.fills   = self.fillstyles or []
                 self.parent.strokes = self.linestyles or []
 
-    def calculate_bounds(self, last, shape_bounds, edge_bounds, style):
-        x, y = last
-        to_union = Rect(x, y, x + self.delta_x, y + self.delta_y)
-        has_h_scale, has_v_scale = 0, 0
+    def calculate_bounds(self, context):
         if self.linestyle:
-            has_h_scale, has_v_scale = self.linestyle.has_h_scale, self.linestyle.has_v_scale
-            style = self.linestyle
-        return ((self.delta_x, self.delta_y),
-                (shape_bounds.union(to_union),
-                 edge_bounds.union(to_union)),
-                (has_h_scale, has_v_scale, style))
+            context.style = self.linestyle
+            # XXX
+            # context.has_h_scale |= self.linestyle.has_h_scale
+            # context.has_v_scale |= self.linestyle.has_v_scale
+
+        context.update_bounds(self.delta_x, self.delta_y)
 
     ## def as_bitstream(self):
     ##     bits = BitStream()

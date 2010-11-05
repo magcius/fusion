@@ -264,8 +264,9 @@ class DefineShape(SwfTag):
         data.next_character_id += 1
 
     def serialize_data(self):
-        self.shape.calculate_bounds()
         DefineShape._current_variant = self.variant
+
+        self.shape.calculate_bounds()
 
         bits = BitStream()
         bits.write(self.characterid, UI16)
@@ -292,8 +293,9 @@ class DefineShape4(DefineShape):
     variant = 4
 
     def serialize_data(self):
-        self.shape.calculate_bounds()
         DefineShape._current_variant = self.variant
+
+        self.shape.calculate_bounds()
 
         bits = BitStream()
         bits.write(self.characterid, UI16) # Shape ID
