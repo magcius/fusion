@@ -532,12 +532,6 @@ class IntLoadable(LoadableAdapter):
         v = self.value
         if v > util.U32_MAX or v < -util.S32_MAX:
             generator.I(instructions.pushdouble(v))
-            #if v > 0:
-            #    self.I(instructions.convert_u())
-            #else:
-            #    self.I(instructions.convert_i())
-        elif 0 <= v < 256:
-            generator.I(instructions.pushbyte(v))
         elif v >= 0:
             generator.I(instructions.pushuint(v))
         else:

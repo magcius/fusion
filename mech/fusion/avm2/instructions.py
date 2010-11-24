@@ -1,6 +1,6 @@
 from types import FunctionType
 
-from mech.fusion.bitstream.flash_formats import UI8, SI24, U32
+from mech.fusion.bitstream.flash_formats import UI8, SI8, SI24, U32
 from mech.fusion.avm2.util import serialize_u32 as u32, Avm2Label
 from mech.fusion.avm2.constants import METHODFLAG_Activation, \
     METHODFLAG_SetsDxns, has_RTName, has_RTNS, IMultiname
@@ -101,7 +101,7 @@ class _Avm2DebugInstruction(_Avm2ShortInstruction):
         self.reg = reg
         self.extra = extra
 
-class _Avm2U8Instruction(_Avm2ShortInstruction):
+class _Avm2GetScopeObject(_Avm2ShortInstruction):
     def __repr_inner__(self):
         return ", arg=%d" % (self.argument,)
 
@@ -111,6 +111,20 @@ class _Avm2U8Instruction(_Avm2ShortInstruction):
 
     def serialize(self):
         return chr(self.opcode) + chr(self.argument)
+
+    def __init__(self, argument):
+        self.argument = argument
+
+class _Avm2PushByte(_Avm2ShortInstruction):
+    def __repr_inner__(self):
+        return ", arg=%d" % (self.argument,)
+
+    @classmethod
+    def parse_inner(cls, bitstream, abc, constants, asm):
+        return cls(bitstream.read(SI8))
+
+    def serialize(self):
+        return chr(self.opcode) + chr(self.argument & 0xFF)
 
     def __init__(self, argument):
         self.argument = argument
@@ -525,8 +539,8 @@ newobject = m(_Avm2NewObject, 0x55, 'newobject')
 applytype = m(_Avm2ApplyType, 0x53, 'applytype')
 
 # Instructions that take one U8 argument.
-pushbyte = m(_Avm2U8Instruction, 0x24, 'pushbyte', 1)
-getscopeobject = m(_Avm2U8Instruction, 0x65, 'getscopeobject', 1)
+pushbyte = m(_Avm2PushByte, 0x24, 'pushbyte', 1)
+getscopeobject = m(_Avm2GetScopeObject, 0x65, 'getscopeobject', 1)
 
 # Offset instructions
 ifeq = m(_Avm2OffsetInstruction, 0x13, 'ifeq', -2)

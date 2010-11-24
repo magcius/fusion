@@ -591,7 +591,7 @@ class AbcConstantPool(BitStreamParseMixin):
 
     def __init__(self):
         self.int_pool       = ValuePool(0, self)
-        self.uint_pool      = ValuePool(0, self)
+        self.uint_pool      = ValuePool(object(), self) # 0 isn't in the uint pool
         self.double_pool    = ValuePool(float("nan"), self)
         self.utf8_pool      = ValuePool(object(), self, True) # Don't use "" because of multinames.
         self.namespace_pool = ValuePool(ANY_NAMESPACE, self)

@@ -291,6 +291,8 @@ class Byte(Format):
                 return chr(byte)
             if self.list:
                 return [byte]
+            if self.signed and byte > 127:
+                return byte-256
             return byte
 
         elif length is None:
