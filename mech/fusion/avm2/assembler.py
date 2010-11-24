@@ -149,7 +149,7 @@ class CodeAssembler(object):
 
                     # Jump then label. Just remove the jump.
                     elif test == ("jump", "label") and  \
-                         prev.lblname == curr.lblname:
+                         prev.lblname == curr.labelname:
                         # Don't remove the label, we may need it for a backref
                         # later on.
                         instructions.pop(-2)
@@ -167,11 +167,11 @@ class CodeAssembler(object):
                     ##     instructions.pop()
 
                     elif test == ("label", "jump"):
-                        for jump in jumps[prev.lblname]:
+                        for jump in jumps[prev.labelname]:
                             jump.lblname = curr.lblname
                         jumps[curr.lblname].remove(curr)
-                        jumps[curr.lblname].extend(jumps[prev.lblname])
-                        del jumps[prev.lblname]
+                        jumps[curr.lblname].extend(jumps[prev.labelname])
+                        del jumps[prev.labelname]
                         instructions = instructions[:-2]
 
                     elif curr in remv_inst:
