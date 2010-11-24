@@ -132,7 +132,6 @@ class _MethodContextMixin(object):
         ctx = MethodContext(self.gen, meth, self, params,
                             optimize=optimize or self.gen.optimize)
         ctx.trait = trait
-        self.gen.enter_context(ctx)
         return ctx
 
     new_method.__doc__ = METHOD_CREATOR
@@ -353,7 +352,6 @@ class ClassContext(_MethodContextMixin):
         instance variables (slots) but also used for method declarations.
         """
         self.instance_traits.append(trait)
-        return len(self.instance_traits)
 
     def add_static_trait(self, trait):
         """
@@ -361,7 +359,6 @@ class ClassContext(_MethodContextMixin):
         instance variables (slots) but also used for method declarations.
         """
         self.static_traits.append(trait)
-        return len(self.static_traits)
 
     def exit(self):
         assert self.parent.CONTEXT_TYPE == "script"
@@ -735,12 +732,12 @@ class CodeGenerator(object):
 
         ctx = self.context.new_method(name, arglist, returntype, kind, static,
                                       override, varargs, defaults, optimize)
-
         if static:
-            self.add_static_trait(ctx.trait)
+            self.context.add_static_trait(ctx.trait)
         else:
-            self.add_instance_trait(ctx.trait)
+            self.context.add_instance_trait(ctx.trait)
 
+        self.enter_context(ctx)
 
     begin_method.__doc__ = METHOD_CREATOR
 
@@ -1047,13 +1044,15 @@ class CodeGenerator(object):
         on the result of calling the multiname.
         """
         for v in args:
+            loadable = None
             try:
-                ILoadable(v).load(self)
-            except TypeError as e:
+                loadable = ILoadable(v)
+            except TypeError:
                 try:
-                    ILoadable(IMultiname(v)).load(self)
+                    loadable = ILoadable(IMultiname(v))
                 except TypeError:
-                    raise TypeError("Unloadable: %r of type %r" % (v, type(v)))
+                    raise
+            loadable.load(self)
 
     push_const = load
 
