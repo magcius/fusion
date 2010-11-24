@@ -43,7 +43,7 @@ def main():
     for i, abc in enumerate(abcs):
         name = getattr(abc, "name", None) or "%s_%d" % (nex, i)
         abc  = getattr(abc, "abc", abc)
-        data = abc.serialize()
+        data = abc.serialize(optimize=False)
         f = open(name+".abc", "w")
         f.write(data)
         f.close()
