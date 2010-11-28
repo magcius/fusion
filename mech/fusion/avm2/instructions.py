@@ -364,14 +364,24 @@ class _Avm2CallIDX(_Avm2ShortInstruction):
     def __repr_inner__(self):
         return ", multiname=%s, num_args=%s" % (self.multiname, self.num_args)
 
+    def __len__(self):
+        return len(self.serialize())
+
 class _Avm2CallMN(_Avm2CallIDX):
     is_void = False
     def assembler_pass1(self, asm):
-        super(_Avm2CallMN, self).assembler_pass1(asm)
-        has_rtns   = has_RTNS(self.multiname)
-        has_rtname = has_RTName(self.multiname)
-        asm.stack_depth += int(self.is_void) - \
-            (1 + int(has_rtns) + int(has_rtname) + self.num_args)
+        stack_change = -self.num_args
+
+        if has_RTNS(self.multiname):
+            stack_change -= 1
+
+        if has_RTName(self.multiname):
+            stack_change -= 1
+
+        if not self.is_void:
+            stack_change += 1
+
+        asm.stack_depth += stack_change
 
 class _Avm2CallMNVoid(_Avm2CallMN):
     is_void = True
