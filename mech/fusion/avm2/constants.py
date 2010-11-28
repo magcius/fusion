@@ -617,7 +617,12 @@ class AbcConstantPool(BitStreamParseMixin):
             return struct.pack("<d", double)
 
         def utf8(string):
-            return s_u32(len(string)) + string.encode("utf8")
+            try:
+                string = unicode(string, "latin-1")
+            except TypeError:
+                pass
+            string = string.encode("utf8")
+            return s_u32(len(string)) + string
 
         def serializable(item):
             return item.serialize()

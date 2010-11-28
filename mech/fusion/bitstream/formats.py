@@ -411,6 +411,10 @@ class UTF8(Format):
 
     @requires_length(cant_be=(None,))
     def _write(self, bs, cursor, argument):
+        try:
+            argument = unicode(argument, "latin-1")
+        except TypeError:
+            pass
         bs.write(argument.encode("utf8"), ByteString[self.length])
 
 class CUTF8(Format):
