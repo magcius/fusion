@@ -57,7 +57,7 @@ class CodeAssembler(object):
         """
         Add an instruction to this block.
         """
-        if instruction:
+        if instruction is not None:
             if self.instructions:
                 self.instructions[-1].next = instruction
             self.instructions.append(instruction)
@@ -303,7 +303,7 @@ class CodeAssembler(object):
             dump.append("%s%d%s%s" % (indent*2, offset, indent, inst))
             if inst.offset:
                 dump.append("")
-            offset += len(inst.serialize())
+            offset += len(inst)
         return '\n'.join(dump)
 
     def pass1(self):

@@ -58,6 +58,9 @@ class _Avm2ShortInstruction(object):
     def __repr_inner__(self):
         return ""
 
+    def __len__(self):
+        return 1
+
     def assembler_added(self, asm):
         pass
 
@@ -101,6 +104,9 @@ class _Avm2DebugInstruction(_Avm2ShortInstruction):
         self.reg = reg
         self.extra = extra
 
+    def __len__(self):
+        return len(self.serialize())
+
 class _Avm2GetScopeObject(_Avm2ShortInstruction):
     def __repr_inner__(self):
         return ", arg=%d" % (self.argument,)
@@ -114,6 +120,9 @@ class _Avm2GetScopeObject(_Avm2ShortInstruction):
 
     def __init__(self, argument):
         self.argument = argument
+
+    def __len__(self):
+        return 2
 
 class _Avm2PushByte(_Avm2ShortInstruction):
     def __repr_inner__(self):
@@ -149,6 +158,9 @@ class _Avm2U30Instruction(_Avm2ShortInstruction):
         self.arguments = (argument, ) + arguments
         self.argument = argument
 
+    def __len__(self):
+        return 2
+
 class _Avm2PushPoolInstruction(_Avm2ShortInstruction):
     pool = None
     def __repr_inner__(self):
@@ -167,6 +179,9 @@ class _Avm2PushPoolInstruction(_Avm2ShortInstruction):
     def __init__(self, argument):
         self.argument = argument
         self._arg_index = None
+
+    def __len__(self):
+        return len(self.serialize())
 
 class _Avm2MultinameInstruction(_Avm2ShortInstruction):
     no_rt = False
@@ -198,6 +213,9 @@ class _Avm2MultinameInstruction(_Avm2ShortInstruction):
         self._multiname_index = 0
         self.multiname = IMultiname(multiname)
 
+    def __len__(self):
+        return len(self.serialize())
+
 class _Avm2OffsetInstruction(_Avm2ShortInstruction):
     offset=True
     def __repr_inner__(self):
@@ -224,6 +242,9 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
 
     def __init__(self, name):
         self.lblname = name
+
+    def __len__(self):
+        return 4
 
 class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
     def assembler_pass1(self, asm):
@@ -267,6 +288,9 @@ class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
     def __init__(self, default_label_name=None, *case_label_names):
         self.default_label_name, self.case_label_names = default_label_name, case_label_names
 
+    def __len__(self):
+        return 1 + 3*len(self.case_labels)
+
 class _Avm2LabelInstruction(_Avm2ShortInstruction):
     def __repr_inner__(self):
         return " lbl=%r" % (self.labelname,)
@@ -304,6 +328,9 @@ class _Avm2LabelInstruction(_Avm2ShortInstruction):
     def __init__(self, name):
         self.backref = False
         self.labelname = name
+
+    def __len__(self):
+        return 1
 
 class _Avm2Call(_Avm2U30Instruction):
     def assembler_pass1(self, asm):
@@ -366,6 +393,9 @@ class _Avm2BogusInstruction(_Avm2ShortInstruction):
     name = "BOGUS"
     def serialize(self):
         return ""
+
+    def __len__(self):
+        return 0
 
 class _Avm2TryInstruction(_Avm2BogusInstruction):
     def assembler_pass2(self, asm, address):
