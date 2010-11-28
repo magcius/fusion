@@ -1043,7 +1043,7 @@ class CodeGenerator(object):
                 loadable = ILoadable(v)
             except TypeError:
                 try:
-                    loadable = ILoadable(IMultiname(v))
+                    loadable = ILoadable(self._get_type(v))
                 except TypeError:
                     raise
             loadable.load(self)
