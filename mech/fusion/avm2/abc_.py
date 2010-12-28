@@ -128,7 +128,7 @@ class AbcFile(BitStreamParseMixin):
 
         return abc
 
-    def serialize(self, optimize=True):
+    def serialize(self, optimize=None):
         def write_pool(pool, prefix_count=True):
             code = ""
             if prefix_count:
@@ -147,8 +147,9 @@ class AbcFile(BitStreamParseMixin):
         code += write_pool(self.classes, False)
         code += write_pool(self.scripts)
 
-        for body in self.bodies:
-            body.optimize = optimize
+        if optimize is not None:
+            for body in self.bodies:
+                body.optimize = optimize
 
         code += write_pool(self.bodies)
 
