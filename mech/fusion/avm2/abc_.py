@@ -11,7 +11,7 @@ from mech.fusion.avm2.constants import (AbcConstantPool,
     METHODFLAG_NeedRest, py_to_abc, abc_to_py, QName)
 
 from mech.fusion.avm2 import instructions, traits as TRAITS
-from mech.fusion.avm2.assembler import Avm2CodeAssembler
+from mech.fusion.avm2.assembler import CodeAssembler
 from mech.fusion.avm2.interfaces import IMultiname
 from mech.fusion.avm2.util import serialize_u32 as s_u32, ValuePool
 
@@ -473,9 +473,9 @@ class AbcMethodBodyInfo(object):
         local_count      = bitstream.read(U32)
         init_scope_depth = bitstream.read(U32)
         scope_depth_max  = bitstream.read(U32)
-        code = Avm2CodeAssembler.parse(bitstream, abc, constants, local_count)
-        code._stack_depth_max = stack_depth_max
-        code._scope_depth_max = scope_depth_max
+        code = CodeAssembler.parse(bitstream, abc, constants, local_count)
+        code.max_stack_depth = stack_depth_max
+        code.max_scope_depth = scope_depth_max
 
         exceptions = [AbcException.parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
         traits     = [TRAITS.AbcTrait.parse(bitstream, abc, constants) for i in xrange(bitstream.read(U32))]
@@ -492,10 +492,10 @@ class AbcMethodBodyInfo(object):
 
         code = ""
         code += s_u32(self._method_info_index)
-        code += s_u32(self.code._stack_depth_max+1) # just to be safe.
-        code += s_u32(self.code._numlocals_max+1)
-        code += s_u32(0) # FIXME: For now, init_scope_depth is always 0.
-        code += s_u32(self.code._scope_depth_max)
+        code += s_u32(self.code.max_stack_depth)
+        code += s_u32(self.code.max_local_count)
+        code += s_u32(0)
+        code += s_u32(self.code.max_scope_depth)
         body = self.code.serialize()
         code += s_u32(len(body))
         code += body

@@ -1,11 +1,12 @@
-from types import FunctionType
 
 from mech.fusion.bitstream.flash_formats import UI8, SI8, SI24, U32
-from mech.fusion.avm2.util import serialize_u32 as u32, Avm2Label
+from mech.fusion.avm2.util import serialize_u32 as u32
 from mech.fusion.avm2.constants import METHODFLAG_Activation, \
     METHODFLAG_SetsDxns, has_RTName, has_RTNS, IMultiname
 
 INSTRUCTIONS = {}
+
+## Parsing
 
 def parse_instruction(bitstream, abc, constants, asm):
     label_name = make_offset_label_name(bitstream.tell()//8)
@@ -16,39 +17,22 @@ def parse_instruction(bitstream, abc, constants, asm):
     return inst
 
 def make_offset_label_name(offset):
-    return "lbl%d" % (offset,)
+    return "lbl" + str(offset)
 
 def make_offset_label(offset, asm):
     name = make_offset_label_name(offset)
-    if name in asm.labels:
-        return asm.labels[name]
-    else:
-        lbl = Avm2Label(asm, offset)
-        lbl.name = name
-        asm.labels[name] = lbl
-        return lbl
-
-def fake_offset(lbl, offset):
-    lbl.lbl = lbl
-    lbl.address = offset
-
-def get_label(name, asm):
-    if name in asm.labels:
-        lbl = asm.labels[name]
-    else:
-        lbl = asm.labels[name] = Avm2Label(asm)
-        lbl.name = name
-    return lbl
+    label = asm.make_label(name)
+    label.address = offset
+    return label
 
 class _Avm2ShortInstruction(object):
-    offset = False
     flags = 0
     stack = 0
     scope = 0
     opcode = None
-    name  = None
-    label = None
-    next  = None
+    name   = None
+    label  = None
+    jumplike = False
 
     def __repr__(self):
         if self.opcode is None:
@@ -66,8 +50,8 @@ class _Avm2ShortInstruction(object):
 
     def assembler_pass1(self, asm):
         asm.flags |= self.flags
-        asm.stack_depth += self.stack
-        asm.scope_depth += self.scope
+        asm.stack_depth += self.stack(asm) if callable(self.stack) else self.stack
+        asm.scope_depth += self.scope(asm) if callable(self.scope) else self.scope
 
     def assembler_pass2(self, asm, address):
         pass
@@ -83,6 +67,12 @@ class _Avm2ShortInstruction(object):
         return chr(self.opcode)
 
 class _Avm2DebugInstruction(_Avm2ShortInstruction):
+    def __init__(self, debug_type, index, reg, extra):
+        self.debug_type = debug_type
+        self.index = index
+        self.reg = reg
+        self.extra = extra
+
     def serialize(self):
         return chr(self.opcode) + \
             chr(self.debug_type & 0xFF) + \
@@ -98,18 +88,12 @@ class _Avm2DebugInstruction(_Avm2ShortInstruction):
         extra      = bitstream.read(U32)
         return cls(debug_type, index, reg, extra)
 
-    def __init__(self, debug_type, index, reg, extra):
-        self.debug_type = debug_type
-        self.index = index
-        self.reg = reg
-        self.extra = extra
-
     def __len__(self):
         return len(self.serialize())
 
 class _Avm2GetScopeObject(_Avm2ShortInstruction):
-    def __repr_inner__(self):
-        return ", arg=%d" % (self.argument,)
+    def __init__(self, argument):
+        self.argument = argument
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -118,15 +102,15 @@ class _Avm2GetScopeObject(_Avm2ShortInstruction):
     def serialize(self):
         return chr(self.opcode) + chr(self.argument)
 
-    def __init__(self, argument):
-        self.argument = argument
+    def __repr_inner__(self):
+        return ", arg=%d" % (self.argument,)
 
     def __len__(self):
         return 2
 
 class _Avm2PushByte(_Avm2ShortInstruction):
-    def __repr_inner__(self):
-        return ", arg=%d" % (self.argument,)
+    def __init__(self, argument):
+        self.argument = argument
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -135,36 +119,41 @@ class _Avm2PushByte(_Avm2ShortInstruction):
     def serialize(self):
         return chr(self.opcode) + chr(self.argument & 0xFF)
 
-    def __init__(self, argument):
-        self.argument = argument
+    def __repr_inner__(self):
+        return ", arg=%d" % (self.argument,)
 
 class _Avm2U30Instruction(_Avm2ShortInstruction):
     arg_count = 1
-    def __repr_inner__(self):
-        return " arg="+' '.join("0x%02X" % (a,) for a in self.arguments)
+
+    def __init__(self, *args):
+        if self.arg_count != len(args):
+            raise ValueError("%s takes %d argument(s). "
+                             "This instance has %d argument(s)." % \
+                             (self.name, self.arg_count, len(args)))
+
+        self.arguments = args
+        if self.arg_count == 1:
+            self.argument = args[0]
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
         return cls(*[bitstream.read(U32) for i in xrange(cls.arg_count)])
 
     def serialize(self):
-        if self.arg_count != len(self.arguments):
-            raise ValueError("%s takes %d argument(s). "
-                             "This instance has %d argument(s)." % \
-                             (self.name, self.arg_count, len(self.arguments)))
         return chr(self.opcode) + ''.join(u32(i) for i in self.arguments)
 
-    def __init__(self, argument, *arguments):
-        self.arguments = (argument, ) + arguments
-        self.argument = argument
+    def __repr_inner__(self):
+        return " arg="+' '.join("0x%02X" % (a,) for a in self.arguments)
 
     def __len__(self):
         return 2
 
 class _Avm2PushPoolInstruction(_Avm2ShortInstruction):
     pool = None
-    def __repr_inner__(self):
-        return " arg=%s (%r)" % (self._arg_index, self.argument)
+
+    def __init__(self, argument):
+        self.argument = argument
+        self._arg_index = None
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -176,15 +165,19 @@ class _Avm2PushPoolInstruction(_Avm2ShortInstruction):
     def write_to_pool(self, pool):
         self._arg_index = getattr(pool, self.pool).index_for(self.argument)
 
-    def __init__(self, argument):
-        self.argument = argument
-        self._arg_index = None
+    def __repr_inner__(self):
+        return " arg=%s (%r)" % (self._arg_index, self.argument)
 
     def __len__(self):
         return len(self.serialize())
 
 class _Avm2MultinameInstruction(_Avm2ShortInstruction):
     no_rt = False
+
+    def __init__(self, multiname):
+        self._multiname_index = 0
+        self.multiname = IMultiname(multiname)
+
     def assembler_pass1(self, asm):
         super(_Avm2MultinameInstruction, self).assembler_pass1(asm)
         asm.stack_depth -= int(self._has_rtns) + int(self._has_rtname)
@@ -207,25 +200,21 @@ class _Avm2MultinameInstruction(_Avm2ShortInstruction):
         return cls(constants.multiname_pool.value_at(bitstream.read(U32)))
 
     def __repr_inner__(self):
-        return ", multiname=%s" % (self.multiname,)
- 
-    def __init__(self, multiname):
-        self._multiname_index = 0
-        self.multiname = IMultiname(multiname)
+        return ", multiname=%s" % (self.multiname,) 
 
     def __len__(self):
         return len(self.serialize())
 
-class _Avm2OffsetInstruction(_Avm2ShortInstruction):
-    offset=True
-    def __repr_inner__(self):
-        return" lbl=%r" % (self.lblname,)
+class _Avm2JumpInstruction(_Avm2ShortInstruction):
+    jumplike = True
+    def __init__(self, name):
+        self.labelname = name
+        self.address = None
 
     def assembler_pass1(self, asm):
-        super(_Avm2OffsetInstruction, self).assembler_pass1(asm)
-        self.lbl = get_label(self.lblname, asm)
-        asm.offsets.setdefault(self.lblname, [])
-        asm.offsets[self.lblname].append(self)
+        super(_Avm2JumpInstruction, self).assembler_pass1(asm)
+        self.label = asm.make_label(self.labelname)
+        asm.jumps.append(self)
 
     def assembler_pass2(self, asm, address):
         self.address = address
@@ -234,14 +223,14 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
     def parse_inner(cls, bitstream, abc, constants, asm):
         offset  = bitstream.read(SI24)
         offset += bitstream.tell()//8
-        lbl = make_offset_label(offset, asm)
-        return cls(lbl.name)
+        label = make_offset_label(offset, asm)
+        return cls(label.name)
 
     def serialize(self):
         return chr(self.opcode) + "\0\0\0"
 
-    def __init__(self, name):
-        self.lblname = name
+    def __repr_inner__(self):
+        return" lbl=%r" % (self.labelname,)
 
     def __len__(self):
         return 4
@@ -249,23 +238,16 @@ class _Avm2OffsetInstruction(_Avm2ShortInstruction):
 class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
     def assembler_pass1(self, asm):
         super(_Avm2LookupSwitchInstruction, self).assembler_pass1(asm)
-        self.default_label =  get_label(self.default_label_name, asm)
-        self.case_labels   = [get_label(name, asm) for name in self.case_label_names]
+        self.default_label =  asm.make_label(self.default_name)
+        self.case_labels   = [asm.make_label(name) for name in self.case_names]
 
     def assembler_pass2(self, asm, address):
-        address += 1 # opcode
-        fake_offset(self.default_label, address)
-        asm.offsets.setdefault(self.default_label_name, [])
-        asm.offsets[self.default_label_name].append(self.default_label)
-        address += len(u32(len(self.case_labels) - 1))
-        for lbl in self.case_labels:
-            fake_offset(lbl, address)
-            asm.offsets.setdefault(lbl.name, [])
-            asm.offsets[lbl.name].append(lbl)
-            address += 3 # s24
+        asm.jumps.append(self.default_label)
+        asm.jumps.extend(self.case_labels)
 
     def serialize(self):
-        return chr(self.opcode) + "\0\0\0" + u32(len(self.case_labels) - 1) + "\0\0\0"*len(self.case_labels)
+        cases = "\0\0\0"*len(self.case_labels)
+        return "%c\0\0\0%s%s" % (self.opcode, u32(len(self.case_labels) - 1), cases)
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
@@ -285,32 +267,32 @@ class _Avm2LookupSwitchInstruction(_Avm2ShortInstruction):
 
         return cls(lbl.name, *cases)
 
-    def __init__(self, default_label_name=None, *case_label_names):
-        self.default_label_name, self.case_label_names = default_label_name, case_label_names
+    def __init__(self, default, cases):
+        self.default_name, self.case_names = default, cases
+        self.default_label, self.case_labels = None, None
 
     def __len__(self):
         return 1 + 3*len(self.case_labels)
 
 class _Avm2LabelInstruction(_Avm2ShortInstruction):
-    def __repr_inner__(self):
-        return " lbl=%r" % (self.labelname,)
+    def __init__(self, name):
+        self.backref = False
+        self.labelname = name
+        self.label = None
 
     def assembler_pass1(self, asm):
-        if self.labelname in asm.labels: # Already seen label
+        if self.name in asm.labels:
             self.label = asm.labels[self.labelname]
             asm.stack_depth = self.label.stack_depth
             asm.scope_depth = self.label.scope_depth
         else:
-            self.label = asm.labels[self.labelname] = Avm2Label(asm)
-            self.label.name = self.labelname
+            # If we haven't seen the label yet, we could have to jump
+            # back to it later.
+            self.label = asm.make_label(self.labelname)
             self.backref = True
 
     def assembler_pass2(self, asm, address):
         self.label.address = address
-        ## if self.lbl.backref:
-        ##     self.label = self.lbl
-        ## else:
-        ##     self.next.label = self.lbl
 
     def serialize(self):
         if self.backref:
@@ -320,14 +302,12 @@ class _Avm2LabelInstruction(_Avm2ShortInstruction):
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
         lbl = make_offset_label(bitstream.tell()//8-1, asm)
-        lbl.backref = True
         inst = cls(lbl.name)
         inst.label = lbl
         return inst
 
-    def __init__(self, name):
-        self.backref = False
-        self.labelname = name
+    def __repr_inner__(self):
+        return " lbl=%r" % (self.labelname,)
 
     def __len__(self):
         return 1
@@ -345,14 +325,14 @@ class _Avm2ConstructSuper(_Avm2U30Instruction):
         asm.stack_depth += self.argument + 1 # pop receiver/args
 
 class _Avm2CallIDX(_Avm2ShortInstruction):
+    def __init__(self, multiname, num_args):
+        self.multiname, self.num_args = IMultiname(multiname), num_args
+
     def assembler_pass1(self, asm):
         asm.stack_depth += 1 - (self.num_args + 1) # push object/args; push result
 
     def write_to_pool(self, pool):
         self._multiname_index = pool.multiname_pool.index_for(self.multiname)
-
-    def __init__(self, multiname, num_args):
-        self.multiname, self.num_args = IMultiname(multiname), num_args
 
     def serialize(self):
         return chr(self.opcode) + u32(self._multiname_index) + u32(self.num_args)
@@ -368,35 +348,20 @@ class _Avm2CallIDX(_Avm2ShortInstruction):
         return len(self.serialize())
 
 class _Avm2CallMN(_Avm2CallIDX):
-    is_void = False
-    def assembler_pass1(self, asm):
-        stack_change = -self.num_args
+    not_void = True
+    def stack(self, asm):
+        stack = -self.num_args
 
         if has_RTNS(self.multiname):
-            stack_change -= 1
+            stack -= 1
 
         if has_RTName(self.multiname):
-            stack_change -= 1
+            stack -= 1
 
-        if not self.is_void:
-            stack_change += 1
+        if self.not_void:
+            stack += 1
 
-        asm.stack_depth += stack_change
-
-class _Avm2CallMNVoid(_Avm2CallMN):
-    is_void = True
-
-class _Avm2ApplyType(_Avm2U30Instruction):
-    def assembler_pass1(self, asm):
-        asm.stack_depth += 1 - self.argument
-
-class _Avm2NewArray(_Avm2U30Instruction):
-    def assembler_pass1(self, asm):
-        asm.stack_depth += 1 - self.argument
-
-class _Avm2NewObject(_Avm2U30Instruction):
-    def assembler_pass1(self, asm):
-        asm.stack_depth += 1 - (2 * self.argument)
+        return stack
 
 class _Avm2BogusInstruction(_Avm2ShortInstruction):
     opcode = -1
@@ -408,11 +373,11 @@ class _Avm2BogusInstruction(_Avm2ShortInstruction):
         return 0
 
 class _Avm2TryInstruction(_Avm2BogusInstruction):
-    def assembler_pass2(self, asm, address):
-        setattr(self.context, self.attrname, address)
-
     def __init__(self, context):
         self.context = context
+
+    def assembler_pass2(self, asm, address):
+        setattr(self.context, self.attrname, address)
 
 class begintry(_Avm2TryInstruction): attrname = "try_begin"
 class endtry  (_Avm2TryInstruction): attrname = "try_end"
@@ -534,12 +499,11 @@ callsuper = m(_Avm2CallMN, 0x45, 'callsuper', arg_count=2)
 callproperty = m(_Avm2CallMN, 0x46, 'callproperty', arg_count=2)
 constructprop = m(_Avm2CallMN, 0x4A, 'constructprop', arg_count=2)
 callproplex = m(_Avm2CallMN, 0x4C, 'callproplex', arg_count=2)
-callsupervoid = m(_Avm2CallMNVoid, 0x4E, 'callsupervoid', arg_count=2)
-callpropvoid = m(_Avm2CallMNVoid, 0x4F, 'callpropvoid', arg_count=2)
+callsupervoid = m(_Avm2CallMN, 0x4E, 'callsupervoid', arg_count=2, not_void=False)
+callpropvoid  = m(_Avm2CallMN, 0x4F, 'callpropvoid' , arg_count=2, not_void=False)
 
 # Instructions that do not change the stack height stack and take one U30 argument.
 astype = m(_Avm2U30Instruction, 0x86, 'astype')
-# coerce moved to special.
 debugfile = m(_Avm2U30Instruction, 0xF1, 'debugfile')
 debugline = m(_Avm2U30Instruction, 0xF0, 'debugline')
 declocal = m(_Avm2U30Instruction, 0x94, 'declocal')
@@ -555,7 +519,6 @@ newclass = m(_Avm2U30Instruction, 0x58, 'newclass')
 # Instructions that push to the stack and take one U30 argument.
 getglobalslot = m(_Avm2U30Instruction, 0x6E, 'getglobalslot', 1)
 getouterscope = m(_Avm2U30Instruction, 0x67, 'getouterscope', 1)
-# getproperty moved down to special.
 newcatch = m(_Avm2U30Instruction, 0x5A, 'newcatch', 1)
 newfunction = m(_Avm2U30Instruction, 0x40, 'newfunction', 1)
 pushdouble = m(_Avm2PushPoolInstruction, 0x2F, 'pushdouble', 1, pool="double_pool")
@@ -574,30 +537,30 @@ setslot = m(_Avm2U30Instruction, 0x6D, 'setslot', -1)
 hasnext2 = m(_Avm2U30Instruction, 0x32, 'hasnext2', 1, arg_count=2)
 
 # Instructions that push/pop values to the stack (depends on arg) and take one U30 argument.
-newarray = m(_Avm2NewArray, 0x56, 'newarray')
-newobject = m(_Avm2NewObject, 0x55, 'newobject')
-applytype = m(_Avm2ApplyType, 0x53, 'applytype')
+newarray  = m(_Avm2U30Instruction, 0x56, 'newarray' , stack=lambda self, asm: 1 - self.argument)
+newobject = m(_Avm2U30Instruction, 0x55, 'newobject', stack=lambda self, asm: 1 - self.argument)
+applytype = m(_Avm2U30Instruction, 0x53, 'applytype', stack=lambda self, asm: 1 - 2*self.argument)
 
 # Instructions that take one U8 argument.
 pushbyte = m(_Avm2PushByte, 0x24, 'pushbyte', 1)
 getscopeobject = m(_Avm2GetScopeObject, 0x65, 'getscopeobject', 1)
 
-# Offset instructions
-ifeq = m(_Avm2OffsetInstruction, 0x13, 'ifeq', -2)
-ifge = m(_Avm2OffsetInstruction, 0x18, 'ifge', -2)
-ifgt = m(_Avm2OffsetInstruction, 0x17, 'ifgt', -2)
-ifle = m(_Avm2OffsetInstruction, 0x16, 'ifle', -2)
-iflt = m(_Avm2OffsetInstruction, 0x15, 'iflt', -2)
-ifne = m(_Avm2OffsetInstruction, 0x14, 'ifne', -2)
-ifnge = m(_Avm2OffsetInstruction, 0x0F, 'ifnge', -2)
-ifngt = m(_Avm2OffsetInstruction, 0x0E, 'ifngt', -2)
-ifnle = m(_Avm2OffsetInstruction, 0x0D, 'ifnle', -2)
-ifnlt = m(_Avm2OffsetInstruction, 0x0C, 'ifnlt', -2)
-ifstricteq = m(_Avm2OffsetInstruction, 0x19, 'ifstricteq', -2)
-ifstrictne = m(_Avm2OffsetInstruction, 0x1A, 'ifstrictne', -2)
-iffalse = m(_Avm2OffsetInstruction, 0x12, 'iffalse', -1)
-iftrue = m(_Avm2OffsetInstruction, 0x11, 'iftrue', -1)
-jump = m(_Avm2OffsetInstruction, 0x10, 'jump')
+# Jump instructions
+ifeq = m(_Avm2JumpInstruction, 0x13, 'ifeq', -2)
+ifge = m(_Avm2JumpInstruction, 0x18, 'ifge', -2)
+ifgt = m(_Avm2JumpInstruction, 0x17, 'ifgt', -2)
+ifle = m(_Avm2JumpInstruction, 0x16, 'ifle', -2)
+iflt = m(_Avm2JumpInstruction, 0x15, 'iflt', -2)
+ifne = m(_Avm2JumpInstruction, 0x14, 'ifne', -2)
+ifnge = m(_Avm2JumpInstruction, 0x0F, 'ifnge', -2)
+ifngt = m(_Avm2JumpInstruction, 0x0E, 'ifngt', -2)
+ifnle = m(_Avm2JumpInstruction, 0x0D, 'ifnle', -2)
+ifnlt = m(_Avm2JumpInstruction, 0x0C, 'ifnlt', -2)
+ifstricteq = m(_Avm2JumpInstruction, 0x19, 'ifstricteq', -2)
+ifstrictne = m(_Avm2JumpInstruction, 0x1A, 'ifstrictne', -2)
+iffalse = m(_Avm2JumpInstruction, 0x12, 'iffalse', -1)
+iftrue = m(_Avm2JumpInstruction, 0x11, 'iftrue', -1)
+jump = m(_Avm2JumpInstruction, 0x10, 'jump')
 
 # Special Instructions
 debug = m(_Avm2DebugInstruction, 0xEF, 'debug')
