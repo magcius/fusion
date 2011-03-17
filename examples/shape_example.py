@@ -1,5 +1,6 @@
 
-from mech.fusion.swf import SwfData
+from fusion.swf.swfdata import SwfData
+from fusion.swf.tags import DefineSprite
 
 swf = SwfData()
 

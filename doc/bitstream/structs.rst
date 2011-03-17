@@ -1,2 +1,0 @@
-BitStream Structs API
-=====================
