@@ -135,8 +135,8 @@ def swfdisplayobject_to_ipart(self):
     if self.update:
         self.update = False
         tag.update = True
-        tag.transform.dx = self._x
-        tag.transform.dy = self._y
+        tag.transform.tx = self._x
+        tag.transform.ty = self._y
     return tag
 
 provideAdapter(swfdisplayobject_to_ipart, [SwfDisplayObject], ISwfPart)
