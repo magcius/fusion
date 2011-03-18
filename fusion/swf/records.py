@@ -225,6 +225,8 @@ class Shape(object):
     def __init__(self):
         self.records = []
 
+        # Edge bounds have no stroke.
+        # Shape bounds are visible bounds.
         self.edge_bounds = Rect()
         self.shape_bounds = Rect()
 
@@ -603,7 +605,7 @@ class StraightEdgeRecord(Struct):
 
     def calculate_bounds(self, context):
         if context.style:
-            context.edge_bounds.union(context.style.cap_style_logic(context, (self.delta_x, self.delta_y)))
+            context.shape_bounds.union(context.style.cap_style_logic(context, (self.delta_x, self.delta_y)))
 
         context.update_bounds(self.delta_x, self.delta_y)
 
@@ -691,8 +693,8 @@ class CurvedEdgeRecord(Struct):
         end_cap_rect   = style.cap_style_logic(context.last, slope2)
         start_cap_rect = style.cap_style_logic(context.last, slope1)
 
-        context.shape_bounds.union(union)
-        context.edge_bounds.union(union, start_cap_rect, end_cap_rect)
+        context.shape_bounds.union(union, start_cap_rect, end_cap_rect)
+        context.edge_bounds.union(union)
 
         context.last_x += self.anchorx
         context.last_y += self.anchory
@@ -785,7 +787,7 @@ class StyleChangeRecord(Struct):
             # context.has_h_scale |= self.linestyle.has_h_scale
             # context.has_v_scale |= self.linestyle.has_v_scale
 
-        context.edge_bounds.union(context.style.cap_style_logic(context, (self.delta_x, self.delta_y)))
+        context.shape_bounds.union(context.style.cap_style_logic(context, (self.delta_x, self.delta_y)))
         context.update_bounds(self.delta_x, self.delta_y)
 
     ## def as_bitstream(self):
