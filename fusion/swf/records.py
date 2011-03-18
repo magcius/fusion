@@ -199,6 +199,7 @@ class Matrix(Struct):
     def __init__(self, a=1, b=0, c=0, d=1, tx=0, ty=0):
         super(Matrix, self).__init__(locals())
 
+    @byte_aligned
     def create_fields(self):
         if self.writing:
             self.set_local("HasScale", (Field("a") != 1) & (Field("d") != 1))
