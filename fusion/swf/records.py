@@ -95,11 +95,11 @@ class Rect(Struct):
         yield NBits[5]
         yield Fields("XMin XMax YMin YMax", SB[NBits]) * 20
 
-    def union(self, *args):
-        self.XMin = min(self.XMin, *[a.XMin for a in args])
-        self.YMin = min(self.YMin, *[a.YMin for a in args])
-        self.XMax = max(self.XMax, *[a.XMax for a in args])
-        self.YMin = max(self.YMax, *[a.YMax for a in args])
+    def union(self, rect):
+        self.XMin = min(self.XMin, rect.XMin)
+        self.YMin = min(self.YMin, rect.YMin)
+        self.XMax = max(self.XMax, rect.XMax)
+        self.YMax = max(self.YMax, rect.YMax)
 
     def include_point(self, x, y):        
         self.XMin = min(x, self.XMin)
@@ -345,12 +345,11 @@ class LineStyle(Struct):
         yield Field("color", RGBA)
 
     def cap_style_logic(self, context, delta):
-        off = self.width / 2.0
         dx, dy = delta
-        XMin = cmp(dx, 0) * off
-        YMin = cmp(dy, 0) * off
-        XMax = XMin + dx
-        YMax = YMin + dy
+        XMin = context.last_x - self.width / 2.0
+        YMin = context.last_y - self.width / 2.0
+        XMax = XMin + dx + self.width
+        YMax = YMin + dy + self.width
         return Rect(XMin, YMin, XMax, YMax)
 
 class LineStyle2(LineStyle):
@@ -786,6 +785,7 @@ class StyleChangeRecord(Struct):
             # context.has_h_scale |= self.linestyle.has_h_scale
             # context.has_v_scale |= self.linestyle.has_v_scale
 
+        context.edge_bounds.union(context.style.cap_style_logic(context, (self.delta_x, self.delta_y)))
         context.update_bounds(self.delta_x, self.delta_y)
 
     ## def as_bitstream(self):
