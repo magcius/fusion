@@ -127,6 +127,11 @@ class SwfDisplayObject(object):
 
     y = property(_get_y, _set_y)
 
+    def moveTo(self, x, y):
+        self._x = x
+        self._y = y
+        self.update = True
+
     def remove(self):
         self.cont.add_tag(RemoveObject2(self.depth))
 
