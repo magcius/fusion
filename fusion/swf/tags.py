@@ -11,7 +11,7 @@ from fusion.bitstream.flash_formats import UI16, UI32
 
 from fusion.swf.interfaces import ISwfPart, IPlaceable
 from fusion.swf.records import (RecordHeader, ShapeWithStyle,
-                                     Matrix, CXForm, RGB, Rect)
+                                     Matrix, CXFormWithAlpha, RGB, Rect)
 
 from fusion.avm2.abc_ import AbcFile
 
@@ -448,7 +448,8 @@ class PlaceObject(SwfTag):
         self.shapeid = charid
         self.depth = depth
         self.transform = transform or Matrix()
-        self.colortransform = colortransform or CXForm()
+        # XXX: swf version
+        self.colortransform = colortransform or CXFormWithAlpha()
 
     def serialize_data(self):
         bits = BitStream()
@@ -470,9 +471,10 @@ class PlaceObject2(PlaceObject):
         self.charid = charid
         self.update = update
         self.name = name
-        self.transform = transform
-        self.colortransform = colortransform
-    
+        self.transform = transform or Matrix()
+        # XXX: swf version
+        self.colortransform = colortransform or CXFormWithAlpha()
+
     def serialize_data(self):
         bits = BitStream()
         bits.write(False) # HasClipActions
