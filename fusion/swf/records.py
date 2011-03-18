@@ -190,7 +190,7 @@ class CXForm(Struct):
 class CXFormWithAlpha(CXForm):
     has_alpha = True
     def __init__(self, rmul=1, gmul=1, bmul=1, amul=1, radd=0, gadd=0, badd=0, aadd=0):
-        super(CXFormWithAlpha, self).__init__(self, rmul, gmul, bmul, radd, gadd, badd)
+        super(CXFormWithAlpha, self).__init__(rmul, gmul, bmul, radd, gadd, badd)
         self.amul = amul
         self.aadd = aadd
 
