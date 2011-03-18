@@ -164,12 +164,13 @@ class CXForm(Struct):
     def __init__(self, rmul=1, gmul=1, bmul=1, radd=0, gadd=0, badd=0):
         super(CXForm, self).__init__(dict(amul=1, aadd=0, **locals()))
 
+    @byte_aligned
     def create_fields(self):
         if self.writing:
-            has_add_terms = Field("radd") != 0 | Field("gadd") != 0 | Field("badd") != 0 | Field("aadd") != 0
+            has_add_terms = (Field("radd") != 0) | (Field("gadd") != 0) | (Field("badd") != 0) | (Field("aadd") != 0)
             self.set_local("HasAddTerms", has_add_terms)
 
-            has_mul_terms = Field("rmul") != 0 | Field("gmul") != 0 | Field("bmul") != 0 | Field("amul") != 0
+            has_mul_terms = (Field("rmul") != 1) | (Field("gmul") != 1) | (Field("bmul") != 1) | (Field("amul") != 1)
             self.set_local("HasMulTerms", has_mul_terms)
 
         yield Local("HasAddTerms", Bit)
