@@ -476,6 +476,8 @@ class PlaceObject2(PlaceObject):
         self.colortransform = colortransform or CXFormWithAlpha()
 
     def serialize_data(self):
+        HasCharacterId = (self.charid is not None) and (not self.update)
+
         bits = BitStream()
         bits.write(False) # HasClipActions
         bits.write(False) # HasClipDepth
@@ -483,11 +485,13 @@ class PlaceObject2(PlaceObject):
         bits.write(False) # HasRatio
         bits.write(self.colortransform is not None)
         bits.write(self.transform is not None)
-        bits.write(self.charid is not None)  # HasCharacter
+        bits.write(HasCharacterId)  # HasCharacterId
         bits.write(self.update) # FlagMove
 
         bits.write(self.depth, UI16)
-        bits.write(self.charid, UI16)
+
+        if HasCharacterId:
+            bits.write(self.charid, UI16)
 
         if self.name is not None:
             bits.write(self.name, CString)
