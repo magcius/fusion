@@ -21,7 +21,7 @@ class SwfData(BitStreamParseMixin, SwfMovieClip):
         self.compress = compress
         self.version = version
         self._next_tag_header = None
-        self._next_character_id = 0
+        self._next_character_id = 1
 
     def __getitem__(self, i):
         return self.tags[i]
