@@ -6,7 +6,8 @@ from fusion.swf.interfaces import ISwfPart, IPlaceable
 from fusion.swf.tags import (ShowFrame, SwfTagNotAllowed,
     DefineShape4, PlaceObject2, RemoveObject2, End)
 from fusion.swf.records import (StraightEdgeRecord, CurvedEdgeRecord,
-    StyleChangeRecord, LineStyle2, FillStyleSolidFill, ShapeWithStyle)
+    StyleChangeRecord, LineStyle2, FillStyleSolidFill, ShapeWithStyle,
+    Matrix)
 
 class SwfGraphicsEmulation(object):
     def __init__(self, owner):
@@ -107,29 +108,29 @@ class SwfMovieClip(SwfTagContainer):
 class SwfDisplayObject(object):
     def __init__(self, cont, charid, depth):
         self.cont, self.charid, self.depth = cont, charid, depth
-        self.update, self._x, self._y = False, 0, 0
+        self.update, self._matrix = False, Matrix()
 
     def _get_x(self):
-        return self._x
+        return self._matrix.tx
 
     def _set_x(self, x):
-        self._x = x
+        self._matrix.tx = x
         self.update = True
 
     x = property(_get_x, _set_x)
 
     def _get_y(self):
-        return self._y
+        return self._matrix.ty
 
     def _set_y(self, y):
-        self._y = y
+        self._matrix.ty = y
         self.update = True
 
     y = property(_get_y, _set_y)
 
     def moveTo(self, x, y):
-        self._x = x
-        self._y = y
+        self._matrix.tx = x
+        self._matrix.ty = y
         self.update = True
 
     def remove(self):
@@ -139,9 +140,31 @@ def swfdisplayobject_to_ipart(self):
     tag = PlaceObject2(self.depth, self.charid)
     if self.update:
         self.update = False
+    def _get_scaleX(self):
+        return self._matrix.a
+
+    def _set_scaleX(self, a):
+        self._matrix.a = a
+        self.update = True
+
+    scaleX = property(_get_scaleX, _set_scaleX)
+
+    def _get_scaleY(self):
+        return self._matrix.d
+
+    def _set_scaleY(self, d):
+        self._matrix.d = d
+        self.update = True
+
+    scaleY = property(_get_scaleY, _set_scaleY)
+
         tag.update = True
-        tag.transform.tx = self._x
-        tag.transform.ty = self._y
+        tag.transform.a = self._matrix.a
+        tag.transform.b = self._matrix.b
+        tag.transform.c = self._matrix.c
+        tag.transform.d = self._matrix.d
+        tag.transform.tx = self._matrix.tx
+        tag.transform.ty = self._matrix.ty
     return tag
 
 provideAdapter(swfdisplayobject_to_ipart, [SwfDisplayObject], ISwfPart)
