@@ -77,6 +77,7 @@ class SwfMovieClip(SwfTagContainer):
         self.num_frames = 0
         self.depth = 1
         self.movie = movie
+        self.placed_parts = []
 
     def get_next_charid(self):
         return self.movie._next_character_id
@@ -97,10 +98,15 @@ class SwfMovieClip(SwfTagContainer):
         return shape
 
     def next_frame(self):
+        for part in self.placed_parts:
+            if part.update:
+                self.add_part(part)
+
         self.add_tag(ShowFrame())
 
     def place(self, obj):
         displayobject = SwfDisplayObject(self, IPlaceable(obj).characterid, self.depth)
+        self.placed_parts.append(displayobject)
         self.add_part(displayobject)
         self.depth += 1
         return displayobject
@@ -133,13 +139,6 @@ class SwfDisplayObject(object):
         self._matrix.ty = y
         self.update = True
 
-    def remove(self):
-        self.cont.add_tag(RemoveObject2(self.depth))
-
-def swfdisplayobject_to_ipart(self):
-    tag = PlaceObject2(self.depth, self.charid)
-    if self.update:
-        self.update = False
     def _get_scaleX(self):
         return self._matrix.a
 
@@ -158,6 +157,14 @@ def swfdisplayobject_to_ipart(self):
 
     scaleY = property(_get_scaleY, _set_scaleY)
 
+    def remove(self):
+        self.cont.placed_parts.remove(self)
+        self.cont.add_tag(RemoveObject2(self.depth))
+
+def swfdisplayobject_to_ipart(self):
+    tag = PlaceObject2(self.depth, self.charid)
+    if self.update:
+        self.update = False
         tag.update = True
         tag.transform.a = self._matrix.a
         tag.transform.b = self._matrix.b
