@@ -109,7 +109,7 @@ class AbcFile(BitStreamParseMixin):
         return code
 
 class MethodInfo(object):
-    implements(IConstantPoolWriter)
+    implements(IConstantPoolWriter, IAbcContainer)
     def __init__(self, namestr, param_types, return_type, flags=0, options=None, param_names=None, varargs=None):
         self.namestr = namestr
         self._namestr_index = None
@@ -129,6 +129,8 @@ class MethodInfo(object):
         if varargs and varargs is True:
             self.param_types.append(QName("Array"))
             self.param_names.append(IMultiname(varargs))
+
+        self.body = None
 
         self.options = options or []
         self._options_indices = None
@@ -188,6 +190,13 @@ class MethodInfo(object):
             code += ''.join(s_u32(index) for index in self._param_names_indices)
 
         return code
+
+    def add_abc_elements(self, abcfile):
+        if self.body is not None:
+            # XXX: hack to avoid dep
+            body, self.body = self.body, None
+            abcfile.bodies.index_for(body)
+            self.body = body
 
     def write_constants(self, pool):
         self._namestr_index = pool.utf8.index_for(self.namestr)
