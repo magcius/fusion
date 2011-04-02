@@ -436,6 +436,7 @@ OpTable = dict(
     pushint         = OP(0x2D, stack=+1, base=ConstantPoolBase, pool="int"),
     pushuint        = OP(0x2E, stack=+1, base=ConstantPoolBase, pool="uint"),
     pushdouble      = OP(0x2F, stack=+1, base=ConstantPoolBase, pool="double"),
+    pushshort       = OP(0x25, stack=+1, base=U30Base),
 
     ifnlt           = OP(0x0C, stack=-2, base=JumpBase),
     ifnle           = OP(0x0D, stack=-2, base=JumpBase),
