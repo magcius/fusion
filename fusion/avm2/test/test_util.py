@@ -27,3 +27,26 @@ def test_serialize_u32_signed():
 
     for i in range(-2**35, -2**35-5):
         py.test.raises(ValueError, serialize_u32, i)
+
+def test_value_pool_default():
+    test = object()
+    pool = ValuePool(None, default=test)
+
+    assert pool.value_at(0) == test
+    assert pool.index_for(test) == 0
+
+    assert pool.index_for(1) == 1
+    assert pool.index_for(1) == 1
+
+    assert pool.value_at(0) == test
+    assert pool.value_at(1) == 1
+
+def test_value_pool_no_default():
+    test1, test2 = object(), object()
+    pool = ValuePool(None)
+
+    assert pool.index_for(test1) == 0
+    assert pool.value_at(0) == test1
+
+    assert pool.index_for(test2) == 1
+    assert pool.value_at(1) == test2

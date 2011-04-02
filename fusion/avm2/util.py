@@ -93,9 +93,10 @@ class ValuePool(object):
         if self.default is not None:
             if index == 0:
                 return self.default
+            index -= 1
 
         try:
-            value = self.pool[index-1]
+            value = self.pool[index]
         except IndexError:
             raise ValueError("No value at %d." % (index,))
 
