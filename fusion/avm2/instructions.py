@@ -285,6 +285,7 @@ class LookupSwitch(BaseInstruction):
 class Label(BaseInstruction):
     def __init__(self, name):
         self.backref = False
+        self.parsed = False
         self.labelname = name
         self.label = None
 
@@ -293,6 +294,9 @@ class Label(BaseInstruction):
         lbl = _make_offset_label(bitstream.tell()//8-1, asm)
         inst = cls(lbl.name)
         inst.label = lbl
+
+        # Force a length and serialization.
+        inst.parsed = True
         return inst
 
     def assembler_pass1(self, asm):
@@ -310,7 +314,7 @@ class Label(BaseInstruction):
         self.label.address = address
 
     def serialize(self):
-        if self.backref:
+        if self.backref or self.parsed:
             return chr(self.opcode)
         return ""
 
@@ -318,7 +322,7 @@ class Label(BaseInstruction):
         return " lbl=%r" % (self.labelname,)
 
     def __len__(self):
-        if self.backref:
+        if self.backref or self.parsed:
             return 1
         return 0
 

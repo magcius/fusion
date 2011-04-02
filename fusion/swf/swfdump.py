@@ -30,8 +30,8 @@ def header(filename):
 
 def dump_swf(swfdata):
     print
-    print "  tags:"
     print "  bounds:", swfdata.width, swfdata.height
+    print "  tags:"
     abcs = []
     for tag in swfdata.read_tags():
         if isinstance(tag, tags.DoABC):
@@ -124,16 +124,16 @@ class AbcDumper(object):
 
         line = []
 
-        line.append("interface" if inst.is_interface else "class")
+        line.append("interface " if inst.is_interface else "class ")
         line.append(str(cls.name))
 
         if inst.super_name:
-            line.append("extends %s" % (cls.instance.super_name,))
+            line.append(" extends %s" % (cls.instance.super_name,))
         if inst.interfaces:
             if inst.is_interface:
-                line.append("extends ")
+                line.append(" extends ")
             else:
-                line.append("implements ")
+                line.append(" implements ")
 
             line.append(', '.join(interface.name for interface in inst.interfaces))
 
@@ -150,6 +150,8 @@ class AbcDumper(object):
         self.dump_traits(inst, [])
 
         self.outdent()
+        self.output("}")
+        self.output()
 
     def dump_method(self, meth, attrib):
         self.methods_seen.add(meth)
