@@ -9,6 +9,11 @@ try:
 except ImportError:
     import pickle
 
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
+
 from fusion.avm2.swc import SwcData
 from fusion.avm2.constants import QName
 from fusion.avm2.abc_ import AbcFile
@@ -150,8 +155,8 @@ class Library(object):
         PackagesFlat = {}
 
         def properties(inst):
-            return [(name, type, bool(g), bool(s)) for
-                    (name, type, g, s) in inst.properties.itervalues()]
+            return [(n, t, bool(g), bool(s)) for
+                    (n, (t, g, s)) in inst.properties.iteritems()]
 
         def fields(inst):
             return [(field.name, field.type_name, field.slot_id)
@@ -332,4 +337,10 @@ def librarygen_main():
     else:
         options.output = options.output or os.path.splitext(os.path.basename(args[0]))[0]+".pickle"
     print "Generating", options.output
-    gen_library(args[0], options.output)
+    if options.pg:
+        gen_playerglobal(options.output)
+    else:
+        gen_library(args[0], options.output)
+
+if __name__ == "__main__":
+    librarygen_main()

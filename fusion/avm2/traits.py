@@ -37,6 +37,7 @@ def parse_trait(bitstream, abc, constants):
     if has_metadata:
         L = xrange(bitstream.read(U32))
         trait.metadata = [abc.metadatas.value_at(bitstream.read(U32)) for i in L]
+
     return trait
 
 def eval_traits(owner):
@@ -64,12 +65,12 @@ def eval_traits(owner):
             if isinstance(trait, GetterTrait):
                 trait.type_name = method.return_type
                 new_trait = [trait.type_name, None, None]
-                properties.setdefault(trait.name, new_trait)[2] = trait
+                properties.setdefault(trait.name, new_trait)[1] = trait
 
             elif isinstance(trait, SetterTrait):
                 trait.type_name = method.param_types[0]
                 new_trait = [trait.type_name, None, None]
-                properties.setdefault(trait.name, new_trait)[3] = trait
+                properties.setdefault(trait.name, new_trait)[2] = trait
 
             else:
                 methods[trait.name] = trait
@@ -166,9 +167,9 @@ class SlotTrait(TraitBase):
         if self.default is None:
             self._default_index = 0
         else:
-            self._value_kind, self._value_index = (self.value, pool)
-            if self._value_index is None:
-                self._value_index = self._value_kind
+            self._default_kind, self._default_index = (self.value, pool)
+            if self._default_index is None:
+                self._default_index = self._default_kind
 
         self._type_name_index = pool.multiname.index_for(self.type_name)
 
@@ -181,7 +182,8 @@ class SlotTrait(TraitBase):
 
         if vindex:
             vkind = bitstream.read(UI8)
-            value = abc_to_py((vindex, vkind), constants)
+            value = None
+            #value = abc_to_py((vindex, vkind), constants)
  
         return cls(None, type_name, value, slot_id)
 
@@ -190,9 +192,9 @@ class SlotTrait(TraitBase):
 
         code += s_u32(self.slot_id)
         code += s_u32(self._type_name_index)
-        code += s_u32(self._value_index)
-        if self._value_index:
-            code += s_u32(self._value_kind)
+        code += s_u32(self._default_index)
+        if self._default_index:
+            code += s_u32(self._default_kind)
 
         return code
 
