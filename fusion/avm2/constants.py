@@ -445,7 +445,9 @@ MultinameKinds = {
 class ConstantPool(BitStreamParseMixin):
     def __init__(self):
         self.int       = ValuePool(self, 0)
-        self.uint      = ValuePool(self, 0)
+
+        # don't match -- pushuint is dumb
+        self.uint      = ValuePool(self, 0, lambda v: False)
         self.double    = ValuePool(self, float('nan'), isnan)
 
         # don't match due to https://bugzilla.mozilla.org/show_bug.cgi?id=628031
