@@ -350,7 +350,7 @@ class QName(object):
         if self.name == "*":
             gen.load(undefined)
         else:
-            super(QName, self).load(gen)
+            gen.emit('getlex', self)
 
     def write_constants(self, pool):
         assert self.name != ""
