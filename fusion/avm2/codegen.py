@@ -13,7 +13,7 @@ class Method(object):
         self.static, self.override = static, override
         self.exceptions = []
 
-        self.asm = assembler.CodeAssembler(['this'] + self.param_names)
+        self.asm = assembler.CodeAssembler(['this'] + list(self.param_names))
         if prologue:
             self.asm.emit('getlocal0')
             self.asm.emit('pushscope')
@@ -55,7 +55,7 @@ class ClassTracker(object):
             asm.emit('newclass', rib.index)
             asm.emit('initproperty', rib.name)
 
-            clstraits.append(rib.classobj)
+            clstraits.append(traits.ClassTrait(name, rib.classobj))
 
             for base in bases:
                 asm.emit('popscope')
@@ -70,19 +70,6 @@ class ScriptRib(object):
         self.tracker = ClassTracker()
         self.done = False
 
-    def overridden(self, static, name):
-        """
-        Determines whether a method name `name` should be
-        marked with the `override` flag.
-
-        :param static: Whether the method is static.
-        :param name: The name of the method.
-
-        :return: Whether the method should be marked with
-                 the override flag.
-        """
-        return False
-
     def make_init(self):
         """
         Create a script init method and enter the context
@@ -94,7 +81,14 @@ class ScriptRib(object):
         return MethodRib(self.init)
 
     def new_class(self, name, supercls=None):
-        return ClassRib(name, supercls)
+        rib = ClassRib(name, supercls)
+        self.tracker.track(name, rib, [IMultiname(supercls)]) # XXX
+        return rib
+
+    def new_method(self, name, params, rettype, static=False, override=False):
+        method = Method(name, params, rettype)
+        self.add_trait(method.trait)
+        return MethodRib(method)
 
     def add_trait(self, trait):
         """
@@ -158,8 +152,8 @@ class ClassRib(object):
         rib.constructor = True
         return rib
 
-    def new_method(self, name, params, rettype, static=False):
-        method = Method(name, params, rettype, static=static)
+    def new_method(self, name, params, rettype, static=False, override=False):
+        method = Method(name, params, rettype, static=static, override=override)
         if static:
             self.add_static_trait(method.trait)
         else:
@@ -277,10 +271,10 @@ class CodeGenerator(object):
         """
         Create a new class with the name `name` and superclass `base`.
         """
-        return self.enter_rib(self.current_rib.make_class(name, base))
+        return self.enter_rib(self.current_rib.new_class(name, base))
 
-    def begin_method(self, name, params, rettype):
-        return self.enter_rib(self.current_rib.make_method(name, params, rettype))
+    def begin_method(self, name, params, rettype, static=False, override=False):
+        return self.enter_rib(self.current_rib.new_method(name, params, rettype, static, override))
 
     def begin_script(self):
         return self.enter_rib(ScriptRib())
