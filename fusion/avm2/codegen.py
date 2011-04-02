@@ -7,7 +7,7 @@ class Method(object):
     def __init__(self, name, params, rettype,
                  trait_type=traits.MethodTrait,
                  static=False, override=False, prologue=True):
-        self.name = name
+        self.name = IMultiname(name)
         self.param_types, self.param_names = zip(*params) or ([], [])
         self.rettype = rettype
         self.static, self.override = static, override
@@ -18,7 +18,7 @@ class Method(object):
             self.asm.emit('getlocal0')
             self.asm.emit('pushscope')
 
-        self.method_info = abc.MethodInfo(name, self.param_types, rettype,
+        self.method_info = abc.MethodInfo(str(name), self.param_types, rettype,
                                           param_names=self.param_names)
         self.method_body = abc.MethodBodyInfo(self.method_info, self.asm,
                                               exceptions=self.exceptions)
