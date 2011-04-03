@@ -78,9 +78,9 @@ class Argument(object):
         self.name = name
 
     def load(self, generator):
-        if self.name not in generator.current_rib.param_names:
+        if self.name not in generator.current_rib.method.param_names:
             raise NotAnArgumentError(self.name)
-        generator.emit('getlocal', generator.current_rib.get_local(self.name))
+        generator.emit('getlocal', generator.current_assembler.get_local(self.name))
 
     def __repr__(self):
         return "Argument(%r)" % (self.name,)
