@@ -205,7 +205,8 @@ class NamespaceSet(object):
 PACKAGE_NAMESPACE = Namespace(TypeIdentifier.PackageNamespace, "")
 ANY_NAMESPACE     = Namespace(TypeIdentifier.Namespace, "*")
 
-# This is found in a lot of methods used by ASC.
+# This is the "AS3" namespace, which is used to get the internal builtin methods
+# in case somebody overrides the prototype, or if AS3 changes ES5 semantics.
 AS3_NAMESPACE     = Namespace(TypeIdentifier.Namespace, "http://adobe.com/AS3/2006/builtin")
 
 NO_NAMESPACE_SET  = NamespaceSet()
