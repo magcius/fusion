@@ -96,8 +96,8 @@ class AbcDumper(object):
         seen = set()
         for trait in obj.traits:
             if trait.kind in (TraitKinds.Slot, TraitKinds.Const):
-                attrib = "var" if trait.kind == TraitKinds.Slot else "const"
-                self.output("%s %s : %s  (slot id=%d)" % (attrib, trait.name, trait.type_name, trait.slot_id))
+                decl = "var" if trait.kind == TraitKinds.Slot else "const"
+                self.output("%s %s : %s  (slot id=%d)" % (decl, trait.name, trait.type_name, trait.slot_id))
                 self.slot_count += 1
 
             elif trait.kind == TraitKinds.Class:
