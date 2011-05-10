@@ -181,7 +181,11 @@ class AbcDumper(object):
 
         name = getattr(meth, "name", "anonymous_%d" % (len(self.methods_seen)),)
 
+        param_names, param_types = meth.param_names[:], meth.param_types[:]            
         params = ', '.join("%s:%s" % (n, t) for n, t in zip(meth.param_names, meth.param_types))
+        if meth.varargs:
+            params += ", ..."
+
         functionspec += "function %s(%s) : %s" % (name, params, meth.return_type,)
 
         if native or is_interface: # has no body

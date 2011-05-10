@@ -126,10 +126,6 @@ class MethodInfo(object):
         self.flags = flags
         self.varargs = varargs
 
-        if varargs and varargs is True:
-            self.param_types.append(QName("Array"))
-            self.param_names.append(IMultiname(varargs))
-
         self.body = None
 
         self.options = options or []
