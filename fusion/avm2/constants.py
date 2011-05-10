@@ -447,7 +447,7 @@ class RtqNameL(object):
         return chr(self.kind)
 
 class RtqNameLA(object):
-    kind = TypeIdentifiter.RtqNameLA
+    kind = TypeIdentifier.RtqNameLA
 
 class TypeName(object):
     implements(IMultiname, ILoadable, IConstantPoolWriter)
