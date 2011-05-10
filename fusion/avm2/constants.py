@@ -380,6 +380,74 @@ class QNameA(QName):
 def packagedQName(ns, name):
     return QName(name, Namespace(TypeIdentifier.PackageNamespace, ns))
 
+class RtqName(object):
+    implements(IMultiname, ILoadable, IConstantPoolWriter)
+
+    kind = TypeIdentifier.RtqName
+
+    runtime = False
+    runtime_namespace = True
+
+    def __init__(self, name):
+        self.name  = IMultiname(name)
+        self._name_index = None
+
+    def __eq__(self, other):
+        return self.kind == other.kind and self.name == other.name
+
+    def __hash__(self):
+        return hash((self.name,))
+
+    def __repr__(self):
+        return "RT::%s" % (self.name,)
+
+    def load(self, gen):
+        gen.emit('getlex', self)
+
+    def write_constants(self, pool):
+        self._name_index = pool.multiname.index_for(self.name)
+
+    @classmethod
+    def parse(cls, bitstream, constants):
+        name = constants.multiname.value_at(bitstream.read(U32))
+        return cls(name)
+
+    def serialize(self):
+        return chr(self.kind) + u32(self._name_index)
+
+class RtqNameA(RtqName):
+    kind = TypeIdentifier.RtqNameA
+
+class RtqNameL(object):
+    implements(IMultiname, ILoadable, IConstantPoolWriter)
+
+    kind = TypeIdentifier.RtqNameL
+
+    runtime = True
+    runtime_namespace = True
+
+    def __eq__(self, other):
+        return self.kind == other.kind
+
+    def __hash__(self):
+        return hash("RTQNAMEL") # XXX
+
+    def __repr__(self):
+        return "RT::RT"
+
+    def load(self, gen):
+        gen.emit('getlex', self)
+
+    @classmethod
+    def parse(cls, bitstream, constants):
+        return cls()
+
+    def serialize(self):
+        return chr(self.kind)
+
+class RtqNameLA(object):
+    kind = TypeIdentifiter.RtqNameLA
+
 class TypeName(object):
     implements(IMultiname, ILoadable, IConstantPoolWriter)
 
@@ -435,6 +503,10 @@ MultinameKinds = {
     TypeIdentifier.MultinameLA: MultinameLA,
     TypeIdentifier.Multiname: Multiname,
     TypeIdentifier.MultinameA: MultinameA,
+    TypeIdentifier.RtqName: RtqName,
+    TypeIdentifier.RtqNameA: RtqNameA,
+    TypeIdentifier.RtqNameL: RtqNameL,
+    TypeIdentifier.RtqNameLA: RtqNameLA,
     TypeIdentifier.TypeName: TypeName,
 }
 
