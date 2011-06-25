@@ -312,9 +312,15 @@ class CodeAssembler(object):
         dump, offset = [], 0
         for inst in self.instructions:
 
-            if inst.label and not inst.jumplike:
+            if inst.label:
                 lblname = inst.label.name
-                dump.append("\n%s:" % (lblmap.get(lblname, lblname),))
+                lblname = lblmap.get(lblname, lblname)
+                if inst.jumplike:
+                    # we're jumping to the label -- get us a mapped label
+                    inst.labelname = lblname
+                else:
+                    # we're defining a label
+                    dump.append("\n%s:" % (lblname,))
 
             for exc in exc_from.get(offset, []):
                 dump.append("<%s %d" % (exc.exc_type, exc.target))
@@ -322,8 +328,6 @@ class CodeAssembler(object):
                 dump.append(">%s %d" % (exc.exc_type, exc.target))
 
             dump.append("%d\t%s" % (offset, inst))
-            if inst.jumplike:
-                dump.append("")
             offset += len(inst)
 
         return '\n'.join(dump)
