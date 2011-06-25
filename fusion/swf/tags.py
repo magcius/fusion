@@ -729,7 +729,6 @@ class UnknownSwfTag(object):
         64: "EnableDebugger2",      
         65: "ScriptLimits",         
         66: "SetTabIndex",          
-        68: "DefineMorphShape2",    
         69: "FileAttributes",       
         70: "PlaceObject3",         
         71: "ImportAssets2",        
@@ -737,6 +736,9 @@ class UnknownSwfTag(object):
         76: "SymbolClass",          
         82: "DoABC",                
         83: "DefineShape4",
+        84: "DefineMorphShape2",
+        87: "DefineBinaryData",
+        91: "DefineFont4",
     }
     def __init__(self, id):
         self.id = id
