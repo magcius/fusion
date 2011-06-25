@@ -641,8 +641,7 @@ class CodeGenerator(object):
         End a catch block.
         """
         self.emit('popscope')
-        self.emit('kill', self.context.kill_local(self.current_rib.local))
-        # self.exit_context()
+        self.emit('kill', self.current_rib.method.asm.kill_local(self.current_rib.local))
 
     def add_node(self, node):
         """
