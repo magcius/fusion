@@ -85,6 +85,7 @@ class Debug(BaseInstruction):
         buf += u32(self.index)
         buf += chr(self.reg)
         buf += u32(self.extra)
+        return buf
 
     @classmethod
     def parse_inner(cls, bitstream, abc, constants, asm):
