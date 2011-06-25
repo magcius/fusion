@@ -239,11 +239,11 @@ class SymbolClass(SwfTag):
 
     @classmethod
     def parse_inner(cls, bits):
-        length = bits.read_int_value(16, endianness="<")
+        length = bits.read(UI16)
         symbols = {}
         for i in xrange(length):
-            char_id = bits.read_int_value(16)
-            symbols[char_id] = bits.read_cstring()
+            char_id = bits.read(UI16)
+            symbols[char_id] = bits.read(CString)
         return cls(symbols)
 
     def __repr_inner__(self):
