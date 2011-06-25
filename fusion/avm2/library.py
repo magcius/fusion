@@ -134,7 +134,7 @@ class Library(object):
         """
         Generates a Library from a SwcData object.
         """
-        return cls.gen_library_abc(swcdata.get_all_abcs())
+        return cls.gen_library_abc(swcdata.get_abcs())
 
     @classmethod
     def gen_library_swfdata(cls, swfdata):

@@ -1,10 +1,8 @@
 
-import sys
-
 import zipfile
+import itertools
 
 from fusion.swf.tags  import DoABC, DoABCDefine
-from fusion.avm2.abc_ import AbcFile
 
 class SwcData(object):
     def __init__(self, file):
@@ -36,5 +34,5 @@ class SwcData(object):
         return self.get_swf(name).read_tags((DoABC, DoABCDefine))
 
     def get_all_abcs(self):
-        return (s.read_tags((DoABC, DoABCDefine))
-                for s in self.get_all_swfs())
+        return itertools.chain(s.read_tags((DoABC, DoABCDefine))
+                               for s in self.get_all_swfs())
