@@ -92,9 +92,10 @@ class AbcDumper(object):
             self.output("%s[%d] = %r" % (name, i+1, obj))
         self.outdent()
 
-    def dump_traits(self, obj, attrib):
+    def dump_traits(self, obj, initial_attrib):
         seen = set()
         for trait in obj.traits:
+            attrib = initial_attrib[:]
             if trait.kind in (TraitKinds.Slot, TraitKinds.Const):
                 decl = "var" if trait.kind == TraitKinds.Slot else "const"
                 self.output("%s %s : %s  (slot id=%d)" % (decl, trait.name, trait.type_name, trait.slot_id))
