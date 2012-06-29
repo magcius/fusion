@@ -144,9 +144,12 @@ class MethodInfo(object):
         options = None
         if flags & MethodFlag.HasOptional:
             L = bitstream.read(U32)
-            options = [abc_to_py((bitstream.read(U32),
-                                  bitstream.read(UI8)),
-                                 constants) for i in xrange(L)]
+            for i in xrange(L):
+                bitstream.read(U32)
+                bitstream.read(UI8)
+#            options = [abc_to_py((bitstream.read(U32),
+#                                  bitstream.read(UI8)),
+#                                 constants) for i in xrange(L)]
 
         param_names = None
         if flags & MethodFlag.HasParamNames:
