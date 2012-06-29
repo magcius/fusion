@@ -9,8 +9,8 @@ source_suffix = '.rst'
 master_doc = 'contents'
 
 # General information about the project.
-project = u'Mecheye Fusion'
-copyright = u'2010, Jasper St. Pierre'
+project = u'Fusion'
+copyright = u'2012, Jasper St. Pierre'
 version = release = fusion.__released__
 
 today_fmt = '%B %d, %Y'
@@ -33,7 +33,7 @@ autodoc_member_order = 'groupwise'
 todo_include_todos = True
 
 latex_documents = [
-  ('contents', 'fusion.tex', u'Mecheye Fusion Documentation',
+  ('contents', 'fusion.tex', u'Fusion Documentation',
    'Jasper St. Pierre', 'manual', 1),
 ]
 

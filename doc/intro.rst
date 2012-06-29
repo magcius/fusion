@@ -112,7 +112,7 @@ But I want that buggy PyPy translator!
 --------------------------------------
 
 Oh, that's right. There's the starting of a PyPy translator `here
-<http://bitbucket>`_ as well. It doesn't do very
+<http://bitbucket.org/magcius/pypy-avm/>`_ as well. It doesn't do very
 much right now, but it's a start. In order to do that not very much, you'll
 need Fusion too.
 
