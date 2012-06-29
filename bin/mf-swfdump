@@ -1,0 +1,4 @@
+#!/usr/bin/python
+
+from fusion.swf.swfdump import main
+main()

@@ -13,4 +13,5 @@ setup(
     packages     = ['fusion', 'fusion.bitstream',
                     'fusion.swf', 'fusion.avm2'],
     package_data = {'fusion.avm2': ['playerglobal.pickle']},
+    scripts      = ['bin/mf-swfdump'],
 )
