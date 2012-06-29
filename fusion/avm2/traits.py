@@ -107,7 +107,10 @@ class TraitBase(object):
     implements(IConstantPoolWriter, IAbcContainer)
     kind = None
     def __init__(self, name, final=False, override=False):
-        self.name = IMultiname(name)
+        if name is not None:
+            self.name = IMultiname(name)
+        else:
+            self.name = None
         self._name_index = None
 
         self.is_final = final

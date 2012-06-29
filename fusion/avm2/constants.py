@@ -223,13 +223,6 @@ def undef_to_IMultiname(mult):
 
 provideAdapter(undef_to_IMultiname)
 
-@adapter(NoneType)
-@implementer(IMultiname)
-def none_to_IMultiname(none):
-    return QName(none)
-
-provideAdapter(none_to_IMultiname)
-
 @adapter(basestring)
 @implementer(IMultiname)
 def str_to_IMultiname(string):
@@ -318,6 +311,9 @@ class Multiname(object):
     def serialize(self):
         return chr(self.kind) + u32(self._name_index) + u32(self._ns_set_index)
 
+    def __str__(self):
+        return '%s::%s' % (self.ns_set, self.name)
+
 class MultinameA(Multiname):
     kind = TypeIdentifier.MultinameA
 
@@ -354,7 +350,6 @@ class QName(object):
             gen.emit('getlex', self)
 
     def write_constants(self, pool):
-        assert self.name != ""
         if self.name == "*":
             self._name_index = 0
         else:
@@ -410,7 +405,7 @@ class RtqName(object):
 
     @classmethod
     def parse(cls, bitstream, constants):
-        name = constants.multiname.value_at(bitstream.read(U32))
+        name = constants.utf8.value_at(bitstream.read(U32))
         return cls(name)
 
     def serialize(self):

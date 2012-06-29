@@ -143,7 +143,7 @@ class ClassRib(object):
     def make_iinit(self, params=None, varargs=None, defaults=None, optimize=None):
         params = params or ()
         if not self.iinit:
-            self.iinit = Method("", params, constants.QName("void"))
+            self.iinit = Method("$iinit", params, constants.QName("void"))
     
             self.iinit.asm.emit('getlocal0')
             self.iinit.asm.emit('constructsuper', 0)
