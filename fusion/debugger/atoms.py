@@ -109,7 +109,7 @@ class AVM1ClassTypes(object):
             return "MovieClip" if ismc else "Object"
         return cls._name_mapping[classtype]
 
-        
+
 class PointerValue(object):
     def __init__(self, addr):
         self.addr = addr

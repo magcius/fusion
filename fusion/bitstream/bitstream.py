@@ -37,7 +37,7 @@ class BitStreamMixin(object):
         leftover = self.tell() & 7
         if leftover & 7:
             self.write(F.Zero[8 - leftover])
-    
+
     def skip_flush(self):
         """
         Align the cursor so that it is flush with the next
@@ -54,7 +54,7 @@ class BitStreamMixin(object):
         Standard file protocol *seek* method.
 
         .. seealso:
-          
+
            `Built-in Types: File Objects
            <http://docs.python.org/library/stdtypes.html#file-objects>`_
               Standard Python library documentation.
@@ -159,7 +159,7 @@ class BoolArrayBitStream(BitStreamMixin):
     implements(IBitStream)
 
     byte_aligned = False
-    
+
 
     # Fast lookup for write/read_string.
     # This seems really stupid, but I need it for SPEEEEED.
@@ -176,7 +176,7 @@ class BoolArrayBitStream(BitStreamMixin):
     def __init__(self, bits=[]):
         """
         Constructor.
-        
+
         >>> b1 = BitStream("101010")               # Strings are okay.
         >>> b2 = BitStream([1, 0, "1", "0", 1, 0]) # So are any iterable.
         >>> b3 = BitStream(0b101010)               # But not ints.
@@ -271,11 +271,11 @@ class ByteArrayBitStream(BitStreamMixin):
         BYTE_TO_BITS[i] = bits
         BITS_TO_BYTE[bits] = i
     del bits, i, a
-    
+
     def __init__(self, bits=[]):
         """
         Constructor.
-        
+
         >>> b1 = BitStream("101010")               # Strings are okay.
         >>> b2 = BitStream([1, 0, "1", "0", 1, 0]) # So are any iterable.
         >>> b3 = BitStream(0b101010)               # But not ints.

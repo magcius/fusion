@@ -13,7 +13,7 @@ class LocalInstructionOptimizer(object):
     Optimizes getlocal 0-3 into their single-opcode variants.
     """
 
-    def optimize(self, instructions):        
+    def optimize(self, instructions):
         for i, inst in enumerate(instructions):
             if inst.name in ("getlocal", "setlocal") and 0 <= inst.argument < 4:
                 new_instruction = "%s%s" % (inst.name, inst.argument)

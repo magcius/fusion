@@ -101,7 +101,7 @@ class Rect(Struct):
         self.XMax = max(self.XMax, rect.XMax)
         self.YMax = max(self.YMax, rect.YMax)
 
-    def include_point(self, x, y):        
+    def include_point(self, x, y):
         self.XMin = min(x, self.XMin)
         self.YMin = min(y, self.YMin)
         self.XMax = max(x, self.XMax)
@@ -660,7 +660,7 @@ class CurvedEdgeRecord(Struct):
         else:
             union.XMin = min(p, 0, self.anchorx + context.last_x)
             union.XMax = union.XMin + max(p - context.last_y, 0, self.anchorx)
-            
+
         y = -2 * self.controly + self.anchory
         t = -self.controly / y
         p = self._get_y(t)
@@ -687,7 +687,7 @@ class CurvedEdgeRecord(Struct):
 
         This will break at some point.
         """
-        
+
         slope1 = self._get_p(0.01)
         slope2 = (self.anchorx - self._get_x(0.99), self.anchory - self._get_y(0.99))
         end_cap_rect   = style.cap_style_logic(context.last, slope2)
@@ -755,7 +755,7 @@ class StyleChangeRecord(Struct):
             yield Local("FillStyle1Index", UB[self.parent.fillbits])
             if self.reading:
                 self.fillstyle1 = self.parent.fills[self.get_local("FillStyle1Index")]
-                
+
         if self.get_local("HasLineStyle", True):
             yield Local("LineStyleIndex", UB[self.parent.linebits])
             if self.reading:
@@ -795,16 +795,16 @@ class StyleChangeRecord(Struct):
     ##     if self.fillstyle0 is not None and self.fillstyle1 is not None and \
     ##            self.fillstyle0.parent != self.fillstyle1.parent:
     ##         raise ValueError("fillstyle0 and fillstyle1 do not have the same parent!")
-        
+
     ##     fsi0 = 0 if self.fillstyle0 is None else self.fillstyle0.index
     ##     fsi1 = 0 if self.fillstyle1 is None else self.fillstyle1.index
     ##     lsi  = 0 if self.linestyle  is None else self.linestyle.index
 
     ##     fbit = 0 if self.fillstyle0 is None else nbits(len(self.fillstyle0.parent))
     ##     lbit = 0 if self.linestyle  is None else nbits(len(self.linestyle.parent))
-        
+
     ##     from fusion.swf.tags import DefineShape
-        
+
     ##     new_styles = ((DefineShape._current_variant > 1) and
     ##                  ((self.linestyles != None and len(self.linestyles) > 0) or
     ##                   (self.fillstyles != None and len(self.fillstyles) > 0)))
@@ -823,7 +823,7 @@ class StyleChangeRecord(Struct):
     ##     if fsi0 > 0:  bits.write_int_value(fsi0, fbit) # FillStyle0
     ##     if fsi1 > 0:  bits.write_int_value(fsi1, fbit) # FillStyle1
     ##     if lsi  > 0:  bits.write_int_value(lsi,  lbit) # LineStyle
-        
+
     ##     if new_styles:
     ##         bits += serialize_style_list(self.fillstyles) # FillStyles
     ##         bits += serialize_style_list(self.linestyles) # LineStyles

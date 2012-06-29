@@ -11,7 +11,7 @@ class ClassDesc(object):
     A class description is used when using the native exports API
     to determine the methods, fields, and properties of a type.
     """
-    
+
     # default values
     FullName         = None
     BaseType         = None

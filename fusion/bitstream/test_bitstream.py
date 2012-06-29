@@ -64,11 +64,11 @@ def test_BitStream_specialized_format_read():
 
 def test_BitStream_specialized_format_write():
     L = [1, 0, True, False]
-    
+
     bits = BitStream()
     bits.write(L)
     assert str(bits) == "1010"
-    
+
     bits = BitStream("11")
     bits.write(L)
     assert str(bits) == "1010"

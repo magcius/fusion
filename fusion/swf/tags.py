@@ -89,7 +89,7 @@ class SetBackgroundColor(SwfTag):
     def serialize_data(self):
         """
         Serailizes this tag, according to the following format.
-        
+
         =======  =========
         Format   Parameter
         =======  =========
@@ -120,7 +120,7 @@ class EnableDebugger2(SwfTag):
     def serialize_data(self):
         """
         Serailizes this tag, according to the following format.
-        
+
         ========  =========
         Format    Parameter
         ========  =========
@@ -222,7 +222,7 @@ class SymbolClass(SwfTag):
     def serialize_data(self):
         """
         Serializes this tag, according to the following format.
-        
+
         =======  =============
         Format   Parameter
         =======  =============
@@ -253,11 +253,11 @@ class DefineShape(SwfTag):
     id = 2
     min_version = 1
     variant = 1
-    
+
     _current_variant = None
 
     implements(IPlaceable)
-    
+
     def __init__(self, shape=None, characterid=None):
         """
         Constructor.
@@ -369,7 +369,7 @@ class ShowFrame(SwfTag):
 class FileAttributes(SwfTag):
     id = 69
     min_version = 1
-    
+
     def __init__(self, hasMetadata=False, useAS3=True, useNetwork=False):
         """
         Constructor.
@@ -384,7 +384,7 @@ class FileAttributes(SwfTag):
 
     def __repr_inner__(self):
         return "hasMetadata=%s, useAS3=%s, useNetwork=%s" % (self.hasMetadata, self.useAS3, self.useNetwork)
-    
+
     def serialize_data(self):
         bits = BitStream()
         bits.write(Zero[3])
@@ -393,7 +393,7 @@ class FileAttributes(SwfTag):
         bits.write(Zero[2])
         bits.write(self.useNetwork)
         bits.write(Zero[24])
-        
+
         return bits.serialize()
 
     @classmethod
@@ -455,10 +455,10 @@ class PlaceObject(SwfTag):
         bits = BitStream()
         bits.write(self.shapeid, UI16)
         bits.write(self.depth, UI16)
-        
+
         bits += self.transform
         bits += self.colortransform
-        
+
         return bits.serialize()
 
 class PlaceObject2(PlaceObject):
@@ -495,24 +495,24 @@ class PlaceObject2(PlaceObject):
 
         if self.name is not None:
             bits.write(self.name, CString)
-        
+
         if self.transform is not None:
             bits += self.transform
         if self.colortransform is not None:
             bits += self.colortransform
-        
+
         return bits.serialize()
 
 class DefineEditText(SwfTag):
 
     id = 37
     min_version = 4
-    
+
     def __init__(self, rect, variable, text="", readonly=True, isHTML=False,
                  wordwrap=False, multiline=True, password=False, autosize=True,
                  selectable=True, border=False, color=None, maxlength=None,
                  layout=None, font=None, size=12, fontclass=None, characterid=None):
-        
+
         self.rect        = rect
         self.variable    = variable
         self.text        = text
@@ -540,7 +540,7 @@ class DefineEditText(SwfTag):
         CharacterID = bits.read(UI16)
         Bounds      = Rect.from_bitstream(bits)
         bits.skip_flush()
-        
+
         HasText       = bits.read(Bit)
         WordWrap      = bits.read(Bit)
         Multiline     = bits.read(Bit)
@@ -562,12 +562,12 @@ class DefineEditText(SwfTag):
         FontID    = None
         FontClass = None
         FontSize  = None
-        
+
         Color     = None
         MaxLength = None
         Layout    = None
         Text      = None
-        
+
         if HasFont:      FontID    = bits.read(UI16)
         if HasFontClass: FontClass = bits.read(CString)
         if HasFont:      FontSize  = bits.read(UI16)
@@ -646,7 +646,7 @@ class DefineEditText(SwfTag):
 class End(SwfTag):
     id = 0
     min_version = 0
-    
+
     def serialize(self):
         return "\0\0"
 
@@ -667,74 +667,74 @@ class UnknownSwfTag(object):
         0: "End",
         1: "ShowFrame",
         2: "DefineShape",
-        3: "FreeCharacter",        
-        4: "PlaceObject",          
-        5: "RemoveObject",         
-        6: "DefineBits",           
-        7: "DefineButton",         
-        8: "JPEGTables",           
-        9: "SetBackgroundColor",   
-        10: "DefineFont",           
-        11: "DefineText",           
-        12: "DoAction",             
-        13: "DefineFontInfo",       
-        14: "DefineSound",          
-        15: "StartSound",           
-        16: "StopSound",            
-        17: "DefineButtonSound",    
-        18: "SoundStreamHead",      
-        19: "SoundStreamBlock",     
-        20: "DefineBitsLossless",   
-        21: "DefineBitsJPEG2",      
-        22: "DefineShape2",         
-        23: "DefineButtonCxform",   
-        24: "Protect",              
-        25: "PathsArePostScript",   
-        26: "PlaceObject2",         
-        28: "RemoveObject2",        
-        29: "SyncFrame",            
-        31: "FreeAll",              
-        32: "DefineShape3",         
-        33: "DefineText2",          
-        34: "DefineButton2",        
-        35: "DefineBitsJPEG3",      
-        36: "DefineBitsLossless2",  
-        37: "DefineEditText",       
-        38: "DefineVideo",          
-        39: "DefineSprite",         
-        40: "NameCharacter",        
-        41: "ProductInfo",          
-        42: "DefineTextFormat",     
-        43: "FrameLabel",           
-        44: "DefineBehavior",       
-        45: "SoundStreamHead2",     
-        46: "DefineMorphShape",     
-        47: "FrameTag",             
-        48: "DefineFont2",          
-        49: "GenCommand",           
-        50: "DefineCommandObj",     
-        51: "CharacterSet",         
-        52: "FontRef",              
-        53: "DefineFunction",       
-        54: "PlaceFunction",        
-        55: "GenTagObject",         
-        56: "ExportAssets",         
-        57: "ImportAssets",         
-        58: "EnableDebugger",       
-        59: "DoInitAction",         
-        60: "DefineVideoStream",    
-        61: "VideoFrame",           
-        62: "DefineFontInfo2",      
-        63: "DebugID",              
-        64: "EnableDebugger2",      
-        65: "ScriptLimits",         
-        66: "SetTabIndex",          
-        69: "FileAttributes",       
-        70: "PlaceObject3",         
-        71: "ImportAssets2",        
-        72: "DoABCDefine",          
-        76: "SymbolClass",          
-        82: "DoABC",                
+        3: "FreeCharacter",
+        4: "PlaceObject",
+        5: "RemoveObject",
+        6: "DefineBits",
+        7: "DefineButton",
+        8: "JPEGTables",
+        9: "SetBackgroundColor",
+        10: "DefineFont",
+        11: "DefineText",
+        12: "DoAction",
+        13: "DefineFontInfo",
+        14: "DefineSound",
+        15: "StartSound",
+        16: "StopSound",
+        17: "DefineButtonSound",
+        18: "SoundStreamHead",
+        19: "SoundStreamBlock",
+        20: "DefineBitsLossless",
+        21: "DefineBitsJPEG2",
+        22: "DefineShape2",
+        23: "DefineButtonCxform",
+        24: "Protect",
+        25: "PathsArePostScript",
+        26: "PlaceObject2",
+        28: "RemoveObject2",
+        29: "SyncFrame",
+        31: "FreeAll",
+        32: "DefineShape3",
+        33: "DefineText2",
+        34: "DefineButton2",
+        35: "DefineBitsJPEG3",
+        36: "DefineBitsLossless2",
+        37: "DefineEditText",
+        38: "DefineVideo",
+        39: "DefineSprite",
+        40: "NameCharacter",
+        41: "ProductInfo",
+        42: "DefineTextFormat",
+        43: "FrameLabel",
+        44: "DefineBehavior",
+        45: "SoundStreamHead2",
+        46: "DefineMorphShape",
+        47: "FrameTag",
+        48: "DefineFont2",
+        49: "GenCommand",
+        50: "DefineCommandObj",
+        51: "CharacterSet",
+        52: "FontRef",
+        53: "DefineFunction",
+        54: "PlaceFunction",
+        55: "GenTagObject",
+        56: "ExportAssets",
+        57: "ImportAssets",
+        58: "EnableDebugger",
+        59: "DoInitAction",
+        60: "DefineVideoStream",
+        61: "VideoFrame",
+        62: "DefineFontInfo2",
+        63: "DebugID",
+        64: "EnableDebugger2",
+        65: "ScriptLimits",
+        66: "SetTabIndex",
+        69: "FileAttributes",
+        70: "PlaceObject3",
+        71: "ImportAssets2",
+        72: "DoABCDefine",
+        76: "SymbolClass",
+        82: "DoABC",
         83: "DefineShape4",
         84: "DefineMorphShape2",
         87: "DefineBinaryData",

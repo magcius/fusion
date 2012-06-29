@@ -262,7 +262,7 @@ def gen_playerglobal(output, Library=Library):
     instead of gen_library.
     """
     library = Library.gen_library_abc(get_playerglobal_swc().get_abcs("library.swf"))
-    
+
     # Special hack for Vector's public interface.
     Vector = library.toplevel.__AS3__.vec.Vector
     Vector.Specializable = True

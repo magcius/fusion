@@ -40,14 +40,14 @@ class Slot(object):
     def __getattr__(self, attr):
         # Do some dirty magic here to make sure the Slot is
         # the object the function is being bound to.
-        
+
         # Get the attribute, calling the descriptor if it exists.
         attribute = getattr(INode(get_type(self.type)), attr)
 
         # Get the actual function.
         attribute = getattr(attribute, "function", attribute)
         attribute = getattr(attribute, "im_func", attribute)
-        
+
         # And finally, call the descriptor on us.
         if getattr(attribute, "get_bound", None):
             attribute = attribute.get_bound(self, False)

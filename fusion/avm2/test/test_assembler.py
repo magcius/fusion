@@ -40,4 +40,4 @@ def test_push_pool():
 
 def test_jumping():
     asm = assembler.CodeAssembler([])
-    
+

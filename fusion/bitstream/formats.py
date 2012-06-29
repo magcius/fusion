@@ -98,15 +98,15 @@ def string_as_formatdata(string):
 provideAdapter(string_as_formatdata)
 
 class FormatMetaAdaptor(object):
-    
+
     implements(IFormat, IStructEvaluateable)
-    
+
     def __init__(self, format):
         self.format = format
-    
+
     def _read(self, bs, cursor):
         return self.format(FormatData(None, None, None))._read(bs, cursor)
-    
+
     def _write(self, bs, cursor, argument):
         return self.format(FormatData(None, None, None))._write(bs, cursor, argument)
 
@@ -144,7 +144,7 @@ class Format(object):
         self.length     = data.length
         self.endianness = data.endianness
         self.repr       = data.repr
-    
+
     def __getitem__(self, item):
         assert isinstance(item, (int, long))
         return FormatArray(self, item)
@@ -386,14 +386,14 @@ class CUTF8(Format):
     @requires_length(can_be=(None,))
     def _write(self, bs, cursor, argument):
         bs.write(argument.encode("utf8"), CString)
-    
+
 class UB(Format):
     """
     Unsigned Bits, most significant bit first.
-    
+
     When writing, if length is None, the log base 2 of the value is
     taken.
-    
+
     >>> bits = BitStream()
     >>> bits.write(7, UB[10])
     >>> str(bits)
@@ -409,7 +409,7 @@ class UB(Format):
         `Wikipedia: Two's complement
          <http://en.wikipedia.org/wiki/Two%27s_complement>`_
             Has information on the two's complement number system.
-    
+
         `SWF specification v10 <http://www.adobe.com/devnet/swf/>`_
            Has information on UB, page 16
 
@@ -474,10 +474,10 @@ class SB(Format):
     of the value is taken.
 
     .. seealso:
-    
+
         `SWF specification v10 <http://www.adobe.com/devnet/swf/>`_
            Has information on SB, page 16
-    
+
     """
     @requires_length(cant_be=(None,))
     def _read(self, bs, cursor):
@@ -511,16 +511,16 @@ class FB(Format):
 
     When writing, if length is None, the log base 2
     of the value is taken.
-    
+
     .. seealso:
-    
+
         `SWF specification v10 <http://www.adobe.com/devnet/swf/>`_
            Has information on FB, page 16.
     """
     @requires_length(cant_be=(None,))
     def _read(self, bs, cursor):
         return bs.read(SB[self.length]) / float(0x10000)
-    
+
     def _write(self, bs, cursor, value):
         if self.length == 0:
             return 0
@@ -528,13 +528,13 @@ class FB(Format):
 
     def _nbits(self, *args):
         return nbits_fixed(*args)
-    
+
 class U32(Format):
     """
     A U32/EncodedU32, as defined in the ABC file format specification.
-    
+
     .. seealso:
-    
+
        `ABC file format specification
        <http://www.adobe.com/devnet/actionscript/articles/avm2overview.pdf>`_
           Has information on U32.
@@ -574,12 +574,12 @@ class S32(U32):
 class FixedFormat(Format):
     """
     A fixed point number.
-    
+
     If length is 16, an 8.8 format is used.
     If length is 32, a 16.16 format is used.
-    
+
     .. seealso:
-    
+
         `SWF specification v10 <http://www.adobe.com/devnet/swf/>`_
            Has information on fixed-point values.
     """
@@ -623,12 +623,12 @@ class FloatFormat(Format):
         expn = bits.read(UB[expn_len])
 
         frac = bits.read(UB[frac_len])
-        
+
         bias = expn - self._EXPN_BIAS[self.length]
-        
+
         frac_total = float(1 << frac_len)
         expn_total = float(1 << expn_len)
-        
+
         if expn == 0:
             if frac == 0:
                 return 0
@@ -676,10 +676,10 @@ class FloatFormat(Format):
                 while int(value) != 1:
                     value /= 2
                     exp += 1
-            
+
             if exp < 0 or exp > (1 << self._N_EXPN_BITS[self.length]):
                 raise ValueError("Exponent out of range in %s." % (self,))
-            
+
             frac_total = 1 << self._N_FRAC_BITS[self.length]
             bits.write(exp, UB[self._N_EXPN_BITS[self.length]])
             bits.write(int((value-1)*frac_total) & (frac_total - 1),

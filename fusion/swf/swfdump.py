@@ -182,7 +182,7 @@ class AbcDumper(object):
 
         name = getattr(meth, "name", "anonymous_%d" % (len(self.methods_seen)),)
 
-        param_names, param_types = meth.param_names[:], meth.param_types[:]            
+        param_names, param_types = meth.param_names[:], meth.param_types[:]
         params = ', '.join("%s:%s" % (n, t) for n, t in zip(meth.param_names, meth.param_types))
         if meth.varargs:
             params += ", ..."
@@ -228,11 +228,11 @@ class AbcDumper(object):
             self.outdent()
             self.output("}")
             self.output()
- 
+
         # Leftover methods like closures.
         for method in set(self.abc.methods) - self.methods_seen:
             self.dump_method(method, [])
-            
+
         self.output("// stats:")
         self.output("//   %d methods, %d bodies" % (self.meth_count, self.body_count))
         self.output("//   %d properties" % (self.prop_count,))
@@ -249,7 +249,7 @@ def main():
 
     if not os.path.exists(filename):
         error('cannot find file %s' % (filename,))
-    
+
     if ext == ".swf":
         header(filename)
         dump_swf(swfdata.SwfData.from_filename(filename))

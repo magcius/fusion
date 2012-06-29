@@ -42,7 +42,7 @@ provideAdapter(IterableStructStatementAdapter, [tuple], IStructStatement)
 
 class FormatStructStatementAdapter(object):
     implements(IStructStatement)
-    
+
     def __init__(self, format):
         self.format = format
 
@@ -51,7 +51,7 @@ class FormatStructStatementAdapter(object):
 
     def _pre_write(self, struct):
         self.format._pre_write(struct, self)
-    
+
     def _struct_read(self, struct, bitstream):
         bitstream.read(self.format)
 
@@ -66,13 +66,13 @@ provideAdapter(formatmeta_as_statement, [FormatMeta], IStructStatement)
 
 class Atom(object):
     implements(IStructEvaluateable)
-    
+
     def __init__(self, function):
         self.function = function
-    
+
     def _evaluate(self, struct):
         return self.function(struct)
-    
+
     def and_(self, other):
         def atom_and(struct):
             return IStructEvaluateable(self) ._evaluate(struct) \
@@ -89,7 +89,7 @@ class Atom(object):
         def atom_not(struct):
             return not IStructEvaluateable(self)._evaluate(struct)
         return Atom(atom_not)
-    
+
     __and__ = and_
     __or__  = or_
 
@@ -223,7 +223,7 @@ class Field(FieldTemp):
 
     def __str__(self):
         return "Field(%r, %r)" % (self.name, self.format)
-    
+
 class Local(FieldTemp):
     def _struct_set(self, struct, value):
         struct.set_local(self.name, value)
@@ -264,7 +264,7 @@ class FieldTempArray(FieldTemp):
 
     def __str__(self):
         return "Fields(%r)" % (' '.join(self.fields),)
-    
+
 class Fields(FieldTempArray):
     var_name = "__dict__"
 
@@ -272,12 +272,12 @@ class Locals(FieldTempArray):
     var_name = "TEMP_FIELDS"
 
 class NBitsMeta(type):
-    
+
     implements(IStructEvaluateable, IFormatLength)
-    
+
     def __getitem__(self, item):
         return self(length=item)
-    
+
     def __str__(self):
         return "NBits"
 
@@ -297,7 +297,7 @@ class NBitsMeta(type):
             struct.set_local(name, nbits)
 
 class NBits(object):
-    
+
     __metaclass__ = NBitsMeta
 
     implements(IStructStatement)
@@ -395,7 +395,7 @@ class Struct(StructMixin):
     """
     A struct of bit fields.
     """
-    
+
     implements(IAutoStruct)
     classProvides(IFormat, IStructClass, IStructEvaluateable)
 

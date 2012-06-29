@@ -25,7 +25,7 @@ class Circle(object):
         # Precalculated:
         # math.tan(math.radians(22.5)) = 0.41421356237309503
         # math.sin(math.radians(45))   = 0.70710678118654746
-        
+
         c = self.radius * 0.41421356237309503
         a = self.radius * 0.70710678118654746 - c
 

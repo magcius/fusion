@@ -12,7 +12,7 @@ class IBitStream(Interface):
         """
         Read a format or struct and return it.
         """
-    
+
     def write(argument, format=None):
         """
         Write argument as format, which is an IFormat.
@@ -82,7 +82,7 @@ class IFormat(Interface):
         Read and return this format from the IBitStream bitstream.
 
         This should be called by an IBitStream instance.
-        
+
         If you need to advance the bitstream's cursor, return a tuple
         with the first element the return value, and the second value
         an increment to be added to the current cursor.
@@ -93,7 +93,7 @@ class IFormat(Interface):
         Write argument to as format to the IBitStream bitstream.
 
         This should be called by an IBitStream instance.
-        
+
         If you need to advance the bitstream's cursor, return an
         increment to be added to the current cursor.
         """

@@ -209,7 +209,7 @@ class MultinameBase(BaseInstruction):
         return u32(self._multiname_index)
 
     def additional_repr(self):
-        return ", multiname=%s" % (self.multiname,) 
+        return ", multiname=%s" % (self.multiname,)
 
     def __len__(self):
         return len(self.serialize())

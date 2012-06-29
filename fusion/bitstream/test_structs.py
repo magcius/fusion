@@ -15,7 +15,7 @@ rect_data = BitStream("011110000001100100000101110111000000000110010000000111110
 class TestRect(Struct):
     def __init__(self, XMin=0, YMin=0, XMax=0, YMax=0):
         super(TestRect, self).__init__(locals())
-    
+
     def create_fields(self):
         yield NBits[5]
         yield Fields("XMin XMax YMin YMax", SB[NBits]) * 20
@@ -23,7 +23,7 @@ class TestRect(Struct):
 def test_rect_write():
     rect = TestRect(20, 80, 600, 800)
     assert rect.as_bitstream() == rect_data
-    
+
 def test_rect_read():
     rect = TestRect.from_bitstream(rect_data)
     assert rect.XMin == 20

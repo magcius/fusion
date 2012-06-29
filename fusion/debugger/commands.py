@@ -274,7 +274,7 @@ _InCommandCache = {}
 def get_in_command(commandid):
     if commandid not in _InCommandCache:
         name, base, kw = InCommands[commandid]
-        
+
         command = type(name, (base,), kw)
         command.command_id = commandid
         command.name = name

@@ -302,12 +302,12 @@ def test_UB_read():
 
     bits = BitStream()
     bits.write("\xDD\xEE\xFF", ByteString)
-    
+
     bits.seek(0)
     result = bits.read(UB[24])
     assert result == 0xDDEEFF
     assert bits.bits_available == 0
-    
+
     bits.seek(0)
     result = bits.read(UB[24:"<"])
     assert result == 0xFFEEDD
@@ -352,12 +352,12 @@ def test_FloatValue_read():
     result = bits.read(FloatFormat[16])
     assert result == 1
     assert bits.bits_available == 0
-    
+
     bits = BitStream("0111110000000000")
     result = bits.read(FloatFormat[16])
     assert result == float("inf")
     assert bits.bits_available == 0
-    
+
     bits = BitStream("1111110000000000")
     result = bits.read(FloatFormat[16])
     assert result == float("-inf")
@@ -389,7 +389,7 @@ def test_FloatValue_read():
     result = bits.read(FloatFormat[64])
     assert result == 1
     assert bits.bits_available == 0
-    
+
     bits = BitStream("0111111111110000000000000000000000000000000000000000000000000000")
     result = bits.read(FloatFormat[64])
     assert result == float("inf")

@@ -187,7 +187,7 @@ class SlotTrait(TraitBase):
             vkind = bitstream.read(UI8)
             value = None
             #value = abc_to_py((vindex, vkind), constants)
- 
+
         return cls(None, type_name, value, slot_id)
 
     def serialize_inner(self):

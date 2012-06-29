@@ -41,7 +41,7 @@ class SwfTagContainer(object):
     """
     A SwfTagContainer contains swf tags.
     """
-    
+
     header = ""
     allowed_tags = None
 
