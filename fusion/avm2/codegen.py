@@ -219,22 +219,26 @@ class MethodRib(object):
         codegen.abc.methods.index_for(self.method.method_info)
         codegen.abc.bodies.index_for(self.method.method_body)
 
-"""
 class CatchRib(object):
     def __init__(self, parent):
         self.parent = parent
         self.scope_nest = parent.scope_nest + 1
         self.local = "MF::ExceptionLocal%d" % (self.scope_nest,)
 
-    def finalize(self, codegen):
-        pass
+    @property
+    def method(self):
+        return self.parent.method
+
+    def add_exception(self, param_type):
+        return self.parent.add_exception(param_type)
 
     def restore_scopes(self):
         self.parent.restore_scores()
-        self.parent..load(Local(self.local))
-        self.gen.emit("pushscope")
+        self.parent.method.asm.load(loadable.Local(self.local))
+        self.parent.method.asm.emit("pushscope")
 
-"""
+    def finalize(self, codegen):
+        pass
 
 class CodeGenerator(object):
     """
@@ -617,8 +621,8 @@ class CodeGenerator(object):
         """
         name = IMultiname(TYPE)
         rib = CatchRib(self.current_rib)
-        idx = self.context.add_exception(name)
-        self.context.restore_scopes()
+        idx = self.current_rib.add_exception(name)
+        self.current_rib.restore_scopes()
         self.enter_rib(rib)
         self.emit('begincatch')
         self.emit('newcatch', idx)
