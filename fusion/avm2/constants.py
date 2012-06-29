@@ -223,6 +223,13 @@ def undef_to_IMultiname(mult):
 
 provideAdapter(undef_to_IMultiname)
 
+@adapter(NoneType)
+@implementer(IMultiname)
+def none_to_IMultiname(none):
+    return QName("*")
+
+provideAdapter(none_to_IMultiname)
+
 @adapter(basestring)
 @implementer(IMultiname)
 def str_to_IMultiname(string):
