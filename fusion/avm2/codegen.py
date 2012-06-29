@@ -646,6 +646,7 @@ class CodeGenerator(object):
         """
         self.emit('popscope')
         self.emit('kill', self.current_rib.method.asm.kill_local(self.current_rib.local))
+        self.exit_current_rib()
 
     def add_node(self, node):
         """
