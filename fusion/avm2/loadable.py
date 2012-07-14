@@ -125,6 +125,8 @@ class ListLoadable(LoadableAdapter):
     def load(self, generator):
         generator.init_array(self.value)
 
+provideAdapter(ListLoadable)
+
 @adapter(dict)
 class DictLoadable(LoadableAdapter):
     def load(self, generator):
