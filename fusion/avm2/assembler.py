@@ -58,7 +58,6 @@ class CodeAssembler(object):
         """
         Emit an instruction, with given arguments.
         """
-        print "   ", name, a
         return self.add_instruction(get_instruction(name)(*a, **kw))
 
     def add_instruction(self, instruction):
