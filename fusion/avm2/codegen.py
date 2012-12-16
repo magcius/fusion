@@ -283,18 +283,7 @@ class CodeGenerator(object):
     def begin_script(self):
         return self.enter_rib(ScriptRib())
 
-    def finish(self):
-        """
-        Finalize this generator, by rendering all nodes and exiting all
-        contexts.
-
-        If you don't finalize before serializing, some code may be missing
-        from the final result.
-        """
-
-        while self.current_rib:
-            self.exit_current_rib()
-
+    def render_nodes(self):
         done = set()
         while self.pending_nodes:
             node = self.pending_nodes.pop()
@@ -307,6 +296,19 @@ class CodeGenerator(object):
             node.render(self)
             done.add(node)
         self.current_node = None
+
+    def finish(self):
+        """
+        Finalize this generator, by rendering all nodes and exiting all
+        contexts.
+
+        If you don't finalize before serializing, some code may be missing
+        from the final result.
+        """
+
+        while self.current_rib:
+            self.exit_current_rib()
+        self.render_nodes()
 
     def emit(self, name, *a, **kw):
         """
