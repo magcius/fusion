@@ -250,6 +250,9 @@ class FunctionNode(object):
         return []
 
     def render(self, asm):
+        if not self.is_method:
+            asm.begin_script()
+
         self.rib = asm.begin_method(self.name, self.argspec,
                                     self.rettype, static=self.static)
         if self.owner:
@@ -259,7 +262,10 @@ class FunctionNode(object):
         if self.rettype != QName("void"):
             self.load(ret)
             asm.return_value()
-        asm.exit_current_rib()
+        asm.exit_current_rib() # method
+
+        if not self.is_method:
+            asm.exit_current_rib() # script
 
     def __call__(self, asm, *args):
         asm.emit('findpropstrict', self.name)
