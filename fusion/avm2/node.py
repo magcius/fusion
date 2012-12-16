@@ -65,7 +65,7 @@ class CompiledAbcFileNode(object):
         self.abc = abcfile
 
     def dependencies(self):
-        pass
+        return []
 
     def render(self, generator):
         generator.abc.merge(self.abc)
@@ -242,7 +242,7 @@ class FunctionNode(object):
         self.rettype = IMultiname(rettype)
 
     def dependencies(self):
-        pass
+        return []
 
     def render(self, asm):
         self.rib = asm.begin_method(self.name, self.argspec,
