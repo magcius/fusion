@@ -161,6 +161,7 @@ class ClassNodeMeta(type):
         """
         Render this class.
         """
+        generator.begin_script()
         cls = generator.begin_class(self.__multiname__, self.__basetype__)
 
         # blah blah blah traits
@@ -181,10 +182,11 @@ class ClassNodeMeta(type):
             if meth:
                 meth.owner = self
                 meth.render(generator)
-                setattr(cls, name, meth.ctx.method)
-                cls.instance_traits.remove(meth.ctx.trait)
+                setattr(cls, name, meth.rib.method)
+                cls.instance_traits.remove(meth.rib.method.trait)
 
-        generator.end_class()
+        generator.exit_current_rib() # Class
+        generator.exit_current_rib() # Script
 
     def bases(self):
         bases, context = [], self
@@ -228,12 +230,7 @@ class FunctionNode(object):
         self.fn = fn
         fn.node = self
         argspec = inspect.getargspec(fn)
-        self.defaults = dict(zip(argspec.args[-len(argspec.defaults or []):],
-                                 argspec.defaults or []))
 
-        self.varargs = None
-        if argspec.varargs:
-            self.varargs = argspec.varargs
         if argspec.keywords:
             raise ValueError("Functions with keyword arguments"
                              "cannot translate (maybe yet).")
@@ -248,17 +245,15 @@ class FunctionNode(object):
         pass
 
     def render(self, asm):
-        asm.begin_method(self.name, self.argspec,
-                         self.rettype, varargs=self.varargs,
-                         defaults=self.defaults, static=self.static)
-        self.ctx = asm.context
+        self.rib = asm.begin_method(self.name, self.argspec,
+                                    self.rettype, static=self.static)
         if self.owner:
             self.fn(self.owner, asm, *[Argument(name) for t, name in self.argspec])
         else:
             self.fn(asm, *[Argument(name) for t, name in self.argspec])
         if self.rettype != QName("void"):
             asm.return_value()
-        asm.end_method()
+        asm.exit_current_rib()
 
     def __call__(self, asm, *args):
         asm.emit('findpropstrict', self.name)
