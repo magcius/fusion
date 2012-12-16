@@ -471,9 +471,9 @@ class PlaceObject2(PlaceObject):
         self.charid = charid
         self.update = update
         self.name = name
-        self.transform = transform or Matrix()
+        self.transform = transform
         # XXX: swf version
-        self.colortransform = colortransform or CXFormWithAlpha()
+        self.colortransform = colortransform
 
     def serialize_data(self):
         HasCharacterId = (self.charid is not None) and (not self.update)
