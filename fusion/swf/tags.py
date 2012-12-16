@@ -622,10 +622,9 @@ class DefineEditText(SwfTag):
 
         if self.font is not None:
             bits.write(self.font.id, UI16) # Doesn't exist yet.
+            bits.write(self.size, UI16)
         if self.fontclass is not None:
             bits.write(self.fontclass, CString)
-        if self.font is not None:
-            bits.write(self.size, UI16)
 
         if self.color is not None:
             bits += self.color
