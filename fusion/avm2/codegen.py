@@ -480,6 +480,7 @@ class CodeGenerator(object):
         """
         index = self.current_rib.method.asm.set_local(name)
         self.emit('setlocal', index)
+        return index
 
     def load(self, value):
         """

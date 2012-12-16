@@ -82,6 +82,9 @@ class Argument(object):
             raise NotAnArgumentError(self.name)
         generator.emit('getlocal', generator.current_assembler.get_local(self.name))
 
+    def get_index(self, generator):
+        return generator.current_assembler.get_local(self.name)
+
     def __repr__(self):
         return "Argument(%r)" % (self.name,)
 
