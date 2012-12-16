@@ -53,6 +53,9 @@ class Slot(object):
             attribute = attribute.get_bound(self, False)
         return attribute
 
+    def __repr__(self):
+        return "Slot(%s)" % (self.name,)
+
 class CompiledAbcFileNode(object):
     """
     A node which renders a compiled ABC file to the generator.
