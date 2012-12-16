@@ -235,10 +235,15 @@ class FunctionNode(object):
             raise ValueError("Functions with keyword arguments"
                              "cannot translate (maybe yet).")
 
+        self.is_method = getattr(fn, "method", False)
         self.name = fn.func_name
         self.trait_type = getattr(fn, "trait_type", "method")
         self.static = getattr(fn, "static", None)
-        self.argspec = zip(argtypes, argspec.args[2:])
+        if self.is_method:
+            args = argspec.args[2:] # self, gen
+        else:
+            args = argspec.args[1:] # gen
+        self.argspec = zip(argtypes, args)
         self.rettype = IMultiname(rettype)
 
     def dependencies(self):
@@ -454,6 +459,7 @@ def export_method(argtypes, rettype=None):
     if isinstance(argtypes, FunctionType) and rettype is None:
         return FunctionNode(argtypes, [], "void")
     def inner(fn):
+        fn.method = True
         fn.exported = argtypes, rettype or "void"
         return fn
     return inner
