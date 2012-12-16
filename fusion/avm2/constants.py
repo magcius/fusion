@@ -342,6 +342,9 @@ class QName(object):
     def __eq__(self, other):
         return self.kind == other.kind and self.ns == other.ns and self.name == other.name
 
+    def __ne__(self, other):
+        return not (self == other)
+
     def __hash__(self):
         return hash((self.ns, self.name))
 
