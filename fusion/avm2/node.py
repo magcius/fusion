@@ -248,10 +248,11 @@ class FunctionNode(object):
         self.rib = asm.begin_method(self.name, self.argspec,
                                     self.rettype, static=self.static)
         if self.owner:
-            self.fn(self.owner, asm, *[Argument(name) for t, name in self.argspec])
+            ret = self.fn(self.owner, asm, *[Argument(name) for t, name in self.argspec])
         else:
-            self.fn(asm, *[Argument(name) for t, name in self.argspec])
+            ret = self.fn(asm, *[Argument(name) for t, name in self.argspec])
         if self.rettype != QName("void"):
+            self.load(ret)
             asm.return_value()
         asm.exit_current_rib()
 
