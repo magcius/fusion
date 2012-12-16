@@ -466,7 +466,9 @@ def export_method(argtypes, rettype=None):
     and the return type of the function.
     """
     if isinstance(argtypes, FunctionType) and rettype is None:
-        return FunctionNode(argtypes, [], "void")
+        fn = argtypes
+        fn.method = True
+        return FunctionNode(fn, [], "void")
     def inner(fn):
         fn.method = True
         fn.exported = argtypes, rettype or "void"
