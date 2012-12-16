@@ -407,11 +407,11 @@ def export_as(name):
         return node
     return inner
 
-def getter(fn):
+def getter(type):
     """
     Decorator to mark a method as a "getter".
     """
-    def inner(type):
+    def inner(fn):
         if getattr(fn, "node", None):
             fn.node.trait_type = "getter"
             fn.node.exported = [], type
@@ -420,11 +420,11 @@ def getter(fn):
         return fn
     return inner
 
-def setter(fn):
+def setter(type):
     """
     Decorator to mark a method as a "setter".
     """
-    def inner(type):
+    def inner(fn):
         if getattr(fn, "node", None):
             fn.node.trait_type = "setter"
             fn.node.exported = [type], QName("void")
