@@ -110,6 +110,13 @@ class ClassNodeMeta(type):
 
         slot_ids = set()
 
+        for name in ('iinit', 'cinit'):
+            key = '__%s__' % (name,)
+            if key in dct:
+                meth = dct[key] = export_method(dct[key])
+                meth.special = name
+                functs.append(meth)
+
         # Go through and set our attributes.
         for attr, val in dct.iteritems():
             if isinstance(val, Slot):
@@ -126,13 +133,6 @@ class ClassNodeMeta(type):
                     functs.append(val)
 
         dct['__basetype__'] = basetype
-        dct.setdefault('__iinit__', None)
-        dct.setdefault('__cinit__', None)
-
-        if dct['__iinit__']:
-            iinit = dct['__iinit__'] = export_method(dct['__iinit__'])
-        if dct['__cinit__']:
-            cinit = dct['__cinit__'] = export_method(dct['__cinit__'])
 
         return super(ClassNodeMeta, cls).__new__(cls, name, bases, dct)
 
@@ -177,16 +177,15 @@ class ClassNodeMeta(type):
             self.currently_rendering = func
             func.render(generator)
 
-        self.currently_rendering = None
+            if func.special:
+                setattr(cls, func.special, func.rib.method)
+                if func.special == 'cinit':
+                    traits = cls.static_traits
+                else:
+                    traits = cls.instance_traits
+                traits.remove(func.rib.method.trait)
 
-        # special methods
-        for name in ("iinit", "cinit"):
-            meth = self.__dict__.get("__%s__" % name)
-            if meth:
-                meth.owner = self
-                meth.render(generator)
-                setattr(cls, name, meth.rib.method)
-                cls.instance_traits.remove(meth.rib.method.trait)
+        self.currently_rendering = None
 
         generator.exit_current_rib() # Class
         generator.exit_current_rib() # Script
